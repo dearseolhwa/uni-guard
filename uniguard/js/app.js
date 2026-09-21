@@ -2,7 +2,7 @@
  *
  * Single state object, one render(S) entry point, delegated events. Every
  * database call goes through Repo; every privileged action is authorised again
- * by RLS or a server function, never by hiding a button.
+ * by RLS or a server function, never by 607 a button.
  */
 (function () {
   const root = document.getElementById('ug-root');
@@ -604,7 +604,7 @@
         res === 'failed' ? 'warning' : 'info');
     },
 
-    directions: (d) => {
+       directions: (d) => {
       const c = (UG.DATA.centers || []).find((x) => x.uuid === d.id || x.id === d.id);
       if (c && typeof c.lat === 'number') {
         window.open('https://www.openstreetmap.org/directions?to=' + c.lat + ',' + c.lng, '_blank', 'noopener');
