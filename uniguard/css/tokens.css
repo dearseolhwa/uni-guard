@@ -1,0 +1,72 @@
+/* UniGuard design tokens
+   Extracted unchanged from the approved prototype. One signal accent, a
+   semantic hazard ladder and one status pipeline. */
+:root {
+      --ug-bg: #050910;
+      --ug-bg-2: #080E1A;
+      --ug-surface: #0C1524;
+      --ug-surface-2: #111E33;
+      --ug-surface-3: #17253F;
+      --ug-line: #1D2C48;
+      --ug-line-soft: rgba(255,255,255,0.06);
+      --ug-line-strong: rgba(255,255,255,0.14);
+      --ug-ink: #E8EFFA;
+      --ug-ink-2: #A3B6D0;
+      --ug-ink-3: #7E92AF;
+      --ug-signal: #34D6F0;
+      --ug-signal-2: #0FB6D6;
+      --ug-signal-ink: #02222B;
+      --ug-signal-dim: rgba(52,214,240,0.14);
+      --ug-emergency: #FF5A5F;
+      --ug-warning: #FFB020;
+      --ug-advisory: #4D9BFF;
+      --ug-prepared: #2FD08A;
+      --ug-neutral: #8698B4;
+      --ug-st-reported: --ug-neutral;
+      --ug-st-verified: #4D9BFF;
+      --ug-st-dispatched: #FFB020;
+      --ug-st-resolved: #2FD08A;
+      --ug-display: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+      --ug-body: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+      --ug-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
+      --ug-r-sm: 6px;
+      --ug-r-md: 10px;
+      --ug-r-lg: 14px;
+      --ug-r-xl: 20px;
+      --ug-shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+}
+
+.ug {
+      --ug-bg: #050910;
+      --ug-bg-2: #080E1A;
+      --ug-surface: #0C1524;
+      --ug-surface-2: #111E33;
+      --ug-surface-3: #17253F;
+      --ug-line: #1D2C48;
+      --ug-line-soft: rgba(255,255,255,0.06);
+      --ug-line-strong: rgba(255,255,255,0.14);
+      --ug-ink: #E8EFFA;
+      --ug-ink-2: #A3B6D0;
+      --ug-ink-3: #7E92AF;
+      --ug-signal: #34D6F0;
+      --ug-signal-2: #0FB6D6;
+      --ug-signal-ink: #02222B;
+      --ug-signal-dim: rgba(52,214,240,0.14);
+      --ug-emergency: #FF5A5F;
+      --ug-warning: #FFB020;
+      --ug-advisory: #4D9BFF;
+      --ug-prepared: #2FD08A;
+      --ug-neutral: #8698B4;
+      --ug-st-reported: --ug-neutral;
+      --ug-st-verified: #4D9BFF;
+      --ug-st-dispatched: #FFB020;
+      --ug-st-resolved: #2FD08A;
+      --ug-display: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+      --ug-body: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+      --ug-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
+      --ug-r-sm: 6px;
+      --ug-r-md: 10px;
+      --ug-r-lg: 14px;
+      --ug-r-xl: 20px;
+      --ug-shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+}

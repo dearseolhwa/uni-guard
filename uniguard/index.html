@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="description" content="UniGuard · Unified Disaster Risk Reduction and Management System for LGU and LDRRMC coordination.">
+<meta name="theme-color" content="#050910">
+<meta name="color-scheme" content="dark">
+<title>UniGuard · Unified DRRM System</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons-192.png">
+<link rel="apple-touch-icon" href="icons-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="UniGuard">
+
+<!-- Base reset first, then tokens, fonts, the approved stylesheet, screen additions -->
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/screens.css">
+</head>
+<body>
+
+<!-- connectivity / sync strip, driven by js/app.js -->
+<div id="ug-conn" class="ug-banner-strip" hidden></div>
+
+<!-- application root -->
+<div id="ug-root" class="ug-root"></div>
+
+<!-- toast host -->
+<div id="ug-toasts" class="ug-toast-host" aria-live="polite" aria-atomic="false"></div>
+
+<!--
+  Preview bar. Hidden unless UG_CONFIG.DEV is true, which it is not in
+  production. It only carries a connectivity simulation, a state reset and a
+  sign out. There are no demo accounts and no role switcher.
+-->
+<div id="ug-demo" class="ug-demo ug-hidden">
+  <span class="d-lab"><i></i>Preview mode</span>
+  <button data-off="1">Offline: off</button>
+  <button data-reset="1">Restart</button>
+</div>
+
+<noscript>
+  <div style="padding:28px;font-family:system-ui;color:#E8EFFA;background:#050910;min-height:100vh">
+    <h1 style="font-size:20px;margin:0 0 8px">UniGuard needs JavaScript</h1>
+    <p style="color:#A3B6D0;font-size:13px;line-height:1.6;max-width:52ch">
+      This is the disaster reporting and coordination application. Enable JavaScript
+      to sign in. In an emergency, call your barangay desk or the city DRRMO directly.
+    </p>
+  </div>
+</noscript>
+
+<!--
+  Load order matters: config and utilities first, then the render layer, then the
+  services, then the controller. All classic scripts share one global lexical
+  scope, which is how the modules see each other without a bundler.
+-->
+<script src="vendor/supabase.js"></script>
+<script src="vendor/leaflet.js"></script>
+<script src="env.js"></script>
+
+<script src="js/config.js"></script>
+<script src="js/util.js"></script>
+
+<script src="js/screens.js"></script>
+<script src="js/screens.web.js"></script>
+<script src="js/screens.auth.js"></script>
+<script src="js/screens.admin.js"></script>
+
+<script src="js/repo.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/map.js"></script>
+<script src="js/features.js"></script>
+<script src="js/pwa.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
