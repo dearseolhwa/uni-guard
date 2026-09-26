@@ -1,0 +1,244 @@
+/* UniGuard · screen additions
+ * Everything added on top of the approved stylesheet: the account form
+ * controls, the admin tables, the live map and the offline banner states.
+ * Existing class names and values are untouched.
+ */
+
+/* ================= account form controls ================= */
+.ug-auth-inwrap{position:relative}
+.ug-auth-inwrap .ug-in{padding-right:44px}
+.ug-auth-reveal{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:8px;
+  background:transparent;color:var(--ug-ink-3);cursor:pointer}
+.ug-auth-reveal:hover{color:var(--ug-ink);background:rgba(255,255,255,.06)}
+.ug-auth-reveal:focus-visible{outline:2px solid var(--ug-signal);outline-offset:1px}
+.ug-auth-strength{display:flex;align-items:center;gap:10px;margin:-6px 0 14px}
+.ug-auth-strength .bars{display:flex;gap:4px;flex:1}
+.ug-auth-strength .bars i{height:5px;flex:1;border-radius:3px;background:rgba(255,255,255,.1)}
+.ug-auth-strength .bars i.on{background:var(--ug-prepared)}
+.ug-auth-strength span{font-size:10.5px;color:var(--ug-ink-3);min-width:66px;text-align:right}
+.ug-auth-consent{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;margin:4px 0 16px;
+  border:1px solid var(--ug-line);border-radius:10px;background:rgba(0,0,0,.22);cursor:pointer;
+  font-size:11.5px;line-height:1.5;color:var(--ug-ink-2)}
+.ug-auth-consent.is-error{border-color:rgba(255,90,95,.5);background:rgba(255,90,95,.08)}
+.ug-auth-consent input{width:16px;height:16px;flex:none;margin-top:2px;accent-color:#34D6F0}
+.ug-auth-consent a{color:var(--ug-signal)}
+.ug-auth-note{display:flex;gap:8px;align-items:flex-start;font-size:11.5px;line-height:1.5;color:var(--ug-ink-2)}
+.ug-auth-fielderror{color:#FFB0B2}
+
+/* ================= live map ================= */
+.ug-leaflet{position:relative;background:#061020}
+.ug-leaflet .leaflet-container{background:#061020;font-family:var(--ug-body);
+  filter:saturate(.55) brightness(.78) contrast(1.05)}
+.ug-leaflet .leaflet-control-attribution{background:rgba(6,14,26,.8);color:var(--ug-ink-3);font-size:9.5px}
+.ug-leaflet .leaflet-control-attribution a{color:var(--ug-ink-2)}
+.ug-leaflet .leaflet-bar a{background:#0C1524;color:var(--ug-ink);border-color:var(--ug-line)}
+.ug-leaflet .leaflet-bar a:hover{background:#17253F}
+.ug-map-pop{min-width:190px;font-family:var(--ug-body)}
+.ug-map-pop .p-t{font-size:12.5px;font-weight:700;margin-bottom:2px}
+.ug-map-pop .p-m{font-size:10.5px;color:var(--ug-ink-3)}
+.ug-leaflet .leaflet-popup-content-wrapper{background:rgba(12,21,36,.96);color:var(--ug-ink);
+  border:1px solid var(--ug-line-strong);border-radius:10px;box-shadow:0 20px 50px -20px #000}
+.ug-leaflet .leaflet-popup-tip{background:rgba(12,21,36,.96);border:1px solid var(--ug-line-strong)}
+.ug-leaflet .leaflet-popup-close-button{color:var(--ug-ink-3)}
+
+/* ================= admin ================= */
+.ug-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.ug-table th{text-align:left;font-family:var(--ug-display);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ug-ink-3);padding:11px 14px;border-bottom:1px solid var(--ug-line);
+  background:rgba(255,255,255,.02);white-space:nowrap}
+.ug-table td{padding:12px 14px;border-bottom:1px solid var(--ug-line);vertical-align:middle}
+.ug-table tbody tr:hover{background:rgba(255,255,255,.022)}
+.ug-table .t-right{text-align:right}
+.ug-table .t-num{font-family:var(--ug-mono);font-variant-numeric:tabular-nums}
+.ug-sel-inline{background:rgba(0,0,0,.3);border:1px solid var(--ug-line);color:var(--ug-ink);
+  border-radius:6px;padding:5px 8px;font-family:inherit;font-size:11.5px;max-width:170px}
+.ug-sel-inline:focus{outline:none;border-color:var(--ug-signal)}
+.ug-modal{position:fixed;inset:0;z-index:900;display:grid;place-items:center;padding:22px;
+  background:rgba(3,6,12,.72);backdrop-filter:blur(6px)}
+.ug-modal-card{width:min(620px,100%);max-height:86dvh;overflow:auto;background:var(--ug-surface);
+  border:1px solid var(--ug-line-strong);border-radius:18px;box-shadow:0 40px 90px -40px #000}
+.ug-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:16px 20px;border-bottom:1px solid var(--ug-line)}
+.ug-modal-body{padding:20px}
+.ug-modal-foot{display:flex;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--ug-line)}
+.ug-bar{height:7px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden}
+.ug-bar i{display:block;height:100%;border-radius:4px}
+.ug-note{font-size:11.5px;line-height:1.55;color:var(--ug-ink-2)}
+.ug-kv{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:12px}
+.ug-kv dt{color:var(--ug-ink-3)}
+.ug-kv dd{margin:0;font-family:var(--ug-mono)}
+
+/* ================= status banners ================= */
+/* the strip is display:flex, which would otherwise beat the [hidden] attribute
+   and leave an empty band above every screen */
+.ug-banner-strip[hidden]{display:none!important}
+.ug-banner-strip{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:11.5px;font-weight:600;
+  border-bottom:1px solid var(--ug-line)}
+.ug-banner-strip.is-offline{background:rgba(255,176,32,.12);border-bottom-color:rgba(255,176,32,.28);color:#FFC659}
+.ug-banner-strip.is-error{background:rgba(255,90,95,.12);border-bottom-color:rgba(255,90,95,.32);color:#FFB0B2}
+.ug-banner-strip.is-sync{background:rgba(52,214,240,.12);border-bottom-color:rgba(52,214,240,.28);color:#8EE9FB}
+
+/* ================= offline queue ================= */
+.ug-queue-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--ug-line);font-size:12px}
+.ug-queue-row:first-child{border-top:0}
+.ug-queue-row .q-t{flex:1;min-width:0}
+
+@media (max-width:768px){
+  .ug-table th,.ug-table td{padding:9px 10px}
+  .ug-modal{padding:12px}
+}
+
+
+/* ================= device fit =================
+   Safe area insets for notches, rounded corners and the home indicator, plus
+   tuning for very small phones and short landscape viewports. Loaded last so
+   these win over the base stylesheet.
+*/
+
+.ug-appbar{
+  padding-top:calc(13px + env(safe-area-inset-top));
+  padding-left:calc(16px + env(safe-area-inset-left));
+  padding-right:calc(16px + env(safe-area-inset-right));
+}
+.ug-tabbar{
+  padding-bottom:calc(4px + env(safe-area-inset-bottom));
+  padding-left:calc(6px + env(safe-area-inset-left));
+  padding-right:calc(6px + env(safe-area-inset-right));
+}
+.ug-m-body{
+  padding-bottom:calc(36px + env(safe-area-inset-bottom));
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-y:contain;
+}
+.ug-wtop{
+  padding-top:env(safe-area-inset-top);
+  padding-left:calc(26px + env(safe-area-inset-left));
+  padding-right:calc(26px + env(safe-area-inset-right));
+}
+.ug-wbody{
+  padding-bottom:calc(28px + env(safe-area-inset-bottom));
+  overscroll-behavior-y:contain;
+}
+.ug-wfoot{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+.ug-offline{padding-left:calc(14px + env(safe-area-inset-left));padding-right:calc(14px + env(safe-area-inset-right))}
+.ug-banner-strip{padding-left:calc(14px + env(safe-area-inset-left));padding-right:calc(14px + env(safe-area-inset-right))}
+.ug-demo{padding-bottom:calc(7px + env(safe-area-inset-bottom))}
+
+/* small phones: 320 to 380 wide */
+@media (max-width:380px){
+  .ug-m-body{padding-left:12px;padding-right:12px;padding-bottom:calc(34px + env(safe-area-inset-bottom))}
+  .ug-appbar{padding-top:calc(11px + env(safe-area-inset-top));padding-bottom:11px}
+  .ug-appbar .ug-mark{width:26px;height:26px;border-radius:7px}
+  .ug-tabbar{padding-top:5px}
+  .ug-tab{font-size:9px;gap:2px;padding:6px 1px 4px}
+  .ug-tab .t-badge{right:2px;top:0}
+  .ug-fab{width:46px;height:46px;border-radius:14px;margin-top:-18px}
+  .ug-card-b{padding:13px}
+  .ug-card-h{padding:12px 13px}
+  .ug-row{padding:11px 13px}
+  .ug-btn{padding:9px 13px;font-size:12.5px}
+  .ug-wgrid-3{gap:8px}
+  .ug-auth-card{padding:20px 15px 16px}
+  .ug-auth-h1{font-size:23px}
+}
+
+/* short viewports: phones in landscape, and small laptop windows */
+@media (max-height:480px){
+  .ug-tabbar{padding-top:3px}
+  .ug-tab{padding-top:4px;padding-bottom:2px}
+  .ug-tab .ug-i{width:18px;height:18px}
+  .ug-fab{width:44px;height:44px;margin-top:-14px;border-radius:13px}
+  .ug-appbar{padding-top:calc(9px + env(safe-area-inset-top));padding-bottom:9px}
+  .ug-m-body{padding-bottom:calc(26px + env(safe-area-inset-bottom))}
+}
+@media (max-height:560px){
+  .ug-stage--m{padding:0}
+}
+
+/* the tab bar must always clear the bottom of the screen, including the home
+   indicator area on an installed app */
+.ug-tabbar{min-height:calc(44px + env(safe-area-inset-bottom))}
+.ug-stage--m .ug-frame.ug-m{overflow:hidden}
+
+/* ================= clickable brand =================
+   The mark in the app bar, the console sidebar and the web shell returns to the
+   home screen or the dashboard. */
+.ug-brand-btn{
+  background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;
+  text-align:left;cursor:pointer;display:flex;align-items:center;gap:10px;
+  border-radius:10px;transition:background .15s,opacity .15s;
+}
+.ug-brand-btn:hover{background:rgba(255,255,255,.05)}
+.ug-brand-btn:active{opacity:.85}
+.ug-brand-btn:focus-visible{outline:2px solid var(--ug-signal);outline-offset:2px}
+.ug-side .ug-brand-btn{width:100%;padding:6px 8px;margin-bottom:14px}
+.ug-side .ug-brand-btn:hover{background:rgba(255,255,255,.05)}
+
+/* ================= console on a narrow screen =================
+   The top bar keeps only what is still readable when the console is opened on a
+   phone: the search collapses, the live chip and the account text step aside. */
+@media (max-width:1180px){
+  .ug-top .ug-top-live{display:none}
+}
+@media (max-width:900px){
+  .ug-top .ug-top-user{display:none}
+  .ug-top .ug-search .ug-mono{display:none}
+  .ug-top{padding-top:calc(10px + env(safe-area-inset-top));padding-bottom:10px}
+}
+@media (max-width:560px){
+  .ug-top .ug-search{display:none}
+  .ug-top{justify-content:space-between}
+}
+
+/* ================= console navigation drawer =================
+   The console navigation sits behind a three bar button instead of occupying the
+   screen permanently, so the content gets the full width. The choice is
+   remembered per device by js/app.js. */
+.ug-d-shell{display:block;position:relative}
+.ug-d-main{width:100%;min-width:0}
+
+.ug-side{
+  position:absolute;top:0;bottom:0;left:0;width:272px;z-index:70;
+  transform:translateX(-104%);
+  transition:transform .22s cubic-bezier(.16,1,.3,1);
+  box-shadow:0 0 70px -12px rgba(0,0,0,.9);
+  overflow-y:auto;overscroll-behavior:contain;
+  padding:16px 12px calc(16px + env(safe-area-inset-bottom));
+}
+body.ug-nav-open .ug-side{transform:translateX(0)}
+
+.ug-nav-scrim{
+  position:absolute;inset:0;z-index:65;background:rgba(3,6,12,.62);
+  opacity:0;pointer-events:none;transition:opacity .22s;
+}
+body.ug-nav-open .ug-nav-scrim{opacity:1;pointer-events:auto}
+
+.ug-menubtn{flex:none}
+.ug-menubtn[aria-expanded="true"]{color:var(--ug-signal);border-color:rgba(52,214,240,.5)}
+
+/* keep the drawer clear of the notch on an installed app */
+.ug-side{padding-top:calc(16px + env(safe-area-inset-top))}
+
+/* a pinned option on a wide screen: the user can leave it open and it stays open */
+@media (min-width:1280px){
+  body.ug-nav-open .ug-d-main{margin-left:272px;transition:margin-left .22s cubic-bezier(.16,1,.3,1)}
+  body.ug-nav-open .ug-nav-scrim{opacity:0;pointer-events:none}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .ug-side,.ug-nav-scrim,.ug-d-main{transition:none!important}
+}
+
+/* ================= console on a very narrow screen =================
+   The console is a desktop surface. On a phone the card headers were getting
+   clipped ("Layers", "View All") and the top bar subtitle was cut off, so those
+   give way to the content. */
+@media (max-width:620px){
+  .ug-card-h{flex-wrap:wrap;gap:8px}
+  .ug-card-h .ug-chip{display:none}
+  .ug-top .ug-col span.ug-dimmer{display:none}
+  .ug-top .ug-col{min-width:0!important}
+  .ug-map .map-legend{display:none}
+  .ug-map .map-scale{font-size:9px}
+}
