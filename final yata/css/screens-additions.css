@@ -1,0 +1,246 @@
+/* UniGuard · screen additions for the new feature integration
+ * Loaded after css/screens.css so it can extend existing classes. No existing
+ * rules are overridden — everything here is a new selector.
+ */
+
+/* ================= Bell badge (numeric) ================= */
+.ug-ico-btn{position:relative}
+.ug-bell-badge{
+  position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;padding:0 4px;
+  border-radius:9px;background:#EF4444;color:#fff;font-family:var(--ug-mono);
+  font-size:9.5px;font-weight:700;line-height:17px;text-align:center;
+  border:2px solid var(--ug-surface);box-shadow:0 2px 6px -1px rgba(239,68,68,.55);
+}
+.ug-bell-badge.is-many{padding:0 3px;font-size:9px}
+.ug-tab .t-badge{
+  position:absolute;right:6px;top:4px;min-width:15px;height:15px;padding:0 3px;
+  border-radius:8px;background:#EF4444;color:#fff;font-family:var(--ug-mono);
+  font-size:9px;font-weight:700;line-height:15px;text-align:center;
+  border:1.5px solid var(--ug-surface);
+}
+.ug-wdot{
+  position:relative;display:inline-grid;place-items:center;min-width:16px;height:16px;padding:0 4px;
+  border-radius:9px;background:#EF4444;color:#fff;font-family:var(--ug-mono);font-size:9.5px;
+  font-weight:700;margin-left:6px;line-height:1;
+}
+.ug-wdot.is-many{padding:0 3px}
+
+/* ================= Urgent card on home (mobile) ================= */
+.ug-urgent-card{
+  display:block;background:var(--ug-surface);border:1px solid var(--ug-line);border-radius:12px;
+  overflow:hidden;transition:border-color .15s, transform .15s;
+}
+.ug-urgent-card:hover{transform:translateY(-1px)}
+.ug-urgent-card.is-emergency{border-color:rgba(239,68,68,.55);box-shadow:0 12px 28px -14px rgba(239,68,68,.6)}
+.ug-urgent-card-strip{height:5px;width:100%}
+.ug-urgent-card-ico{
+  width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:#0B1220;
+  animation:ugSosPulse 1.8s ease-in-out infinite;
+}
+.ug-urgent-card.is-emergency .ug-urgent-card-ico{animation:ugSosPulse 1.1s ease-in-out infinite}
+
+/* ================= Quick-access shortcut buttons (home) ================= */
+.ug-btn--danger{
+  background:linear-gradient(180deg,#EF4444 0%,#B91C1C 100%);color:#fff;border:1px solid rgba(255,255,255,.15);
+  box-shadow:0 10px 22px -8px rgba(239,68,68,.55);
+}
+.ug-btn--danger:hover{filter:brightness(1.05)}
+.ug-btn--danger:active{transform:translateY(1px)}
+
+/* ================= Relief bullet lists ================= */
+.ug-bullets{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.ug-bullets li{position:relative;padding-left:18px;font-size:12px;color:var(--ug-ink-2);line-height:1.5}
+.ug-bullets li::before{content:"";position:absolute;left:0;top:6px;width:6px;height:6px;border-radius:50%;
+  background:var(--ug-signal);opacity:.7}
+
+/* ================= SOS floating button ================= */
+.ug-sos-fab{
+  position:fixed;right:18px;bottom:calc(86px + env(safe-area-inset-bottom));
+  z-index:80;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  width:68px;height:68px;border-radius:50%;border:0;
+  background:linear-gradient(180deg,#EF4444 0%,#B91C1C 100%);
+  color:#fff;cursor:pointer;
+  box-shadow:0 18px 36px -10px rgba(239,68,68,.65), 0 0 0 4px rgba(239,68,68,.18);
+  transition:transform .15s, box-shadow .15s;
+  animation:ugSosPulse 2.6s ease-in-out infinite;
+}
+.ug-sos-fab:hover{transform:translateY(-1px) scale(1.02)}
+.ug-sos-fab:active{transform:scale(.97)}
+.ug-sos-fab:focus-visible{outline:2px solid #fff;outline-offset:3px}
+.ug-sos-fab .sos-ico{display:flex}
+.ug-sos-fab .sos-label{font-family:var(--ug-display);font-weight:700;font-size:10.5px;letter-spacing:.1em}
+@keyframes ugSosPulse{
+  0%,100%{box-shadow:0 18px 36px -10px rgba(239,68,68,.65), 0 0 0 4px rgba(239,68,68,.18)}
+  50%{box-shadow:0 18px 36px -10px rgba(239,68,68,.85), 0 0 0 10px rgba(239,68,68,.08)}
+}
+@media (prefers-reduced-motion:reduce){
+  .ug-sos-fab{animation:none}
+}
+
+.ug-sos-circle{
+  width:148px;height:148px;border-radius:50%;display:grid;place-items:center;cursor:pointer;
+  background:radial-gradient(circle at 30% 30%, #F87171 0%, #EF4444 45%, #B91C1C 100%);
+  color:#fff;border:6px solid rgba(255,255,255,.18);
+  box-shadow:0 24px 60px -16px rgba(239,68,68,.7);
+  transition:transform .18s, box-shadow .18s;
+  animation:ugSosPulse 2.6s ease-in-out infinite;
+}
+.ug-sos-circle:hover{transform:scale(1.02)}
+.ug-sos-circle.is-sending{animation:ugSosPulse .8s ease-in-out infinite;cursor:progress}
+.ug-sos-circle:focus-visible{outline:3px solid #fff;outline-offset:5px}
+@media (prefers-reduced-motion:reduce){ .ug-sos-circle{animation:none} }
+
+/* ================= Urgent alert overlay ================= */
+.ug-urgent-host{position:fixed;inset:0;z-index:950;pointer-events:none;display:grid;place-items:center;
+  padding:22px;background:rgba(3,6,12,.55);backdrop-filter:blur(8px);opacity:0;transition:opacity .25s}
+.ug-urgent-host:has(.ug-urgent){pointer-events:auto;opacity:1}
+.ug-urgent{
+  width:min(560px,100%);background:linear-gradient(180deg,#1A0606 0%,#0C1524 70%);
+  border:1px solid rgba(239,68,68,.6);border-radius:18px;overflow:hidden;
+  box-shadow:0 50px 90px -30px rgba(239,68,68,.6);
+  transform:translateY(8px) scale(.98);opacity:0;transition:transform .25s cubic-bezier(.16,1,.3,1),opacity .25s;
+  display:flex;
+}
+.ug-urgent.is-on{transform:translateY(0) scale(1);opacity:1}
+.ug-urgent-strip{width:6px;background:linear-gradient(180deg,#EF4444,#F59E0B)}
+.ug-urgent-body{padding:18px 20px 20px;flex:1;min-width:0}
+.ug-urgent-head{display:flex;align-items:flex-start;gap:12px}
+.ug-urgent-icon{
+  width:48px;height:48px;border-radius:12px;display:grid;place-items:center;flex:none;
+  background:rgba(239,68,68,.18);color:#FCA5A5;border:1px solid rgba(239,68,68,.4);
+  animation:ugSosPulse 1.4s ease-in-out infinite;
+}
+.ug-urgent-kicker{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#FCA5A5;font-weight:700}
+.ug-urgent-title{font-family:var(--ug-display);font-size:18px;font-weight:700;margin:3px 0 0;color:#FFF}
+.ug-urgent-close{margin-left:auto;background:none;border:0;width:30px;height:30px;cursor:pointer;
+  color:var(--ug-ink-3);border-radius:8px;position:relative}
+.ug-urgent-close::before,.ug-urgent-close::after{
+  content:"";position:absolute;left:8px;top:14px;width:14px;height:2px;background:currentColor;border-radius:2px;transform:rotate(45deg)
+}
+.ug-urgent-close::after{transform:rotate(-45deg)}
+.ug-urgent-text{font-size:13px;line-height:1.6;color:var(--ug-ink-2);margin:12px 0 10px}
+.ug-urgent-meta{font-size:11px;color:var(--ug-ink-3);display:flex;gap:10px;align-items:center;margin-bottom:14px}
+.ug-urgent-actions{display:flex;gap:8px}
+.ug-urgent-actions .ug-btn{flex:1}
+@media (max-width:560px){
+  .ug-urgent-body{padding:14px}
+  .ug-urgent-title{font-size:15px}
+  .ug-urgent-text{font-size:12px}
+}
+
+/* ================= FAQ accordions ================= */
+.ug-faq{border-top:1px solid var(--ug-line);padding:0}
+.ug-faq:first-child{border-top:0}
+.ug-faq summary{
+  list-style:none;cursor:pointer;padding:12px 0;font-size:13px;font-weight:600;color:var(--ug-ink);
+  display:flex;align-items:flex-start;gap:9px;
+}
+.ug-faq summary::-webkit-details-marker{display:none}
+.ug-faq summary::before{
+  content:"+";color:var(--ug-signal);font-family:var(--ug-mono);font-weight:700;font-size:14px;
+  width:18px;flex:none;
+}
+.ug-faq[open] summary::before{content:"–"}
+.ug-faq summary:focus-visible{outline:2px solid var(--ug-signal);outline-offset:2px;border-radius:6px}
+.ug-faq[open] summary{padding-bottom:0}
+
+/* ================= Map layer toggle ================= */
+.ug-layer-toggle{
+  position:absolute;top:10px;right:10px;z-index:600;display:flex;flex-direction:column;gap:6px;
+  background:rgba(12,21,36,.9);border:1px solid var(--ug-line-strong);border-radius:12px;padding:6px;
+  backdrop-filter:blur(8px);box-shadow:0 12px 32px -12px rgba(0,0,0,.6);
+}
+.ug-layer-toggle button{
+  display:flex;align-items:center;gap:7px;background:none;border:0;cursor:pointer;color:var(--ug-ink-3);
+  font-size:11px;padding:6px 8px;border-radius:8px;width:100%;text-align:left;
+}
+.ug-layer-toggle button:hover{background:rgba(255,255,255,.05);color:var(--ug-ink)}
+.ug-layer-toggle button.is-on{background:rgba(52,214,240,.12);color:var(--ug-signal)}
+.ug-layer-toggle button:focus-visible{outline:2px solid var(--ug-signal);outline-offset:1px}
+.ug-layer-toggle .swatch{width:10px;height:10px;border-radius:3px;flex:none}
+.ug-layer-toggle .swatch.shape-square{border-radius:2px}
+.ug-layer-toggle .swatch.shape-diamond{transform:rotate(45deg)}
+.ug-layer-toggle .swatch.shape-octagon{clip-path:polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%)}
+
+/* ================= Road status legend ================= */
+.ug-road-legend{display:flex;gap:11px;flex-wrap:wrap;padding:6px 8px;font-size:10.5px;color:var(--ug-ink-3)}
+.ug-road-legend span{display:flex;align-items:center;gap:5px}
+.ug-road-legend i{width:8px;height:8px;border-radius:50%;display:inline-block}
+
+/* ================= Notification type icons ================= */
+.ug-notif-icon{
+  width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex:none;
+  background:rgba(255,255,255,.04);border:1px solid var(--ug-line);color:var(--ug-ink-2);
+}
+.ug-notif-icon.tone-emergency{background:rgba(239,68,68,.14);color:#FCA5A5;border-color:rgba(239,68,68,.4)}
+.ug-notif-icon.tone-warning{background:rgba(249,115,22,.14);color:#FDBA74;border-color:rgba(249,115,22,.4)}
+.ug-notif-icon.tone-prepared{background:rgba(34,197,94,.14);color:#86EFAC;border-color:rgba(34,197,94,.4)}
+.ug-notif-icon.tone-advisory{background:rgba(56,189,248,.14);color:#7DD3FC;border-color:rgba(56,189,248,.4)}
+
+.ug-row.is-unread{background:rgba(52,214,240,.05)}
+.ug-row.is-unread .r-t{font-weight:700}
+
+/* ================= Accuracy radius (report form) ================= */
+.ug-geo-accuracy{
+  font-size:11px;color:var(--ug-ink-3);display:flex;align-items:center;gap:6px;margin-top:4px;
+}
+.ug-geo-accuracy .bar{
+  height:4px;border-radius:2px;background:linear-gradient(90deg,var(--ug-prepared),var(--ug-warning),var(--ug-emergency));
+  width:60px;flex:none;
+}
+.ug-geo-accuracy .bar i{display:block;height:100%;width:50%;background:rgba(0,0,0,.45);border-radius:2px;float:right}
+
+/* ================= Status history timeline ================= */
+.ug-history{display:flex;flex-direction:column;gap:0;margin:0;padding:0;list-style:none}
+.ug-history li{position:relative;padding:0 0 14px 22px;font-size:12px}
+.ug-history li::before{
+  content:"";position:absolute;left:6px;top:2px;width:9px;height:9px;border-radius:50%;
+  background:var(--ug-signal);box-shadow:0 0 0 3px rgba(52,214,240,.18);
+}
+.ug-history li::after{
+  content:"";position:absolute;left:10px;top:11px;bottom:-2px;width:1px;background:var(--ug-line);
+}
+.ug-history li:last-child{padding-bottom:0}
+.ug-history li:last-child::after{display:none}
+.ug-history .h-t{font-weight:600;color:var(--ug-ink);font-size:12.5px}
+.ug-history .h-d{color:var(--ug-ink-3);font-size:11px;margin-top:2px;line-height:1.5}
+.ug-history .h-time{font-family:var(--ug-mono);font-size:10.5px;color:var(--ug-ink-3);margin-top:2px}
+
+/* ================= "Others" review table ================= */
+.ug-table tr.is-promoted{background:rgba(34,197,94,.05)}
+
+/* ================= Map road-status markers ================= */
+.ug-marker.road-blocked{
+  background:#EF4444;color:#fff;border-radius:3px;
+  display:grid;place-items:center;font-family:var(--ug-mono);font-size:9px;font-weight:700;
+}
+.ug-marker.road-caution{
+  background:#F59E0B;color:#1A1206;border-radius:3px;
+  display:grid;place-items:center;font-family:var(--ug-mono);font-size:9px;font-weight:700;
+}
+.ug-marker.road-passable{
+  background:#22C55E;color:#06210F;border-radius:50%;
+}
+.ug-marker.relief-marker{
+  background:#8B5CF6;color:#fff;border-radius:3px;
+  display:grid;place-items:center;font-family:var(--ug-mono);font-size:9px;font-weight:700;
+}
+
+/* ================= Report tracker (citizen) ================= */
+.ug-tracker{display:flex;gap:6px;align-items:stretch}
+.ug-tracker .step{flex:1;display:flex;flex-direction:column;gap:5px;align-items:center;text-align:center;padding:9px 4px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid var(--ug-line)}
+.ug-tracker .step .dot{width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid var(--ug-line-strong)}
+.ug-tracker .step .lab{font-size:10px;color:var(--ug-ink-3);line-height:1.25}
+.ug-tracker .step .time{font-family:var(--ug-mono);font-size:9.5px;color:var(--ug-ink-3);line-height:1.3}
+.ug-tracker .step.done{border-color:rgba(47,208,138,.4);background:rgba(47,208,138,.08)}
+.ug-tracker .step.done .dot{background:var(--ug-prepared);border-color:var(--ug-prepared)}
+.ug-tracker .step.done .lab{color:var(--ug-prepared)}
+.ug-tracker .step.now{border-color:var(--ug-signal);background:rgba(52,214,240,.1)}
+.ug-tracker .step.now .dot{background:var(--ug-signal);border-color:var(--ug-signal);animation:ugSosPulse 1.6s ease-in-out infinite}
+.ug-tracker .step.now .lab{color:var(--ug-signal);font-weight:700}
+
+/* ================= Desktop web — relief / guides / faqs / sos / roadwork ===== */
+@media (max-width:380px){
+  .ug-sos-fab{width:60px;height:60px;right:14px;bottom:calc(80px + env(safe-area-inset-bottom))}
+  .ug-sos-circle{width:124px;height:124px}
+}
