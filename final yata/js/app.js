@@ -428,15 +428,25 @@
     'center-filter': (d) => { S.centerFilter = d.v; render(); },
     'set-urg': (d) => { S.report.urg = d.v; render(); },
 
-    gps: async () => {
+   gps: async () => {
       toast('Reading your position...', 'info');
       try {
         const p = await UG_FEATURES.locate();
         S.report.lat = p.lat; S.report.lng = p.lng; S.report.accuracy = p.accuracy; S.report.gps = true;
         /* reverse-geocode so a citizen can verify the pin against a real address, and
-           so the LGU sees something more human-readable than lat/lng on the dispatch view. */
-        try { S.report.address = await UG_FEATURES.reverseGeocode(p.lat, p.lng); } catch (e) { S.report.address = ''; }
-        toast('Position acquired, accuracy ' + p.accuracy + ' m' + (S.report.address ? ' · ' + S.report.address : ''), 'prepared');
+           so the LGU sees something more human-readable than lat/lng on the dispatch view.
+           Also try to guess the barangay from it and pre-fill the dropdown — the citizen
+           can still change it, this is a best-effort suggestion, not a locked value. */
+        try {
+          const geo = await UG_FEATURES.reverseGeocode(p.lat, p.lng);
+          S.report.address = geo.address || '';
+          if (geo.barangay) {
+            S.report.brgy = geo.barangay;
+            toast('Position acquired, accuracy ' + p.accuracy + ' m · barangay set to ' + geo.barangay, 'prepared');
+          } else {
+            toast('Position acquired, accuracy ' + p.accuracy + ' m' + (S.report.address ? ' · ' + S.report.address : '') + ' — please confirm your barangay', 'prepared');
+          }
+        } catch (e) { S.report.address = ''; }
       } catch (e) {
         const manual = await UG_FEATURES.prompt({
           title: 'Enter coordinates',
