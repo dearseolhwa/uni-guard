@@ -92,18 +92,15 @@ const UG_FEATURES = (function () {
      to lat/lng. Nominatim usage policy requires a valid HTTP Referer / User-Agent,
      which the browser sets automatically. */
   async function reverseGeocode(lat, lng) {
-    if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return '';
+    if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return { address: '', barangay: null };
     try {
       const url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=' +
         encodeURIComponent(lat) + '&lon=' + encodeURIComponent(lng) + '&zoom=18&accept-language=en';
       const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-      if (!res.ok) return '';
+      if (!res.ok) return { address: '', barangay: null };
       const data = await res.json();
-      if (!data || !data.address) return '';
+      if (!data || !data.address) return { address: '', barangay: null };
       const a = data.address;
-      /* build a Philippine-style address line: house number + road, then
-         barangay (if known), then municipality, province. Nominatim returns
-         several overlapping fields; pick the most specific available. */
       const parts = [];
       if (a.house_number || a.road) parts.push((a.house_number ? a.house_number + ' ' : '') + (a.road || ''));
       const sub = a.suburb || a.neighbourhood || a.hamlet || a.village || '';
@@ -112,8 +109,28 @@ const UG_FEATURES = (function () {
       if (town) parts.push(town);
       if (a.province) parts.push(a.province);
       if (a.postcode) parts.push(a.postcode);
-      return parts.filter(Boolean).join(', ');
-    } catch (e) { return ''; }
+
+      /* best-effort barangay guess: match whatever Nominatim called the
+         suburb/neighbourhood/village against the real 32-barangay list.
+         This is a guess, not a verified boundary lookup — the citizen still
+         sees and can correct the dropdown before submitting. */
+      let guessed = null;
+      const candidates = [a.suburb, a.neighbourhood, a.village, a.hamlet, a.quarter].filter(Boolean);
+      for (const c of candidates) {
+        const match = UG_GEO.BARANGAYS.find((b) => b.toLowerCase() === String(c).toLowerCase());
+        if (match) { guessed = match; break; }
+      }
+      /* fall back to a loose contains-match if no exact one was found */
+      if (!guessed) {
+        for (const c of candidates) {
+          const cl = String(c).toLowerCase();
+          const match = UG_GEO.BARANGAYS.find((b) => cl.indexOf(b.toLowerCase()) !== -1 || b.toLowerCase().indexOf(cl) !== -1);
+          if (match) { guessed = match; break; }
+        }
+      }
+
+      return { address: parts.filter(Boolean).join(', '), barangay: guessed };
+    } catch (e) { return { address: '', barangay: null }; }
   }
 
   /* a tiny audio + haptic helper, used by SOS and the urgent-alert overlay */
