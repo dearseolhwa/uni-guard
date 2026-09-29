@@ -457,7 +457,11 @@
         const parsed = UG_FEATURES.parseCoords(manual);
         if (parsed) {
           S.report.lat = parsed.lat; S.report.lng = parsed.lng; S.report.gps = true; S.report.accuracy = null;
-          try { S.report.address = await UG_FEATURES.reverseGeocode(parsed.lat, parsed.lng); } catch (er) { S.report.address = ''; }
+          try {
+            const geo = await UG_FEATURES.reverseGeocode(parsed.lat, parsed.lng);
+            S.report.address = geo.address || '';
+            if (geo.barangay) S.report.brgy = geo.barangay;
+          } catch (er) { S.report.address = ''; }
           toast(parsed.outside ? 'Coordinates set, but they look outside Lingayen — double-check them' : 'Coordinates set manually', parsed.outside ? 'warning' : 'prepared');
         } else if (manual) {
           toast('That does not look like a coordinate pair', 'warning');
