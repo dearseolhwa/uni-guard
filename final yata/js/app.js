@@ -473,11 +473,16 @@
     /* drag-adjustment of the GPS pin: the report screen hosts a small Leaflet
        map that the citizen can drag the marker on. This action receives the new
        {lat,lng} and stores it on S.report. */
-    'report-pin-drop': async (d) => {
+        'report-pin-drop': async (d) => {
       const lat = parseFloat(d.lat), lng = parseFloat(d.lng);
       if (!isFinite(lat) || !isFinite(lng)) return;
       S.report.lat = lat; S.report.lng = lng; S.report.gps = true;
-      try { S.report.address = await UG_FEATURES.reverseGeocode(lat, lng); } catch (e) { S.report.address = ''; }
+      try {
+        const geo = await UG_FEATURES.reverseGeocode(lat, lng);
+        S.report.address = geo.address || '';
+        if (geo.barangay) S.report.brgy = geo.barangay;
+      } catch (e) { S.report.address = ''; }
+      render();
       const sc = q('.ug-scroll');
       if (sc) {
         const addr = sc.querySelector('[data-field="geoAddress"]');
