@@ -91,6 +91,10 @@
 .ug-in,.ug-sel,.ug-ta{width:100%;background:rgba(0,0,0,.28);border:1px solid var(--ug-line);
   color:var(--ug-ink);padding:12px 13px;border-radius:var(--ug-r-md);font-family:inherit;font-size:14px;
   transition:border-color .15s,background .15s}
+.ug-sel option {
+  background: #0C1524;
+  color: #E8EFFA;
+}
 .ug-in::placeholder,.ug-ta::placeholder{color:var(--ug-ink-3)}
 .ug-in:focus,.ug-sel:focus,.ug-ta:focus{outline:none;border-color:var(--ug-signal);background:rgba(52,214,240,.05)}
 .ug-sel{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239CB0CC' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 9.5l6 6 6-6'/%3E%3C/svg%3E");
