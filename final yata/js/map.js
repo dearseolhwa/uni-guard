@@ -90,10 +90,10 @@ const MapView = (function () {
     if (opts.relief) setRelief(opts.relief);
     if (opts.roadStatus) setRoadStatus(opts.roadStatus);
     if (opts.reportPin) setReportPin(opts.reportPin, opts.onPinDrop);
-    try { map.invalidateSize(); } catch (e) {}
-    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 50);
-    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 300);
+    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 100);
+    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 400);
     return ctx;
+  }
 
   function setIncidents(list) {
     if (!ctx) return;
