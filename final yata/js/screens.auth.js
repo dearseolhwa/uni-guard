@@ -32,12 +32,44 @@ const UG_AUTH = (function () {
       '</div>';
   }
 
+  /* Custom UniGuard combo box. Renders as a button that opens a styled panel
+   * with a search field and a scrollable list. A hidden input with the same
+   * data-field keeps the existing form-collection logic working unchanged. */
   function selectField(id, label, options, value, help) {
-    return '<div class="ug-field" style="margin-bottom:14px"><label class="ug-lab">' + esc(label) + '</label>' +
-      '<select class="ug-sel" data-field="' + id + '" aria-label="' + esc(label) + '">' +
-      '<option value="">Select ' + esc(label.toLowerCase()) + '</option>' +
-      options.map((o) => '<option value="' + esc(o.id) + '"' + (String(value) === String(o.id) ? ' selected' : '') + '>' + esc(o.name) + '</option>').join('') +
-      '</select>' + (help ? '<div class="ug-help">' + esc(help) + '</div>' : '') + '</div>';
+    const v = String(value || '');
+    const selectedOpt = options.find((o) => String(o.id) === v) || null;
+    const displayText = selectedOpt ? selectedOpt.name : ('Select ' + label.toLowerCase());
+
+    const listHtml = options.map((o, i) => {
+      const sel = String(o.id) === v ? ' is-selected' : '';
+      return '<button type="button" class="ug-combo-option' + sel + '" role="option" ' +
+        'data-act="select-barangay" data-id="' + esc(String(o.id)) + '" data-name="' + esc(o.name) + '" tabindex="-1">' +
+        '<span class="ug-combo-opt-label">' + esc(o.name) + '</span>' +
+        '<span class="ug-combo-opt-check" aria-hidden="true">' + I('check', 14) + '</span>' +
+        '</button>';
+    }).join('');
+
+    return '<div class="ug-field" style="margin-bottom:14px">' +
+      '<label class="ug-lab" for="ug-combo-trigger-' + esc(id) + '">' + esc(label) + '</label>' +
+      '<div class="ug-combo" data-combo="' + esc(id) + '">' +
+        '<input type="hidden" data-field="' + esc(id) + '" value="' + esc(v) + '">' +
+        '<button type="button" id="ug-combo-trigger-' + esc(id) + '" class="ug-combo-btn' + (selectedOpt ? ' is-filled' : '') + '" ' +
+          'data-act="toggle-barangay-combo" aria-haspopup="listbox" aria-expanded="false" aria-controls="ug-combo-panel-' + esc(id) + '">' +
+          '<span class="ug-combo-val' + (selectedOpt ? ' is-selected' : '') + '">' + esc(displayText) + '</span>' +
+          '<span class="ug-combo-caret" aria-hidden="true">' + I('chevdn', 16) + '</span>' +
+        '</button>' +
+        '<div class="ug-combo-panel" id="ug-combo-panel-' + esc(id) + '" role="listbox" aria-label="' + esc(label) + '" hidden>' +
+          '<div class="ug-combo-searchwrap">' +
+            '<span class="ug-combo-searchico" aria-hidden="true">' + I('search', 15) + '</span>' +
+            '<input type="text" class="ug-combo-search" data-act="search-barangay" ' +
+              'placeholder="Search barangay..." aria-label="Search ' + esc(label.toLowerCase()) + '" autocomplete="off" spellcheck="false">' +
+          '</div>' +
+          '<div class="ug-combo-list" role="presentation">' + listHtml + '</div>' +
+          '<div class="ug-combo-empty" hidden>No barangays found</div>' +
+        '</div>' +
+      '</div>' +
+      (help ? '<div class="ug-help">' + esc(help) + '</div>' : '') +
+      '</div>';
   }
 
   function message(a) {
@@ -123,7 +155,7 @@ const UG_AUTH = (function () {
         help: 'Philippine mobile format, for example 0917 123 4567.',
         error: a.phoneError || ''
       }) +
-      selectField('barangay_id', 'Barangay', barangays, f.barangay_id, 'Your barangay decides which queue your reports enter.') +
+      selectField('barangay_id', 'Barangay', barangays, f.barangay_id, 'Select your barangay so your reports can be routed to the appropriate response team.') +
       '<div class="ug-auth-2col">' +
         field('password', 'Password', { type: 'password', value: f.password, ph: 'At least 8 characters', ac: 'new-password', reveal: true, revealed: a.showPassword }) +
         field('confirm', 'Confirm Password', { type: 'password', value: f.confirm, ph: 'Repeat password', ac: 'new-password' }) +

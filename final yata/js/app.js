@@ -289,6 +289,96 @@
     return roles.indexOf(S.session.role) !== -1;
   }
 
+  /* ------------------------------------------------------- barangay combo */
+  /* Helpers for the custom Barangay picker. The DOM is recreated on every
+     render, so these always operate on the live element tree. */
+  function closeAllBarangayCombos() {
+    const combos = document.querySelectorAll('.ug-combo.is-open');
+    for (let i = 0; i < combos.length; i++) {
+      const combo = combos[i];
+      const panel = combo.querySelector('.ug-combo-panel');
+      const btn = combo.querySelector('.ug-combo-btn');
+      if (panel) {
+        panel.hidden = true;
+        /* Reset the inline max-height set by maybeFlipCombo so the next
+           open re-measures from the CSS default. */
+        panel.style.maxHeight = '';
+      }
+      combo.classList.remove('is-open', 'is-flipped');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+  }
+  function visibleComboOptions(combo) {
+    return Array.prototype.slice.call(combo.querySelectorAll('.ug-combo-option:not([hidden])'));
+  }
+  function activeComboIndex(combo) {
+    const items = visibleComboOptions(combo);
+    const active = combo.querySelector('.ug-combo-option.is-active');
+    return active ? items.indexOf(active) : -1;
+  }
+  function setActiveComboOption(combo, opt, scroll) {
+    if (!opt) return;
+    combo.querySelectorAll('.ug-combo-option').forEach((it) => it.classList.remove('is-active'));
+    opt.classList.add('is-active');
+    if (scroll && opt.scrollIntoView) {
+      try { opt.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+    }
+  }
+  function filterBarangayCombo(combo, query) {
+    const q = (query || '').trim().toLowerCase();
+    const items = combo.querySelectorAll('.ug-combo-option');
+    let visible = 0;
+    for (let i = 0; i < items.length; i++) {
+      const name = (items[i].getAttribute('data-name') || '').toLowerCase();
+      const show = !q || name.indexOf(q) !== -1;
+      items[i].hidden = !show;
+      if (show) visible++;
+    }
+    const empty = combo.querySelector('.ug-combo-empty');
+    if (empty) empty.hidden = visible > 0;
+    /* Reset the keyboard highlight to the first visible option so the next
+       ArrowDown / Enter always targets something on screen. */
+    const firstVis = visibleComboOptions(combo)[0];
+    if (firstVis) setActiveComboOption(combo, firstVis, true);
+    else combo.querySelectorAll('.ug-combo-option').forEach((it) => it.classList.remove('is-active'));
+  }
+  /* Decide whether to open the panel above (is-flipped) or below the
+     trigger. With position:absolute anchoring, CSS handles the actual
+     placement (top:calc(100% + 4px) or bottom:calc(100% + 4px)); JS only
+     needs to pick the side with more viewport room so the panel never
+     overflows the visible area.
+
+     Preference is to open BELOW (the standard combobox pattern). The
+     panel only flips up when there is critically little room below AND
+     more room above. If the panel doesn't fit fully on either side, we
+     shrink the inline max-height to fit the available space so the user
+     never has to scroll the page to see the bottom of the list — the
+     list itself scrolls internally. */
+  function maybeFlipCombo(combo, panel) {
+    if (!panel) return;
+    const trigger = combo.querySelector('.ug-combo-btn');
+    if (!trigger) return;
+    const r = trigger.getBoundingClientRect();
+    const gap = 6;
+    /* Measure the panel's natural intended height: it's the smaller of
+       its content-driven offsetHeight and the CSS max-height cap. */
+    const cssMaxH = Math.min(panel.offsetHeight || 320, 360);
+    const spaceBelow = window.innerHeight - r.bottom - gap;
+    const spaceAbove = r.top - gap;
+    /* Flip only when there is critically little room below (<180px) AND
+       there is more room above. Otherwise we keep the default (below)
+       and let the inline max-height shrink the panel to fit. */
+    const flip = spaceBelow < 180 && spaceAbove > spaceBelow;
+    combo.classList.toggle('is-flipped', flip);
+    const avail = flip ? spaceAbove : spaceBelow;
+    /* Constrain the inline max-height so the panel fits inside the
+       viewport, but never shrink it below 160px (still shows ~5 items
+       + the search box). The CSS max-height of 360px stays as a
+       ceiling — we only tighten it for tight viewports. */
+    const inlineMaxH = Math.max(160, Math.min(cssMaxH, avail));
+    panel.style.maxHeight = inlineMaxH + 'px';
+  }
+
   /* ------------------------------------------------------------ auth actions */
   const AUTH_ACTIONS = {
     'auth-go': (d, el) => {
@@ -307,6 +397,66 @@
       S.auth.consent = !S.auth.consent;
       S.auth.error = /privacy notice/i.test(S.auth.error) ? '' : S.auth.error;
       render();
+    },
+    /* Open / close the Barangay combo. The DOM is recreated on every render,
+       so the open state lives on the element itself, not in S. */
+    'toggle-barangay-combo': (d, el) => {
+      const combo = el.closest('.ug-combo');
+      if (!combo) return;
+      const panel = combo.querySelector('.ug-combo-panel');
+      if (!panel) return;
+      const wasOpen = !panel.hidden;
+      closeAllBarangayCombos();
+      if (wasOpen) {
+        el.focus();
+        return;
+      }
+      panel.hidden = false;
+      combo.classList.add('is-open');
+      el.setAttribute('aria-expanded', 'true');
+      /* Flip the panel up if there is not enough room below the trigger. */
+      maybeFlipCombo(combo, panel);
+      comboJustOpened = Date.now();
+      const search = combo.querySelector('.ug-combo-search');
+      if (search) {
+        search.value = '';
+        filterBarangayCombo(combo, '');
+        /* preventScroll stops the browser from scrolling the page to bring
+           the focused input into view, which would otherwise trip the
+           scroll-close handler and immediately close the dropdown. */
+        try { search.focus({ preventScroll: true }); } catch (e) { search.focus(); }
+      }
+      /* Highlight the already-selected option (if any) so the next ArrowDown
+         starts from there. Falls back to the first visible option. */
+      const selected = combo.querySelector('.ug-combo-option.is-selected');
+      const firstVis = visibleComboOptions(combo)[0];
+      setActiveComboOption(combo, selected || firstVis, true);
+    },
+    /* Select a barangay from the list. Updates the hidden input and fires a
+       synthetic change event so the existing form-collection handler still
+       stores the value in S.auth.form.barangay_id. */
+    'select-barangay': (d, el) => {
+      const combo = el.closest('.ug-combo');
+      if (!combo) return;
+      const id = el.getAttribute('data-id');
+      const name = el.getAttribute('data-name');
+      const hidden = combo.querySelector('input[type="hidden"][data-field="barangay_id"]');
+      const val = combo.querySelector('.ug-combo-val');
+      const btn = combo.querySelector('.ug-combo-btn');
+      if (hidden) {
+        hidden.value = id;
+        try { hidden.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+      }
+      if (val) {
+        val.textContent = name;
+        val.classList.add('is-selected');
+      }
+      if (btn) btn.classList.add('is-filled');
+      combo.querySelectorAll('.ug-combo-option').forEach((it) => {
+        it.classList.toggle('is-selected', it.getAttribute('data-id') === id);
+      });
+      closeAllBarangayCombos();
+      if (btn) btn.focus();
     },
     signin: async () => {
       const f = S.auth.form;
@@ -1213,12 +1363,88 @@
     render();
   });
 
-  /* Enter submits the account forms. */
+  /* Barangay combo — search filtering. The existing input listener only acts
+     on [data-field], so the search input (which uses data-act instead) needs
+     its own handler. */
+  root.addEventListener('input', (e) => {
+    const search = e.target.closest('[data-act="search-barangay"]');
+    if (!search) return;
+    const combo = search.closest('.ug-combo');
+    if (!combo) return;
+    filterBarangayCombo(combo, search.value || '');
+  });
+
+  /* Click outside any open combo closes it. Fires after the [data-act] click
+     handler, which already returned without preventing default for clicks
+     that are not on a ug-combo-option. */
+  document.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('.ug-combo')) return;
+    closeAllBarangayCombos();
+  });
+
+  /* The panel is anchored to its trigger via position:absolute, so scrolling
+     the page would leave the panel in a stale position. Closing on page
+     scroll keeps the experience clean. Scrolling INSIDE the panel (the
+     barangay list itself) is allowed and does not close the combo. */
+  let comboJustOpened = 0;
+  window.addEventListener('scroll', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.ug-combo-panel')) return;
+    /* Ignore scroll events that happen within 250ms of opening, which can
+       be triggered by focus() on the search input even with preventScroll. */
+    if (Date.now() - comboJustOpened < 250) return;
+    closeAllBarangayCombos();
+  }, { capture: true, passive: true });
+
+  /* Keyboard navigation inside the open dropdown: ArrowUp / ArrowDown move
+     the highlight, Enter selects, Escape closes. Tab falls through to the
+     browser so users can leave the field. Captured in capture phase so it
+     fires before the Enter-submits-form handler below, which would otherwise
+     submit the auth form whenever the user pressed Enter on the search box. */
+  root.addEventListener('keydown', (e) => {
+    const search = e.target.closest('[data-act="search-barangay"]');
+    if (!search) return;
+    const combo = search.closest('.ug-combo');
+    if (!combo) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        closeAllBarangayCombos();
+        const btn = combo.querySelector('.ug-combo-btn');
+        if (btn) btn.focus();
+        return;
+      }
+      if (e.key === 'Enter') {
+        const active = combo.querySelector('.ug-combo-option.is-active');
+        if (active) AUTH_ACTIONS['select-barangay'](active.dataset, active);
+        return;
+      }
+      const items = visibleComboOptions(combo);
+      if (!items.length) return;
+      let idx = activeComboIndex(combo);
+      if (e.key === 'ArrowDown') idx = idx < 0 ? 0 : Math.min(idx + 1, items.length - 1);
+      else idx = idx <= 0 ? 0 : idx - 1;
+      setActiveComboOption(combo, items[idx], true);
+    }
+  }, true);
+
+  /* Enter submits the account forms — but not when the focus is on the
+     barangay search input (handled above) or on a non-submit button inside
+     the form. */
   root.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     const form = e.target.closest('[data-form="auth"]');
     if (!form) return;
     if (e.target.tagName === 'TEXTAREA') return;
+    /* The combo trigger is type="button", so pressing Enter on it should
+       toggle the panel, not submit the form. preventDefault stops the
+       browser's own click activation; we then toggle manually. */
+    const comboBtn = e.target.closest('.ug-combo-btn');
+    if (comboBtn) {
+      e.preventDefault();
+      AUTH_ACTIONS['toggle-barangay-combo'](comboBtn.dataset, comboBtn);
+      return;
+    }
     e.preventDefault();
     const a = S.auth.screen;
     if (a === 'signin') AUTH_ACTIONS.signin();
@@ -1265,6 +1491,9 @@
   }
 
   window.addEventListener('resize', UG_UTIL.debounce(() => {
+    /* Closing open combos on resize keeps the dropdown anchored to its
+       trigger instead of floating in a stale position. */
+    closeAllBarangayCombos();
     if (viewFor() !== S.view) render();
     else MapView.invalidate();
   }, 180));
