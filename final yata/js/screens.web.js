@@ -394,11 +394,17 @@ const UG_WEB = (() => {
      pageHead + content card so the new citizen screens fit the web shell
      without duplicating each module's render code on desktop. */
   function cwWrap(st, title, sub, body) {
-    return '<div class="ug-col" style="gap:18px">' +
-      cwHead(title, sub) +
-      '<div style="max-width:780px">' + body + '</div>' +
-    '</div>';
-  }
+  /* the mobile screen draws its own title block; remove it so the title only shows once */
+  const tmp = document.createElement('div');
+  tmp.innerHTML = body;
+  const header = tmp.firstElementChild && tmp.firstElementChild.firstElementChild;
+  if (header && header.querySelector('.ug-lab')) header.remove();
+
+  return '<div class="ug-col" style="gap:18px">' +
+    cwHead(title, sub) +
+    '<div style="max-width:1100px">' + tmp.innerHTML + '</div>' +
+  '</div>';
+}
 
   function frameCitizenWeb(st) {
     return '<div class="ug ug-frame ug-w' + (st.fixed ? ' ug-fixed' : '') + '"' +
