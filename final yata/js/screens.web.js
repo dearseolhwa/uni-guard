@@ -366,7 +366,7 @@ const UG_WEB = (() => {
     '</div>';
   }
 
-  function cwBody(st) {
+    function cwBody(st) {
     switch (st.route) {
       case 'home': return cwHome(st);
       case 'report': return cwReport(st);
@@ -376,35 +376,49 @@ const UG_WEB = (() => {
       case 'hotlines': return cwHotlines(st);
       case 'notifications': return cwNotifications(st);
       case 'offline': return cwOffline(st);
-      /* the new citizen web routes reuse the mobile render functions; the
-         desktop shell already wraps them in the appropriate frame. */
-      case 'relief': return cwWrap(st, 'Relief Assistance', 'Per-barangay relief distribution information.', UG_RELIEF.mRelief(st));
+      /* the new citizen web routes reuse the mobile render functions inside a
+         centered page column with the standard desktop header */
+      case 'relief':
+        return cwWrap(st, 'Relief Assistance', 'Per-barangay relief distribution information.',
+          UG_RELIEF.mRelief(st));
       case 'relief-verify': return UG_RELIEF.mReliefVerify(st);
-      case 'guides': return cwWrap(st, 'Disaster Preparedness Guides', 'Step-by-step guidance for the hazards that affect ' + UG_GEO.PLACE.label + '.', UG_GUIDES.mGuides(st));
-      case 'faqs': return cwWrap(st, 'Help Center', 'Frequently asked questions answered by the LGU.', UG_FAQS.mFaqs(st));
-      case 'roadwork': return cwWrap(st, 'Road Work & Road Status', 'Active road work posts and the road-status overlay.', UG_ROADWORK.mRoadwork(st));
-      case 'reports': return cwWrap(st, 'My Reports', 'Every report you have filed, with its current status.', (typeof UG_SCREENS !== 'undefined' && UG_SCREENS.mobileBody) ? UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'reports' })) : '');
-      case 'report-detail': return (typeof UG_SCREENS !== 'undefined' && UG_SCREENS.mobileBody) ? UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'report-detail' })) : cwHome(st);
-      case 'sos': return cwWrap(st, 'SOS', 'One-tap emergency signal to the LGU / LDRRMO duty officer.', UG_SOS.mSos(st));
+      case 'guides':
+        return cwWrap(st, 'Disaster Preparedness Guides',
+          'Step-by-step guidance for the hazards that affect ' + UG_GEO.PLACE.label + '.',
+          UG_GUIDES.mGuides(st));
+      case 'faqs':
+        return cwWrap(st, 'Help Center', 'Frequently asked questions answered by the LGU.',
+          UG_FAQS.mFaqs(st));
+      case 'roadwork':
+        return cwWrap(st, 'Road Work & Road Status', 'Active road work posts and the road-status overlay.',
+          UG_ROADWORK.mRoadwork(st));
+      case 'reports':
+        return cwWrap(st, 'My Reports', 'Every report you have filed, with its current status.',
+          (typeof UG_SCREENS !== 'undefined' && UG_SCREENS.mobileBody)
+            ? UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'reports' })) : '');
+      case 'report-detail':
+        return (typeof UG_SCREENS !== 'undefined' && UG_SCREENS.mobileBody)
+          ? UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'report-detail' })) : cwHome(st);
+      case 'sos':
+        return cwWrap(st, 'SOS', 'One-tap emergency signal to the LGU / LDRRMO duty officer.', UG_SOS.mSos(st));
       default: return cwHome(st);
     }
   }
 
-  /* small helper: wraps a mobile-render body in the standard desktop
-     pageHead + content card so the new citizen screens fit the web shell
-     without duplicating each module's render code on desktop. */
+  /* wraps a mobile-render body in the standard desktop page header. The header
+     and the content share one centered column (.ug-cw-page) so they line up. */
   function cwWrap(st, title, sub, body) {
-  /* the mobile screen draws its own title block; remove it so the title only shows once */
-  const tmp = document.createElement('div');
-  tmp.innerHTML = body;
-  const header = tmp.firstElementChild && tmp.firstElementChild.firstElementChild;
-  if (header && header.querySelector('.ug-lab')) header.remove();
+    /* the mobile screen draws its own title block; remove it so the title only shows once */
+    const tmp = document.createElement('div');
+    tmp.innerHTML = body;
+    const header = tmp.firstElementChild && tmp.firstElementChild.firstElementChild;
+    if (header && header.querySelector('.ug-lab')) header.remove();
 
-  return '<div class="ug-col" style="gap:18px">' +
-    cwHead(title, sub) +
-    '<div style="max-width:1100px">' + tmp.innerHTML + '</div>' +
-  '</div>';
-}
+    return '<div class="ug-col ug-cw-page" style="gap:18px">' +
+      cwHead(title, sub) +
+      '<div>' + tmp.innerHTML + '</div>' +
+    '</div>';
+  }
 
   function frameCitizenWeb(st) {
     return '<div class="ug ug-frame ug-w' + (st.fixed ? ' ug-fixed' : '') + '"' +
