@@ -411,3 +411,23 @@
   max-width:920px;
   margin:0 auto;
 }
+
+/* ================= console drawer must sit above the page content =================
+   Leaflet panes and our layer toggle use z-index 400 to 1000. Seal each map
+   into its own stacking context, and lift the drawer above the whole content
+   area (but below modals at 900 and the urgent overlay at 950). */
+.ug-map,
+.ug-leaflet{
+  isolation:isolate;
+  z-index:0;
+}
+.ug-d-main{
+  position:relative;
+  z-index:1;
+}
+.ug-nav-scrim{
+  z-index:850;
+}
+.ug-side{
+  z-index:860;
+}
