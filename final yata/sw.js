@@ -115,8 +115,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* map tiles: stale while revalidate, capped */
-  if (/tile\.openstreetmap\.org$/.test(url.hostname)) {
+    /* map tiles: stale while revalidate, capped */
+  if (/tile\.openstreetmap\.org$/.test(url.hostname) || /basemaps\.cartocdn\.com$/.test(url.hostname)) {
     event.respondWith(
       caches.open(TILES).then(async (cache) => {
         const hit = await cache.match(req);
