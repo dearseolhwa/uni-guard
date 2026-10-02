@@ -431,3 +431,27 @@
 .ug-side{
   z-index:860;
 }
+
+/* ===== Citizen web: aligned card grids (Shelters, Hotlines) ===== */
+
+/* tune column widths so the last row doesn't leave a ragged gap */
+.ug-wgrid-cards    { grid-template-columns: repeat(auto-fill, minmax(min(340px,100%), 1fr)); align-items: stretch; }
+.ug-wgrid-hotlines { grid-template-columns: repeat(auto-fill, minmax(min(240px,100%), 1fr)); align-items: stretch; }
+
+/* every card fills its grid cell, body stretches to fill the card */
+.ug-wgrid-cards > .ug-card,
+.ug-wgrid-hotlines > .ug-card { display: flex; flex-direction: column; height: 100%; }
+.ug-wgrid-cards > .ug-card > .ug-card-b,
+.ug-wgrid-hotlines > .ug-card > .ug-card-b { flex: 1; }
+
+/* reserve two lines for the title so everything below starts at the same height */
+.ug-wgrid-cards .ug-card-b > .ug-rowf:first-child { align-items: flex-start; }
+.ug-wgrid-cards h3,
+.ug-wgrid-hotlines h3 { min-height: 2.7em; line-height: 1.35; }
+
+/* pin the action row (Waze / Call) to the bottom of every card */
+.ug-wgrid-cards .ug-card-b > :last-child,
+.ug-wgrid-hotlines .ug-card-b > :last-child { margin-top: auto; }
+
+/* hotline number keeps one line and never pushes the button */
+.ug-wgrid-hotlines .ug-mono { white-space: nowrap; }
