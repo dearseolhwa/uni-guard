@@ -352,7 +352,7 @@ const UG_WEB = (() => {
         '</div>' +
         '<div class="ug-col" style="gap:18px">' +
           '<div class="ug-card"><div class="ug-card-h"><h3>Service Worker Cache</h3></div><div class="ug-card-b ug-col" style="gap:12px">' +
-            [['Last Successful Sync', '08:42 today'],
+            [['Last Successful Sync', esc(U.DATA.offlineCache.synced)],
              ['Reports Queued While Offline', (UG.DATA.queueCount || 0) + ' waiting'],
              ['Strategy', 'Network first'],
              ['Build', (typeof UG_CONFIG !== 'undefined' && UG_CONFIG.BUILD) || 'dev']]
