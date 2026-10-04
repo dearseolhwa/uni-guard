@@ -156,7 +156,15 @@ const UG = (() => {
       { title:'Coastal Advisory Updated',          body:'Storm surge watch extended until 6:00 PM for coastal barangays.',             time:'3h ago',  tone:'advisory',  icon:'wave',  unread:false },
       { title:'Preparedness Drill Reminder',       body:'Municipality-wide earthquake drill this Friday at 9:00 AM.',                  time:'1d ago',  tone:'prepared',  icon:'flag',  unread:false },
     ],
-    offlineCache: { hotlines:6, centers:5, advisories:3, synced:'Today, 08:42' },
+        offlineCache: {
+      get hotlines()   { return (DATA.hotlines || []).length; },
+      get centers()    { return (DATA.centers || []).length; },
+      get advisories() { return (DATA.advisories || []).filter(a => a.severity !== 'prepared').length; },
+      get synced() {
+        const at = (typeof UG_PWA !== 'undefined' && UG_PWA.state.lastSync) || null;
+        return UG_UTIL.syncLabel(at);
+      }
+    },
   };
   /* give every demo incident and center the 0..1 x/y the SVG fallback map
      expects, derived from the same lat/lng used on the real map so the two
@@ -930,7 +938,7 @@ const UG_SCREENS = (() => {
       '<div><div class="ug-lab">Offline Access</div><h2 style="font-size:19px;margin-top:3px">Offline Readiness</h2></div>' +
       '<div class="ug-card ug-tick"><div class="ug-card-b ug-col" style="gap:12px;align-items:center;text-align:center">' +
         '<span style="width:52px;height:52px;border-radius:16px;display:grid;place-items:center;background:rgba(255,176,32,.14);color:var(--ug-warning);border:1px solid rgba(255,176,32,.3)">' + I('wifioff', 25) + '</span>' +
-        '<h3 style="font-size:16px">You Are Offline</h3>' +
+        '<h3 style="font-size:16px">' + (st.offline ? 'You Are Offline' : 'Offline Copy Ready') + '</h3>' +
         '<p class="ug-dim" style="font-size:12px;line-height:1.5;max-width:280px">Cellular networks often fail during a disaster. UniGuard keeps the essentials on your device so they still open without a signal.</p>' +
       '</div></div>' +
       '<div class="ug-card"><div class="ug-card-h"><h3>Cached on This Device</h3><span class="ug-dimmer ug-mono" style="font-size:10px">Synced ' + esc(U.DATA.offlineCache.synced) + '</span></div>' +
@@ -943,7 +951,7 @@ const UG_SCREENS = (() => {
         '</div></div>' +
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:10px">' +
         '<div class="ug-lab">Service Worker Cache</div>' +
-        '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Last successful sync</span><span class="ug-mono">08:42 today</span></div>' +
+        '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Last successful sync</span><span class="ug-mono">' + esc(U.DATA.offlineCache.synced) + '</span></div>' +
         '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Reports queued while offline</span><span class="ug-mono">' + (UG.DATA.queueCount || 0) + ' waiting</span></div>' +
         '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Strategy</span><span class="ug-mono">Network first</span></div>' +
         '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Build</span><span class="ug-mono">' + esc((typeof UG_CONFIG !== 'undefined' && UG_CONFIG.BUILD) || 'dev') + '</span></div>' +
