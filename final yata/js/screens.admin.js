@@ -6,6 +6,7 @@
 const UG_ADMIN = (function () {
   const esc = UG_UTIL.esc;
   const I = UG.icon;
+  const U = UG;
   const ROUTES = ['users', 'audit'];
 
   const handles = (route) => ROUTES.indexOf(route) !== -1;
