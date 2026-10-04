@@ -16,7 +16,8 @@ const UG_WEB = (() => {
   /* role definitions: role decides where the account lands after sign in */
   const ROLE_INFO = {
     citizen:           { key:'citizen',           label:'Citizen',            area:'citizen', home:'home',      scope:(b) => 'Barangay ' + (b || UG_GEO.BARANGAYS[0]) },
-    barangay_official: { key:'barangay_official', label:'Barangay Official',  area:'console', home:'dashboard', scope:(b) => 'Barangay ' + (b || UG_GEO.BARANGAYS[0]) },
+    barangay_official: { key:'barangay_official', label:'Barangay Official', area:'console', home:'dashboard',
+  scope:(b) => b ? 'Barangay ' + b : 'No barangay assigned' },
     lgu_ldrrmc:        { key:'lgu_ldrrmc',        label:'LGU / MDRRMO',       area:'console', home:'dashboard', scope:() => UG_GEO.PLACE.scope },
   };
   const ROLES = ['citizen', 'barangay_official', 'lgu_ldrrmc'];
