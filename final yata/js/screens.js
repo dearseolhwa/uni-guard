@@ -1135,7 +1135,7 @@ const UG_SCREENS = (() => {
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + chips.map(c =>
         '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('sev-filter', attr({ v: c[0] })) + '>' + c[1] +
         '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? U.DATA.incidents.length : U.DATA.incidents.filter(x => x.status === c[0]).length) + '</span></button>').join('') +
-        '<span class="ug-dimmer" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px">' + I('target', 13) + 'Scope: ' + esc((U.DATA.roles.find(r => r.id === st.role) || {}).scope || '') + '</span></div>' +
+        '<span class="ug-dimmer" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px">' + I('target', 13) + 'Scope: ' + esc(sess(st).scope || '') + '</span></div>' +
       '<div class="ug-card"><div class="ug-ticks" style="grid-template-columns:1.2fr 2.4fr 1.1fr 1fr .7fr 1.1fr .9fr;padding:11px 16px;font-size:10px">' +
         '<span>Status</span><span>Hazard / description</span><span>Barangay</span><span>Corroboration</span><span>Age</span><span>Severity</span><span style="text-align:right">Action</span>' +
       '</div>' + (list.length ? list.map(i =>
