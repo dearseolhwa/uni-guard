@@ -1018,16 +1018,52 @@
     },
 
     'admin-create': async () => {
-      if (!requireRole(['lgu_ldrrmc'])) { toast('Only LGU can create officials', 'warning'); return; }
-      const email = await UG_FEATURES.prompt({ title: 'Create an official account', label: 'Email address', placeholder: 'official@lingayen.gov.ph' });
-      if (!email) return;
-      try {
-        await Repo.adminUsers('create', { email: email, role: 'barangay_official' });
-        toast('Invitation sent to ' + email, 'prepared');
-        S.users = await Repo.listUsers(); UG.DATA.users = S.users;
-      } catch (e) { toast(e.message, 'warning'); }
-      render();
-    },
+  if (!requireRole(['lgu_ldrrmc'])) { toast('Only LGU can create officials', 'warning'); return; }
+
+  let list = S.barangays || [];
+  if (!list.length) { list = await Repo.listBarangays(); S.barangays = list; }
+  const opts = list.map((b) =>
+    '<option value="' + UG_UTIL.esc(b.id) + '">' + UG_UTIL.esc(b.name) + '</option>').join('');
+
+  UG_FEATURES.modal({
+    title: 'Create a barangay official',
+    body:
+      '<div class="ug-field"><label class="ug-lab">Email address</label>' +
+        '<input class="ug-in" type="email" data-invite-email placeholder="official@lingayen.gov.ph"></div>' +
+      '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Barangay</label>' +
+        '<select class="ug-sel" data-invite-brgy><option value="">Select a barangay</option>' + opts + '</select>' +
+        '<div class="ug-help">This official will only see and manage reports from this barangay.</div></div>',
+    footer:
+      '<button class="ug-btn" data-modal-close>Cancel</button>' +
+      '<button class="ug-btn ug-btn--signal" data-send>Send Invitation</button>',
+    onMount: (wrap, close) => {
+      const emailEl = wrap.querySelector('[data-invite-email]');
+      const brgyEl = wrap.querySelector('[data-invite-brgy]');
+      const sendBtn = wrap.querySelector('[data-send]');
+      setTimeout(() => emailEl.focus(), 30);
+
+      sendBtn.addEventListener('click', async () => {
+        const email = emailEl.value.trim();
+        const barangayId = brgyEl.value;
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email address', 'warning'); return; }
+        if (!barangayId) { toast('Select the barangay this official will manage', 'warning'); return; }
+
+        sendBtn.disabled = true;
+        try {
+          await Repo.adminUsers('create', { email: email, role: 'barangay_official', barangayId: barangayId });
+          close();
+          const name = (list.find((b) => String(b.id) === String(barangayId)) || {}).name || '';
+          toast('Invitation sent to ' + email + ' for ' + name, 'prepared');
+          S.users = await Repo.listUsers(); UG.DATA.users = S.users;
+          render();
+        } catch (e) {
+          sendBtn.disabled = false;
+          toast(e.message, 'warning');
+        }
+      });
+    }
+  });
+},
 
     'admin-role': async (d, el) => {
       try {
