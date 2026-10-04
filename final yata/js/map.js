@@ -69,8 +69,16 @@ const MapView = (function () {
 
     const L = window.L;
     container.innerHTML = '';
+
+    /* if a report pin is given, start the map on the pin instead of the town centre */
+    const pin = opts.reportPin;
+    const startCenter = opts.center ||
+      ((pin && typeof pin.lat === 'number' && typeof pin.lng === 'number')
+        ? [pin.lat, pin.lng]
+        : UG_GEO.CENTER);
+
     const map = L.map(container, {
-      center: opts.center || UG_GEO.CENTER,
+      center: startCenter,
       zoom: opts.zoom || UG_GEO.ZOOM,
       zoomControl: false,
       attributionControl: true,
@@ -80,7 +88,7 @@ const MapView = (function () {
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19,
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, FAO, NOAA, USGS, &copy; OpenStreetMap contributors, and the GIS User Community'
-    }).addTo(map);;
+    }).addTo(map);
 
     ctx = { map: map, layer: L.layerGroup().addTo(map), container: container, fallback: false };
     if (opts.incidents) setIncidents(opts.incidents);
