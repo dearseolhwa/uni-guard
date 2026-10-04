@@ -276,6 +276,9 @@
   function enterApp(session, message) {
     S.session = session;
     S.screen = 'app';
+      if (session.barangay && UG_GEO.BARANGAYS.indexOf(session.barangay) !== -1) {
+      S.report.brgy = session.barangay;
+    }
     S.auth = blankAuth();
     S.declareArmed = false;
     go(homeRoute());
@@ -670,9 +673,10 @@
       r.busy = true;
       try {
         if (!UG_PWA.state.online || !Repo.online()) {
-          await UG_PWA.enqueue({
+            await UG_PWA.enqueue({
             hazard_type: r.hazard, hazard_other_text: r.hazardOther || '', barangay: r.brgy, description: r.desc.trim(),
-            severity: r.urg || 'advisory', urgency: r.urg, lat: r.lat, lng: r.lng
+            severity: r.urg || 'advisory', urgency: r.urg, lat: r.lat, lng: r.lng,
+            photoBlob: r.photoBlob || null
           });
           toast('Saved on this device. It uploads when you are back online.', 'warning');
           S.lastReport = { id: null, brgy: r.brgy };
