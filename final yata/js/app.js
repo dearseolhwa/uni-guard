@@ -1028,29 +1028,34 @@
   UG_FEATURES.modal({
     title: 'Create a barangay official',
     body:
-      '<div class="ug-field"><label class="ug-lab">Email address</label>' +
-        '<input class="ug-in" type="email" data-invite-email placeholder="official@lingayen.gov.ph"></div>' +
-      '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Barangay</label>' +
-        '<select class="ug-sel" data-invite-brgy><option value="">Select a barangay</option>' + opts + '</select>' +
-        '<div class="ug-help">This official will only see and manage reports from this barangay.</div></div>',
+  '<div class="ug-field"><label class="ug-lab">Full name</label>' +
+    '<input class="ug-in" type="text" data-invite-name placeholder="Juan Dela Cruz" autocomplete="off"></div>' +
+  '<div class="ug-field"><label class="ug-lab">Email address</label>' +
+    '<input class="ug-in" type="email" data-invite-email placeholder="official@lingayen.gov.ph"></div>' +
+  '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Barangay</label>' +
+    '<select class="ug-sel" data-invite-brgy><option value="">Select a barangay</option>' + opts + '</select>' +
+    '<div class="ug-help">This official will only see and manage reports from this barangay.</div></div>',
     footer:
       '<button class="ug-btn" data-modal-close>Cancel</button>' +
       '<button class="ug-btn ug-btn--signal" data-send>Send Invitation</button>',
     onMount: (wrap, close) => {
-      const emailEl = wrap.querySelector('[data-invite-email]');
-      const brgyEl = wrap.querySelector('[data-invite-brgy]');
-      const sendBtn = wrap.querySelector('[data-send]');
-      setTimeout(() => emailEl.focus(), 30);
+    const nameEl = wrap.querySelector('[data-invite-name]');
+    const emailEl = wrap.querySelector('[data-invite-email]');
+    const brgyEl = wrap.querySelector('[data-invite-brgy]');
+    const sendBtn = wrap.querySelector('[data-send]');
+    setTimeout(() => nameEl.focus(), 30);
 
-      sendBtn.addEventListener('click', async () => {
-        const email = emailEl.value.trim();
-        const barangayId = brgyEl.value;
-        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email address', 'warning'); return; }
-        if (!barangayId) { toast('Select the barangay this official will manage', 'warning'); return; }
+    sendBtn.addEventListener('click', async () => {
+  const fullName = nameEl.value.trim();
+  const email = emailEl.value.trim();
+  const barangayId = brgyEl.value;
+  if (!fullName) { toast('Enter the official\'s full name', 'warning'); return; }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email address', 'warning'); return; }
+  if (!barangayId) { toast('Select the barangay this official will manage', 'warning'); return; }
 
-        sendBtn.disabled = true;
-        try {
-          await Repo.adminUsers('create', { email: email, role: 'barangay_official', barangayId: barangayId });
+  sendBtn.disabled = true;
+  try {
+    await Repo.adminUsers('create', { email: email, fullName: fullName, role: 'barangay_official', barangayId: barangayId })
           close();
           const name = (list.find((b) => String(b.id) === String(barangayId)) || {}).name || '';
           toast('Invitation sent to ' + email + ' for ' + name, 'prepared');
