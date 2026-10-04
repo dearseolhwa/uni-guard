@@ -388,9 +388,10 @@ const Repo = (function () {
       state.source = 'supabase';
       state.loading = false;
       state.lastSync = new Date().toISOString();
+      if (window.UG_CACHE) window.UG_CACHE.storeSnapshot(UG.DATA);
       emit();
 
-      if (window.UG_CACHE) window.UG_CACHE.storeSnapshot(UG.DATA);
+      
       subscribe();
       return state;
     } catch (e) {
