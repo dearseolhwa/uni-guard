@@ -1567,18 +1567,22 @@ const UG_SCREENS = (() => {
   }
 
   function frameDesktop(st){
-    const t = DTITLES[st.route] || DTITLES.dashboard;
-    return '<div class="ug ug-frame ug-d' + (st.fixed ? ' ug-fixed' : '') + '"' +
-      (st.fixed ? ' style="width:' + st.w + 'px;height:' + st.h + 'px"' : '') + '>' +
-      '<div class="ug-d-shell">' + dSidebar(st) +
-        '<div class="ug-nav-scrim" data-act="close-nav" aria-hidden="true"></div>' +
-        '<div class="ug-d-main">' + dTopbar(st, t[0], t[1]) +
-          (st.offline ? '<div class="ug-offline">' + I('wifioff', 14) + '<span>Working offline. Changes are queued and will sync automatically.</span></div>' : '') +
-          '<div class="ug-d-body ug-scroll">' + desktopBody(st) + '</div>' +
-        '</div>' +
+  const t = DTITLES[st.route] || DTITLES.dashboard;
+  return '<div class="ug ug-frame ug-d' + (st.fixed ? ' ug-fixed' : '') + '"' +
+    (st.fixed ? ' style="width:' + st.w + 'px;height:' + st.h + 'px"' : '') + '>' +
+    '<div class="ug-d-shell">' + dSidebar(st) +
+      '<div class="ug-nav-scrim" data-act="close-nav" aria-hidden="true"></div>' +
+      '<div class="ug-d-main">' + dTopbar(st, t[0], t[1]) +
+        (st.offline ? '<div class="ug-offline">' + I('wifioff', 14) + '<span>Working offline. Changes are queued and will sync automatically.</span></div>' : '') +
+        (st.session && st.session.role === 'barangay_official' && !st.session.barangay_id
+          ? '<div class="ug-offline">' + I('alert', 14) +
+            '<span>No barangay is assigned to your account yet, so you cannot see any reports. Contact your LGU administrator.</span></div>'
+          : '') +
+        '<div class="ug-d-body ug-scroll">' + desktopBody(st) + '</div>' +
       '</div>' +
-    '</div>';
-  }
+    '</div>' +
+  '</div>';
+}
 
   function frame(st){
     if (st.role === 'citizen') {
