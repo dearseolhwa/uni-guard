@@ -107,13 +107,18 @@ const UG_PWA = (function () {
     const rows = await listQueue();
     if (!rows || !rows.length) return 0;
     let sent = 0;
-    for (const row of rows) {
+        for (const row of rows) {
       try {
-        await Repo.createReport({
-          hazard_type: row.hazard_type, barangay: row.barangay, description: row.description,
-          severity: row.severity, urgency: row.urgency, lat: row.lat, lng: row.lng,
-          photoBlob: null, reportCodeHint: 'offline'
-        });
+        if (row._kind === 'sos') {
+          await Repo.submitSos({ lat: row.lat, lng: row.lng, accuracy: row.accuracy, note: row.note });
+        } else {
+          await Repo.createReport({
+            hazard_type: row.hazard_type, hazard_other_text: row.hazard_other_text || '',
+            barangay: row.barangay, description: row.description,
+            severity: row.severity, urgency: row.urgency, lat: row.lat, lng: row.lng,
+            photoBlob: row.photoBlob || null, reportCodeHint: 'offline'
+          });
+        }
         await removeFromQueue(row.id);
         sent++;
       } catch (e) { break; }
