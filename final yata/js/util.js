@@ -116,6 +116,17 @@ const UG_UTIL = (function () {
     return { score, label: labels[Math.min(score, labels.length - 1)] };
   }
 
+    function syncLabel(value) {
+    const t = Date.parse(value);
+    if (!t) return 'Not synced yet';
+    const d = new Date(t), now = new Date();
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() === now.toDateString()) return 'Today, ' + time;
+    const y = new Date(now); y.setDate(now.getDate() - 1);
+    if (d.toDateString() === y.toDateString()) return 'Yesterday, ' + time;
+    return d.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ', ' + time;
+  }
+
   /* Friendly text for the auth errors people actually hit. */
   function authError(message, status) {
     const m = String(message || '').toLowerCase();
@@ -133,6 +144,6 @@ const UG_UTIL = (function () {
 
   return {
     esc, since, relTime, absTime, initials, bytes, debounce, toCSV, download,
-    normalisePhone, formatPhone, passwordStrength, authError
+    normalisePhone, formatPhone, passwordStrength, authError, syncLabel
   };
 })();
