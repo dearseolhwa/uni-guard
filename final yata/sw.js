@@ -4,7 +4,7 @@
  * map tiles and the last synced data available, and serves a push notification
  * payload sent by the push-dispatch Edge Function.
  */
-const VERSION = 'uniguard-v3';
+const VERSION = 'uniguard-v4';
 const SHELL = 'uniguard-shell-' + VERSION;
 const TILES = 'uniguard-tiles-' + VERSION;
 const IMAGES = 'uniguard-images-' + VERSION;
@@ -50,6 +50,18 @@ const PRECACHE = [
   './js/pwa.js',
   './js/app.js',
 
+  './css/screens-additions.css',
+  './js/geo.js',
+  './js/theme.js',
+  './js/hazard-types.js',
+  './js/relief.js',
+  './js/guides.js',
+  './js/faqs.js',
+  './js/roadwork.js',
+  './js/sos.js',
+  './js/notifications-store.js',
+  './js/urgent-alerts.js',
+
   './icons-192.png',
   './icons-512.png',
   './icons-maskable-512.png'
@@ -58,7 +70,7 @@ const PRECACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(SHELL)
-      .then((cache) => cache.addAll(PRECACHE).catch(() => null))
+      .then((cache) => Promise.all(PRECACHE.map((u) => cache.add(u).catch(() => null))))
       .then(() => self.skipWaiting())
   );
 });
