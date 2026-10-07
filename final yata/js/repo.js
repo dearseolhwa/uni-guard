@@ -12,6 +12,7 @@ const Repo = (function () {
   let sb = null;
   let channel = null;
   let subscribed = false;
+  const photoCache = {};   /* storage path -> signed url */
 
   const state = {
     source: 'local',       /* 'supabase' | 'offline' | 'local' */
@@ -83,6 +84,7 @@ const Repo = (function () {
            : (Array.isArray(r.report_corroborations) ? r.report_corroborations.length : 0),
       thumb: r.photo_path ? 'remote' : null,
       remote_photo: r.photo_path || null,
+      photo_url: photoCache[r.photo_path] || null,
       units: r.assigned_units || 0,
       lat: r.lat, lng: r.lng,
       mine: r.is_mine === true,
@@ -390,8 +392,8 @@ const Repo = (function () {
       state.lastSync = new Date().toISOString();
       if (window.UG_CACHE) window.UG_CACHE.storeSnapshot(UG.DATA);
       emit();
+      resolvePhotos();
 
-      
       subscribe();
       return state;
     } catch (e) {
@@ -402,6 +404,18 @@ const Repo = (function () {
       emit();
       return state;
     }
+  }
+    async function resolvePhotos() {
+    const c = client();
+    if (!c) return;
+    const need = (UG.DATA.incidents || []).filter((i) => i.remote_photo && !photoCache[i.remote_photo]);
+    if (!need.length) return;
+    const paths = Array.from(new Set(need.map((i) => i.remote_photo)));
+    const { data, error } = await c.storage.from('reports').createSignedUrls(paths, 3600);
+    if (error || !data) return;
+    data.forEach((row) => { if (row.signedUrl && row.path) photoCache[row.path] = row.signedUrl; });
+    (UG.DATA.incidents || []).forEach((i) => { if (i.remote_photo) i.photo_url = photoCache[i.remote_photo] || null; });
+    emit();
   }
 
   /* ------------------------------------------------------------- realtime */
@@ -734,12 +748,16 @@ const Repo = (function () {
   async function analytics() {
     const c = client();
     if (!c) {
-      const byHazard = {};
-      (UG.DATA.incidents || []).forEach((i) => { byHazard[i.hazard] = (byHazard[i.hazard] || 0) + 1; });
-      const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0 };
-      (UG.DATA.incidents || []).forEach((i) => { stages[i.status] = (stages[i.status] || 0) + 1; });
-      return { local: true, byHazard: byHazard, stages: stages, daily: [], corroborationRate: 0 };
-    }
+  const byHazard = {};
+  (UG.DATA.incidents || []).forEach((i) => { byHazard[i.hazard] = (byHazard[i.hazard] || 0) + 1; });
+  const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0, rejected: 0 };
+  (UG.DATA.incidents || []).forEach((i) => { stages[i.status] = (stages[i.status] || 0) + 1; });
+  const inc = UG.DATA.incidents || [];
+  const corroborationRate = inc.length
+    ? Math.round(inc.filter((i) => (i.corr || 0) >= 3).length / inc.length * 100)
+    : 0;
+  return { local: true, byHazard: byHazard, stages: stages, daily: [], corroborationRate: corroborationRate };
+}
     const [hazard, pipeline, dailyRows] = await Promise.all([
       c.from('analytics_by_hazard').select('*'),
       c.from('analytics_pipeline').select('*'),
@@ -747,11 +765,22 @@ const Repo = (function () {
     ]);
     const byHazard = {};
     (hazard.data || []).forEach((r) => { byHazard[r.hazard_type] = Number(r.total); });
-    const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0 };
+        const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0, rejected: 0 };
     (pipeline.data || []).forEach((r) => { stages[r.status] = Number(r.total); });
     const daily = (dailyRows.data || []).map((r) => Number(r.total));
-    const total = Object.values(byHazard).reduce((a, b) => a + b, 0);
-    return { byHazard, stages, daily, corroborationRate: total ? 0.86 : 0 };
+        const total = Object.values(stages).reduce((a, b) => a + b, 0);
+    /* share of reports that reached the corroboration threshold, as a whole
+       percent, same scale as localAnalytics(). Taken from the analytics_corroboration
+       view's auto_verified count, which is the number of reports verified by
+       corroboration. */
+    let corroborationRate = 0;
+    try {
+      const corr = await c.from('analytics_corroboration').select('*').maybeSingle();
+      if (corr && corr.data && Number(corr.data.total_reports)) {
+        corroborationRate = Math.round(Number(corr.data.auto_verified) / Number(corr.data.total_reports) * 100);
+      }
+    } catch (e) { corroborationRate = 0; }
+    return { byHazard, stages, daily, corroborationRate };
   }
 
   /* -------------------------------------------------------------- admin ops */
