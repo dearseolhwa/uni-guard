@@ -455,7 +455,7 @@ const UG_SCREENS = (() => {
   function mHome(st){
     const activeAds = (U.DATA.advisories || []).filter(a => a.severity !== 'prepared');
     const top = activeAds[0] || U.DATA.advisories[0];
-    const mine = U.DATA.incidents[0];
+    const mine = (U.DATA.incidents || []).find((i) => i.mine === true);
     const openCenters = U.DATA.centers.filter(c => c.status === 'open');
     const isEmergency = top && top.severity === 'emergency';
     const readout = (v, l, tone) =>
@@ -515,6 +515,7 @@ const UG_SCREENS = (() => {
         readout(String(openCenters.length), 'Shelters open', 'var(--ug-prepared)') +
       '</div>' +
 
+      (mine ? (
       '<button class="ug-card ug-tick" style="text-align:left;cursor:pointer;width:100%"' + A('open-incident', attr({ id: mine.id })) + '>' +
         '<div class="ug-card-h"><h3>Your Latest Report</h3>' + U.stageBadge(mine.status) + '</div>' +
         '<div class="ug-card-b ug-col" style="gap:11px">' +
@@ -525,7 +526,8 @@ const UG_SCREENS = (() => {
             '<div class="ug-dim" style="font-size:11.5px;margin-top:5px;line-height:1.45">' + esc(mine.desc.slice(0, 74)) + '&hellip;</div></div>' +
           '</div>' + U.corrMeter(st.corr[mine.id] || mine.corr) +
         '</div>' +
-      '</button>' +
+      '</button>'
+      ) : '') +
 
       '<div class="ug-card">' +
         '<div class="ug-card-h"><h3>Nearest Open Shelters</h3>' +
@@ -659,13 +661,14 @@ const UG_SCREENS = (() => {
                    ['dispatched', UG_THEME.STATUS.dispatched.label],
                    ['resolved', UG_THEME.STATUS.resolved.label],
                    ['rejected', UG_THEME.STATUS.rejected.label]];
-    const list = (U.DATA.incidents || []).filter((i) => f === 'all' || i.status === f);
+    const mineAll = (U.DATA.incidents || []).filter((i) => i.mine === true);
+    const list = mineAll.filter((i) => f === 'all' || i.status === f); 
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">Incident Status Tracking</div><h2 style="font-size:19px;margin-top:3px">My Reports</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Every report you have filed, with its current status at a glance. Tap to open the tracker.</p></div>' +
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' + chips.map((c) =>
         '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('report-status-filter', attr({ v: c[0] })) + '>' + esc(c[1]) +
-        '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? (U.DATA.incidents || []).length : (U.DATA.incidents || []).filter((x) => x.status === c[0]).length) + '</span></button>').join('') + '</div>' +
+        '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? mineAll.length : mineAll.filter((x) => x.status === c[0]).length) + '</span></button>').join('') + '</div>' +
       '<div class="ug-card"><div class="ug-rows">' + (list.length ? list.map(i => {
         const corr = st.corr[i.id] != null ? st.corr[i.id] : i.corr;
         const status = corr >= 3 && i.status === 'reported' ? 'verified' : i.status;
