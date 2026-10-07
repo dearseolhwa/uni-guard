@@ -212,6 +212,13 @@ const UG = (() => {
     if (!name || !IMG[name]) return '';
     return '<img class="' + (cls || 'r-thumb') + '" src="' + IMG[name] + '"' + (style ? ' style="' + style + '"' : '') + ' alt="Field photo evidence for the reported hazard">';
   }
+  function photo(item, cls, style){
+  if (item && item.photo_url) {
+    return '<img class="' + (cls || 'r-thumb') + '" src="' + esc(item.photo_url) + '"' + (style ? ' style="' + style + '"' : '') +
+      ' alt="Photo submitted with the hazard report" loading="lazy">';
+  }
+  return thumb(item && item.thumb, cls, style);
+}
   function pipeline(current){
     if (current === 'rejected') {
       const r = UG_THEME.STATUS.rejected;
@@ -328,7 +335,7 @@ const UG = (() => {
       '<path d="M12 2.6 4.6 5.7v5.8c0 4.5 3.1 8.2 7.4 9.6 4.3-1.4 7.4-5.1 7.4-9.6V5.7L12 2.6Z"/><path d="M8.6 12.2 11 14.6l4.6-4.9"/></svg></span>';
   }
 
-  return { ICONS, icon, DATA, SEV, STAGES, esc, badge, sevBadge, ladder, stageBadge, stat, thumb, pipeline, corrMeter, mapSVG, mapLegend, brandMark };
+  return { ICONS, icon, DATA, SEV, STAGES, esc, badge, sevBadge, ladder, stageBadge, stat, thumb, photo, pipeline, corrMeter, mapSVG, mapLegend, brandMark };
 })();
 
 const UG_SCREENS = (() => {
@@ -441,7 +448,7 @@ const UG_SCREENS = (() => {
       t('relief', 'relief', 'Relief') +
       '<button class="ug-tab" style="flex:0 0 64px" aria-label="Report a Hazard"' + A('nav', attr({ route: 'report' })) + '>' +
         '<span class="ug-fab">' + I('plus', 24) + '</span></button>' +
-      t('guides', 'guide', 'Guides') +
+            t('advisories', 'megaphone', 'Alerts') +
       t('hotlines', 'phone', 'Hotlines') +
     '</div>';
   }
@@ -455,7 +462,7 @@ const UG_SCREENS = (() => {
   function mHome(st){
     const activeAds = (U.DATA.advisories || []).filter(a => a.severity !== 'prepared');
     const top = activeAds[0] || U.DATA.advisories[0];
-    const mine = (U.DATA.incidents || []).find((i) => i.mine === true);
+    const mine = U.DATA.incidents.find(i => i.mine) || null;
     const openCenters = U.DATA.centers.filter(c => c.status === 'open');
     const isEmergency = top && top.severity === 'emergency';
     const readout = (v, l, tone) =>
@@ -519,7 +526,7 @@ const UG_SCREENS = (() => {
       '<button class="ug-card ug-tick" style="text-align:left;cursor:pointer;width:100%"' + A('open-incident', attr({ id: mine.id })) + '>' +
         '<div class="ug-card-h"><h3>Your Latest Report</h3>' + U.stageBadge(mine.status) + '</div>' +
         '<div class="ug-card-b ug-col" style="gap:11px">' +
-          '<div class="ug-rowf ug-gap12" style="gap:10px;align-items:flex-start">' + U.thumb(mine.thumb) +
+          '<div class="ug-rowf ug-gap12" style="gap:10px;align-items:flex-start">' + U.photo(mine) +
             '<div style="flex:1;min-width:0"><div class="ug-rowf ug-gap8" style="gap:7px">' + U.ladder(mine.sev) +
             '<span style="font-size:13px;font-weight:600">' + esc(mine.hazard) + '</span></div>' +
             '<div class="ug-dimmer ug-mono" style="font-size:10.5px;margin-top:3px">' + esc(mine.id) + ' &middot; ' + esc(mine.time) + '</div>' +
@@ -528,7 +535,18 @@ const UG_SCREENS = (() => {
         '</div>' +
       '</button>'
       ) : '') +
-
+            (function () {
+        const near = (U.DATA.incidents || []).filter(i => !i.mine && i.status !== 'resolved' && i.status !== 'rejected').slice(0, 3);
+        return '<div class="ug-card"><div class="ug-card-h"><h3>Reported Near You</h3>' +
+          '<span class="ug-dimmer" style="font-size:10.5px">Confirm if you see it too</span></div>' +
+          '<div class="ug-rows">' + (near.length ? near.map(i =>
+            '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-report', attr({ id: i.id })) + '>' +
+              '<div class="r-main"><div class="r-t">' + U.ladder(i.sev) + esc(i.hazard) + '</div>' +
+                '<div class="r-m"><span>' + I('clock', 12) + esc(i.time) + '</span><span>' + I('pin', 12) + esc(i.brgy) + '</span>' +
+                '<span>' + I('shield', 12) + i.corr + '/3</span></div></div>' + U.stageBadge(i.status) + '</button>').join('')
+            : '<div class="ug-empty"><div style="font-size:12px" class="ug-dim">No other open reports in your barangay.</div></div>') +
+          '</div></div>';
+      })() +
       '<div class="ug-card">' +
         '<div class="ug-card-h"><h3>Nearest Open Shelters</h3>' +
           '<button class="ug-dimmer" style="background:none;border:0;font-size:11.5px;cursor:pointer;display:flex;align-items:center;gap:3px"' + A('nav', attr({ route: 'centers' })) + '>All Shelters' + I('chevron', 13) + '</button></div>' +
@@ -542,7 +560,8 @@ const UG_SCREENS = (() => {
 
       '<div class="ug-card ug-card--flat">' +
         '<div class="ug-card-b" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
-          [['roadwork', 'road2', 'Road Work'], ['guides', 'guide', 'Guides'], ['faqs', 'faq', 'FAQs'], ['centers', 'shelter', 'Shelters']]
+          [['map', 'map', 'Hazard Map'], ['advisories', 'megaphone', 'Advisories'], ['roadwork', 'road2', 'Road Work'],
+ ['guides', 'guide', 'Guides'], ['faqs', 'faq', 'FAQs'], ['centers', 'shelter', 'Shelters']]
             .map(q => '<button class="ug-btn ug-btn--sm" style="width:100%"' + A('nav', attr({ route: q[0] })) + '>' + I(q[1], 15) + q[2] + '</button>').join('') +
         '</div>' +
       '</div>' +
@@ -586,9 +605,9 @@ const UG_SCREENS = (() => {
 
       '<div class="ug-field"><label class="ug-lab">Photo evidence</label>' +
         (r.photo
-          ? '<div class="ug-rowf ug-gap12" style="gap:10px;align-items:center;border:1px solid var(--ug-line);border-radius:10px;padding:9px">' + U.thumb('flood') +
+          ? '<div class="ug-rowf ug-gap12" style="gap:10px;align-items:center;border:1px solid var(--ug-line);border-radius:10px;padding:9px">' + (r.photoPreview ? '<img src="' + esc(r.photoPreview) + '" alt="Selected photo preview" style="width:62px;height:46px;border-radius:8px;object-fit:cover;flex:none;border:1px solid var(--ug-line)">' : '') +
             '<div style="min-width:0"><div style="font-size:12px;font-weight:600">' + esc(r.photoName || 'hazard-photo.jpg') + '</div>' +
-            '<div class="ug-dimmer" style="font-size:10.5px">2.4 MB &middot; GPS tag embedded</div></div>' +
+            '<div class="ug-dimmer" style="font-size:10.5px">' + esc(UG_UTIL.bytes(r.photoBytes || 0)) + ' after compression</div></div>' +
             '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto"' + A('rm-photo') + '>Replace</button></div>'
           : '<button class="ug-upload" style="width:100%"' + A('add-photo') + '>' +
             '<span class="up-ico">' + I('camera', 22) + '</span>' +
@@ -661,7 +680,7 @@ const UG_SCREENS = (() => {
                    ['dispatched', UG_THEME.STATUS.dispatched.label],
                    ['resolved', UG_THEME.STATUS.resolved.label],
                    ['rejected', UG_THEME.STATUS.rejected.label]];
-    const mineAll = (U.DATA.incidents || []).filter((i) => i.mine === true);
+    const mineAll = (U.DATA.incidents || []).filter((i) => i.mine); 
     const list = mineAll.filter((i) => f === 'all' || i.status === f); 
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">Incident Status Tracking</div><h2 style="font-size:19px;margin-top:3px">My Reports</h2>' +
@@ -673,7 +692,7 @@ const UG_SCREENS = (() => {
         const corr = st.corr[i.id] != null ? st.corr[i.id] : i.corr;
         const status = corr >= 3 && i.status === 'reported' ? 'verified' : i.status;
         return '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-report', attr({ id: i.id })) + '>' +
-          U.thumb(i.thumb) +
+          U.photo(i) +
           '<div class="r-main"><div class="r-t">' + U.ladder(i.sev) + esc(i.hazard) + '</div>' +
             '<div class="r-m"><span class="ug-mono">' + esc(i.id) + '</span><span>' + I('clock', 12) + esc(i.time) + '</span><span>' + I('shield', 12) + corr + '/3</span></div></div>' +
           U.stageBadge(status) + I('chevron', 16) + '</button>';
@@ -694,7 +713,7 @@ const UG_SCREENS = (() => {
 
   function mReportDetail(st){
     const id = st.openId;
-    const i = U.DATA.incidents.find(x => x.id === id) || U.DATA.incidents[0];
+    const i = U.DATA.incidents.find(x => x.id === id || x.uuid === id) || U.DATA.incidents[0];
     const corr = st.corr[i.id] != null ? st.corr[i.id] : i.corr;
     const auto = corr >= 3 && i.status === 'reported';
     const status = auto ? 'verified' : i.status;
@@ -737,7 +756,7 @@ const UG_SCREENS = (() => {
         '<div class="ug-rowf ug-between" style="gap:8px">' + U.sevBadge(i.sev) + U.stageBadge(status) + '</div>' +
         '<h2 style="font-size:18px">' + esc(i.hazard) + '</h2>' +
         '<div class="ug-dimmer ug-mono" style="font-size:11px">' + esc(i.id) + ' &middot; ' + esc(i.time) + ' &middot; ' + esc(i.brgy) + '</div>' +
-        U.thumb(i.thumb, 'bn-img') +
+        U.photo(i, 'bn-img') +
         '<p class="ug-dim" style="font-size:12.5px;line-height:1.55">' + esc(i.desc) + '</p>' +
       '</div></div>' +
 
@@ -761,7 +780,9 @@ const UG_SCREENS = (() => {
 
       '<div class="ug-card"><div class="ug-card-h"><h3>Corroboration</h3></div>' +
         '<div class="ug-card-b ug-col" style="gap:12px">' + U.corrMeter(corr) +
-          '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('confirm-corr', attr({ id: i.id })) + '>' + I('check', 15) + 'Confirm This Hazard Is Still There</button>' +
+          (i.mine
+  ? '<div class="ug-note">You filed this report, so you cannot confirm it yourself. Other residents in your barangay can.</div>'
+  : '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('confirm-corr', attr({ id: i.uuid || i.id })) + '>' + I('check', 15) + 'Confirm This Hazard Is Still There</button>') +
         '</div></div>' +
 
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-between" style="gap:8px">' +
@@ -1163,7 +1184,7 @@ const UG_SCREENS = (() => {
 
   /* ---- incident detail (feature 4 + 5) ---- */
   function dIncident(st){
-    const i = U.DATA.incidents.find(x => x.id === st.openId) || U.DATA.incidents[0];
+    const i = U.DATA.incidents.find(x => x.id === st.openId || x.uuid === st.openId) || U.DATA.incidents[0];
     const corr = st.corr[i.id] != null ? st.corr[i.id] : i.corr;
     const status = (corr >= 3 && i.status === 'reported') ? 'verified' : i.status;
     const corrRows = ['Marites Aquino', 'Joel Villanueva', 'Andrea Fernandez'].slice(0, Math.min(2, corr));
@@ -1186,7 +1207,7 @@ const UG_SCREENS = (() => {
       '<div class="ug-dgrid-detail">' +
         '<div class="ug-col" style="gap:18px">' +
           '<div class="ug-card"><div class="ug-card-h"><h3>Field Evidence</h3><span class="ug-dimmer ug-mono" style="font-size:10px">' + esc(i.id) + '_ev.jpg</span></div>' +
-            '<div class="ug-card-b ug-col" style="gap:10px">' + (i.thumb ? U.thumb(i.thumb, 'bn-img', 'height:110px') : '') +
+            '<div class="ug-card-b ug-col" style="gap:10px">' + (i.thumb ? U.photo(i, 'bn-img', 'height:110px') : '') +
               '<p class="ug-dim ug-clamp3" style="font-size:12.5px;line-height:1.6">' + esc(i.desc) + '</p>' +
               '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;font-size:11px;color:var(--ug-ink-3)">' +
                 '<span class="ug-rowf" style="gap:5px">' + I('camera', 13) + 'Photo attached</span>' +
@@ -1218,7 +1239,7 @@ const UG_SCREENS = (() => {
               '<div class="ug-rowf ug-gap10" style="gap:9px"><span class="ug-av" style="width:26px;height:26px;font-size:10px">' + esc(n.split(' ').map(w => w[0]).join('')) + '</span>' +
                 '<span style="font-size:12px">' + esc(n) + '</span>' +
                 '<span class="ug-dimmer ug-mono" style="font-size:10px;margin-left:auto">' + (k + 1) + 'm ago</span></div>').join('') +
-              '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('confirm-corr', attr({ id: i.id })) + '>' + I('plus', 14) + 'Log Corroboration</button>' +
+              '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('confirm-corr', attr({ id: i.uuid || i.id })) + '>' + I('plus', 14) + 'Log Corroboration</button>' +
             '</div></div>' +
           '<div class="ug-card"><div class="ug-card-h"><h3>Assignment</h3></div><div class="ug-card-b ug-col" style="gap:11px">' +
             [['Barangay scope', i.brgy], ['Assigned units', i.units ? i.units + ' deployed' : 'None Yet'], ['Priority', U.SEV[i.sev].label]]
@@ -1379,13 +1400,15 @@ const UG_SCREENS = (() => {
             '<div class="ug-rowf ug-between ug-mt8" style="font-size:10px;color:var(--ug-ink-3);padding-left:36px;padding-right:2px">' +
               '<span>13 days ago</span><span>10 days ago</span><span>7 days ago</span><span>4 days ago</span><span>Today</span></div></div></div>' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Pipeline Load</h3></div><div class="ug-card-b ug-col" style="gap:12px">' +
-          U.STAGES.map(s => {
-            const n = U.DATA.incidents.filter(i => i.status === s.key).length;
-            const pct = Math.round(n / U.DATA.incidents.length * 100);
-            return '<div class="ug-col" style="gap:6px"><div class="ug-rowf ug-between" style="font-size:11.5px">' +
-              '<span style="color:' + s.color + ';font-weight:600">' + s.label + '</span><span class="ug-mono">' + n + (n === 1 ? ' report' : ' reports') + '</span></div>' +
-              '<div style="height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden"><div style="height:100%;width:' + Math.max(6, pct) + '%;background:' + s.color + '"></div></div></div>';
-          }).join('') + '</div></div>' +
+          U.STAGES.concat([{ key: 'rejected', label: UG_THEME.STATUS.rejected.label, color: UG_THEME.STATUS.rejected.color }]).map(s => {
+  const total = U.DATA.incidents.length;
+  const n = U.DATA.incidents.filter(i => i.status === s.key).length;
+  const pct = total ? Math.round(n / total * 100) : 0;
+  return '<div class="ug-col" style="gap:6px"><div class="ug-rowf ug-between" style="font-size:11.5px">' +
+    '<span style="color:' + s.color + ';font-weight:600">' + s.label + '</span><span class="ug-mono">' + n + (n === 1 ? ' report' : ' reports') + '</span></div>' +
+    '<div style="height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden">' +
+    (n ? '<div style="height:100%;width:' + Math.max(4, pct) + '%;background:' + s.color + '"></div>' : '') + '</div></div>';
+}).join('') + '</div></div>' +
       '</div>' +
       '<div class="ug-dgrid2">' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Hazard Type Distribution</h3><span class="ug-dimmer ug-mono" style="font-size:10px">REPORTS THIS WEEK</span></div>' +
@@ -1404,7 +1427,6 @@ const UG_SCREENS = (() => {
             '<div class="ug-rowf ug-gap16" style="gap:16px;align-items:flex-end">' +
               '<div><div class="ug-mono" style="font-size:30px;font-weight:700;color:var(--ug-prepared)">' + (an.corroborationRate || 0) + '%</div>' +
               '<div class="ug-dimmer" style="font-size:10.5px">of reports reached three confirmations</div></div>' +
-              '<div style="flex:1">' + U.corrMeter(3) + '</div>' +
             '</div>' +
             '<div class="ug-hr"></div>' +
             '<div class="ug-dim" style="font-size:11.5px;line-height:1.6">Corroboration keeps the queue moving when call volumes spike. Only reports that reach three independent confirmations in the same barangay skip manual review; everything else stays with the duty officer.</div>' +
