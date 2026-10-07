@@ -29,6 +29,8 @@ const UG_WEB = (() => {
     ['home', 'Home', 'home'],
     ['report', 'Report a Hazard', 'plus'],
     ['relief', 'Relief', 'relief'],
+    ['advisories', 'Advisories', 'megaphone'],
+    ['map', 'Hazard Map', 'map'],
     ['guides', 'Guides', 'guide'],
     ['faqs', 'FAQs', 'faq'],
     ['centers', 'Shelters', 'shelter'],
@@ -78,7 +80,7 @@ const UG_WEB = (() => {
 
   function cwHome(st) {
     const top = U.DATA.advisories[0];
-    const mine = (U.DATA.incidents || []).filter(i => i.mine === true);
+    const mine = U.DATA.incidents.filter(i => i.mine);
     const openCenters = U.DATA.centers.filter(c => c.status === 'open');
     return '<div class="ug-col" style="gap:18px">' +
       cwHead('Home', 'Live situation for Barangay ' + esc((st.session && st.session.barangay) || UG_GEO.BARANGAYS[0]) + ', ' + esc(UG_GEO.PLACE.label) + '.',
@@ -90,7 +92,7 @@ const UG_WEB = (() => {
       '</div>' +
       '<div class="ug-wgrid-main">' +
         '<div class="ug-col" style="gap:18px;min-width:0">' +
-          '<div class="ug-banner" style="height:196px">' + U.thumb('surge', 'bn-img') +
+          '<div class="ug-banner" style="height:120px;background:linear-gradient(135deg,' + U.SEV[top.severity].color + '40,#0C1524)">' + U.thumb('surge', 'bn-img') +
             '<div class="bn-in">' +
               '<div class="ug-rowf ug-gap8" style="gap:6px">' + U.sevBadge(top.severity) + U.badge('id', 'Push alert') + '</div>' +
               '<h3 style="font-size:17px;line-height:1.3">' + esc(top.title) + '</h3>' +
@@ -99,7 +101,7 @@ const UG_WEB = (() => {
           '<div class="ug-card"><div class="ug-card-h"><h3>Your Reports</h3>' +
   '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('nav', attr({ route: 'reports' })) + '>View All</button></div>' +
   '<div class="ug-rows">' + (mine.length ? mine.slice(0, 3).map(i =>
-    '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-report', attr({ id: i.id })) + '>' + U.thumb(i.thumb) +
+    '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-report', attr({ id: i.id })) + '>' + U.photo(i) +
       '<div class="r-main"><div class="r-t">' + U.ladder(i.sev) + esc(i.hazard) + '</div>' +
         '<div class="r-m"><span class="ug-mono">' + esc(i.id) + '</span><span>' + I('clock', 12) + esc(i.time) + '</span>' +
         '<span>' + I('pin', 12) + esc(i.brgy) + '</span></div></div>' +
@@ -111,7 +113,7 @@ const UG_WEB = (() => {
 '<div class="ug-card"><div class="ug-card-h"><h3>Reported Near You</h3>' +
   '<span class="ug-dimmer" style="font-size:10.5px">Confirm a hazard if you can see it too</span></div>' +
   '<div class="ug-rows">' + (U.DATA.incidents.filter(i => !i.mine && i.status !== 'resolved' && i.status !== 'rejected').slice(0, 3).map(i =>
-    '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-report', attr({ id: i.id })) + '>' + U.thumb(i.thumb) +
+    '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-report', attr({ id: i.id })) + '>' + U.photo(i) +
       '<div class="r-main"><div class="r-t">' + U.ladder(i.sev) + esc(i.hazard) + '</div>' +
         '<div class="r-m"><span>' + I('clock', 12) + esc(i.time) + '</span><span>' + I('pin', 12) + esc(i.brgy) + '</span>' +
         '<span>' + I('shield', 12) + i.corr + '/3</span></div></div>' +
@@ -119,12 +121,13 @@ const UG_WEB = (() => {
     '<div class="ug-empty"><div style="font-size:12px" class="ug-dim">No other open reports in your barangay.</div></div>') +
   '</div></div>' +
           '<div class="ug-card"><div class="ug-card-h"><h3>Advisories and Alerts</h3>' +
-            '<span class="ug-chip is-on" style="font-size:10px">' + U.DATA.advisories.filter(a => a.severity !== 'prepared').length + ' live</span></div>' +
-            '<div class="ug-rows">' + U.DATA.advisories.slice(0, 3).map(a =>
-              '<div class="ug-row"><span class="r-dot" style="background:' + U.SEV[a.severity].color + '"></span>' +
+  '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('nav', attr({ route: 'advisories' })) + '>View All</button></div>' +
+  '<div class="ug-rows">' + U.DATA.advisories.slice(0, 3).map(a =>
+              '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-advisory', attr({ id: a.id })) + '>' +
+                '<span class="r-dot" style="background:' + U.SEV[a.severity].color + '"></span>' +
                 '<div class="r-main"><div class="r-t" style="font-size:12.5px">' + esc(a.title) + '</div>' +
                 '<div class="r-m"><span>' + I('pin', 12) + esc(a.area) + '</span><span>' + esc(a.type) + '</span><span>' + esc(a.time) + '</span></div></div>' +
-                U.sevBadge(a.severity) + '</div>').join('') + '</div></div>' +
+                U.sevBadge(a.severity) + '</button>').join('') + '</div></div>' +
         '</div>' +
         '<div class="ug-col" style="gap:18px;min-width:0">' +
           '<div class="ug-card"><div class="ug-card-h"><h3>Nearest Open Shelters</h3>' +
@@ -184,9 +187,9 @@ const UG_WEB = (() => {
           '<div class="ug-card"><div class="ug-card-h"><h3>Photo Evidence</h3><span class="ug-dimmer" style="font-size:10.5px">Optional</span></div>' +
             '<div class="ug-card-b">' +
               (r.photo
-                ? '<div class="ug-rowf ug-gap12" style="gap:10px;align-items:center;border:1px solid var(--ug-line);border-radius:10px;padding:9px">' + U.thumb('flood') +
+                ? '<div class="ug-rowf ug-gap12" style="gap:10px;align-items:center;border:1px solid var(--ug-line);border-radius:10px;padding:9px">' + (r.photoPreview ? '<img src="' + esc(r.photoPreview) + '" alt="Selected photo preview" style="width:62px;height:46px;border-radius:8px;object-fit:cover;flex:none;border:1px solid var(--ug-line)">' : '') +
                   '<div style="min-width:0"><div style="font-size:12px;font-weight:600">' + esc(r.photoName || 'hazard-photo.jpg') + '</div>' +
-                  '<div class="ug-dimmer" style="font-size:10.5px">2.4 MB &middot; GPS tag embedded</div></div>' +
+                  '<div class="ug-dimmer" style="font-size:10.5px">' + esc(UG_UTIL.bytes(r.photoBytes || 0)) + ' after compression</div></div>' +
                   '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto"' + A('rm-photo') + '>Replace</button></div>'
                 : '<button class="ug-upload" style="width:100%"' + A('add-photo') + '><span class="up-ico">' + I('camera', 22) + '</span>' +
                   '<span style="font-size:13px;font-weight:600">Tap to Attach a Hazard Photo</span>' +
@@ -226,7 +229,7 @@ const UG_WEB = (() => {
             '<div class="ug-rowf ug-between" style="gap:8px">' + U.sevBadge(a.severity) +
             '<span class="ug-dimmer ug-mono" style="font-size:10px">' + esc(a.time) + '</span></div>' +
             '<h3 style="font-size:14px;line-height:1.35">' + esc(a.title) + '</h3>' +
-            '<p class="ug-dim" style="font-size:11.5px;line-height:1.5">' + esc(a.body.slice(0, 104)) + '...</p>' +
+            '<p class="ug-dim" style="font-size:11.5px;line-height:1.5">' + esc(a.body.slice(0, 104)) + (a.body.length > 104 ? '...' : '') + '</p>' +
             '<div class="ug-dimmer ug-rowf" style="font-size:10.5px;gap:10px">' +
               '<span class="ug-rowf" style="gap:4px">' + I('pin', 12) + esc(a.area) + '</span>' +
               '<span class="ug-rowf" style="gap:4px">' + I('flag', 12) + esc(a.type) + '</span></div>' +
@@ -416,6 +419,9 @@ const UG_WEB = (() => {
           ? UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'report-detail' })) : cwHome(st);
       case 'sos':
         return cwWrap(st, 'SOS', 'One-tap emergency signal to the LGU / LDRRMO duty officer.', UG_SOS.mSos(st));
+      case 'map':
+        return cwWrap(st, 'Hazard Map', 'Hazards, relief, shelters and road status around you.',
+          UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'map' })));
       default: return cwHome(st);
     }
   }
