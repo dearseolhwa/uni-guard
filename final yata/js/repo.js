@@ -436,14 +436,14 @@ const Repo = (function () {
   /* --------------------------------------------------------------- reports */
   async function createReport(input) {
     const c = client();
-    if (!c) {
+        if (!c) {
       /* offline: keep it in the queue and show it locally */
       const code = 'PENDING-' + Math.random().toString(36).slice(2, 7).toUpperCase();
       const row = toIncident({
         code: code, hazard_type: input.hazard_type, hazard_other_text: input.hazard_other_text,
         barangay: input.barangay, description: input.description,
         severity: input.severity, status: 'reported', lat: input.lat, lng: input.lng,
-        created_at: new Date().toISOString(), corroborations: 1
+        created_at: new Date().toISOString(), corroborations: 1, is_mine: true   // <-- added
       }, UG.DATA.incidents.length);
       UG.DATA.incidents.unshift(row);
       recomputeKpis();
