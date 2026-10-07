@@ -97,13 +97,27 @@ const UG_WEB = (() => {
               '<div class="ug-dimmer ug-rowf" style="font-size:11px;gap:8px">' + I('pin', 13) + esc(top.area) + ' &middot; ' + esc(top.time) + '</div>' +
             '</div></div>' +
           '<div class="ug-card"><div class="ug-card-h"><h3>Your Reports</h3>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('nav', attr({ route: 'reports' })) + '>View All</button></div>' +
-            '<div class="ug-rows">' + U.DATA.incidents.slice(0, 3).map(i =>
-              '<div class="ug-row">' + U.thumb(i.thumb) +
-                '<div class="r-main"><div class="r-t">' + U.ladder(i.sev) + esc(i.hazard) + '</div>' +
-                  '<div class="r-m"><span class="ug-mono">' + esc(i.id) + '</span><span>' + I('clock', 12) + esc(i.time) + '</span>' +
-                  '<span>' + I('pin', 12) + esc(i.brgy) + '</span></div></div>' +
-                U.stageBadge(i.status) + '</div>').join('') + '</div></div>' +
+  '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('nav', attr({ route: 'reports' })) + '>View All</button></div>' +
+  '<div class="ug-rows">' + (mine.length ? mine.slice(0, 3).map(i =>
+    '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-report', attr({ id: i.id })) + '>' + U.thumb(i.thumb) +
+      '<div class="r-main"><div class="r-t">' + U.ladder(i.sev) + esc(i.hazard) + '</div>' +
+        '<div class="r-m"><span class="ug-mono">' + esc(i.id) + '</span><span>' + I('clock', 12) + esc(i.time) + '</span>' +
+        '<span>' + I('pin', 12) + esc(i.brgy) + '</span></div></div>' +
+      U.stageBadge(i.status) + '</button>').join('')
+    : '<div class="ug-empty"><span class="e-ico">' + I('inbox', 20) + '</span>' +
+      '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">You have not filed a report yet</div></div>') +
+  '</div></div>' +
+
+'<div class="ug-card"><div class="ug-card-h"><h3>Reported Near You</h3>' +
+  '<span class="ug-dimmer" style="font-size:10.5px">Confirm a hazard if you can see it too</span></div>' +
+  '<div class="ug-rows">' + (U.DATA.incidents.filter(i => !i.mine && i.status !== 'resolved' && i.status !== 'rejected').slice(0, 3).map(i =>
+    '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-report', attr({ id: i.id })) + '>' + U.thumb(i.thumb) +
+      '<div class="r-main"><div class="r-t">' + U.ladder(i.sev) + esc(i.hazard) + '</div>' +
+        '<div class="r-m"><span>' + I('clock', 12) + esc(i.time) + '</span><span>' + I('pin', 12) + esc(i.brgy) + '</span>' +
+        '<span>' + I('shield', 12) + i.corr + '/3</span></div></div>' +
+      U.stageBadge(i.status) + '</button>').join('') ||
+    '<div class="ug-empty"><div style="font-size:12px" class="ug-dim">No other open reports in your barangay.</div></div>') +
+  '</div></div>' +
           '<div class="ug-card"><div class="ug-card-h"><h3>Advisories and Alerts</h3>' +
             '<span class="ug-chip is-on" style="font-size:10px">' + U.DATA.advisories.filter(a => a.severity !== 'prepared').length + ' live</span></div>' +
             '<div class="ug-rows">' + U.DATA.advisories.slice(0, 3).map(a =>
