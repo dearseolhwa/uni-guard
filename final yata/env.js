@@ -15,7 +15,7 @@ window.UG_ENV = {
 
   /* Shown in the app so you can tell at a glance which build is running.
      Bump it on every deploy. */
-  BUILD: '2026-10-04.2',
+  BUILD: '2026-10-07.6',
 
   /* Keep false in production. Turns on the preview bar and ?role=/?route= links. */
   DEV: false
