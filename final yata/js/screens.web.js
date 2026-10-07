@@ -78,7 +78,7 @@ const UG_WEB = (() => {
 
   function cwHome(st) {
     const top = U.DATA.advisories[0];
-    const mine = U.DATA.incidents[0];
+    const mine = (U.DATA.incidents || []).filter(i => i.mine === true);
     const openCenters = U.DATA.centers.filter(c => c.status === 'open');
     return '<div class="ug-col" style="gap:18px">' +
       cwHead('Home', 'Live situation for Barangay ' + esc((st.session && st.session.barangay) || UG_GEO.BARANGAYS[0]) + ', ' + esc(UG_GEO.PLACE.label) + '.',
