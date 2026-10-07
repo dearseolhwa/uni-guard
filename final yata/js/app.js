@@ -91,7 +91,7 @@
       const el = q('[data-field="' + focusField + '"]');
       if (el && el.focus) {
         el.focus();
-        try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {}
+        try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) { }
       }
     }
     paintChrome();
@@ -102,7 +102,7 @@
        a failure silently leaves the form ready for the manual Acquire button. */
     if (S.session && S.route === 'report' && !S.report.gps && !S.report._autoTriggered) {
       S.report._autoTriggered = true;
-      APP_ACTIONS.gps().catch(() => {});
+      APP_ACTIONS.gps().catch(() => { });
     }
   }
 
@@ -220,8 +220,8 @@
     /* merge the freshly loaded notifications into the local store so a citizen
        who closes the app and reopens it still sees the alerts that came in
        between; then fire any emergency overlay that has not been acknowledged. */
-    try { UG_NOTIF_STORE.mergeAll(UG.DATA.notifications || []); } catch (e) {}
-    try { UG_URGENT.scan(); } catch (e) {}
+    try { UG_NOTIF_STORE.mergeAll(UG.DATA.notifications || []); } catch (e) { }
+    try { UG_URGENT.scan(); } catch (e) { }
     render();
   }
 
@@ -244,7 +244,7 @@
     const want = '#' + route;
     if (window.location.hash === want) return;
     try { window.history.replaceState(null, '', want); }
-    catch (e) { try { window.location.hash = route; } catch (e2) {} }
+    catch (e) { try { window.location.hash = route; } catch (e2) { } }
   }
 
   const go = (route) => { S.route = route; S.openId = null; setHash(route); };
@@ -259,7 +259,7 @@
   }
   function setNav(open) {
     document.body.classList.toggle('ug-nav-open', !!open);
-    try { localStorage.setItem(NAV_KEY, open ? '1' : '0'); } catch (e) {}
+    try { localStorage.setItem(NAV_KEY, open ? '1' : '0'); } catch (e) { }
     const b = document.querySelector('[data-act="toggle-nav"]');
     if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
@@ -276,7 +276,7 @@
   function enterApp(session, message) {
     S.session = session;
     S.screen = 'app';
-      if (session.barangay && UG_GEO.BARANGAYS.indexOf(session.barangay) !== -1) {
+    if (session.barangay && UG_GEO.BARANGAYS.indexOf(session.barangay) !== -1) {
       S.report.brgy = session.barangay;
     }
     S.auth = blankAuth();
@@ -324,7 +324,7 @@
     combo.querySelectorAll('.ug-combo-option').forEach((it) => it.classList.remove('is-active'));
     opt.classList.add('is-active');
     if (scroll && opt.scrollIntoView) {
-      try { opt.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+      try { opt.scrollIntoView({ block: 'nearest' }); } catch (e) { }
     }
   }
   function filterBarangayCombo(combo, query) {
@@ -448,7 +448,7 @@
       const btn = combo.querySelector('.ug-combo-btn');
       if (hidden) {
         hidden.value = id;
-        try { hidden.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+        try { hidden.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) { }
       }
       if (val) {
         val.textContent = name;
@@ -581,7 +581,7 @@
     'center-filter': (d) => { S.centerFilter = d.v; render(); },
     'set-urg': (d) => { S.report.urg = d.v; render(); },
 
-   gps: async () => {
+    gps: async () => {
       toast('Reading your position...', 'info');
       try {
         const p = await UG_FEATURES.locate();
@@ -626,7 +626,7 @@
     /* drag-adjustment of the GPS pin: the report screen hosts a small Leaflet
        map that the citizen can drag the marker on. This action receives the new
        {lat,lng} and stores it on S.report. */
-        'report-pin-drop': async (d) => {
+    'report-pin-drop': async (d) => {
       const lat = parseFloat(d.lat), lng = parseFloat(d.lng);
       if (!isFinite(lat) || !isFinite(lng)) return;
       S.report.lat = lat; S.report.lng = lng; S.report.gps = true;
@@ -653,13 +653,21 @@
         S.report.photoBlob = out.blob;
         S.report.photoName = file.name || 'hazard.jpg';
         S.report.photo = true;
+        if (S.report.photoPreview) { try { URL.revokeObjectURL(S.report.photoPreview); } catch (e) {} }
+        S.report.photoPreview = URL.createObjectURL(out.blob);
+        S.report.photoBytes = out.bytes;
         toast('Photo attached, ' + UG_UTIL.bytes(out.bytes) + ' after compression', 'prepared');
       } catch (e) {
         toast(e.message, 'warning');
       }
       render();
     },
-    'rm-photo': () => { S.report.photo = false; S.report.photoBlob = null; S.report.photoName = ''; render(); },
+        'rm-photo': () => {
+      if (S.report.photoPreview) { try { URL.revokeObjectURL(S.report.photoPreview); } catch (e) {} }
+      S.report.photo = false; S.report.photoBlob = null; S.report.photoName = '';
+      S.report.photoPreview = null; S.report.photoBytes = null;
+      render();
+    },
 
     'submit-report': async () => {
       const r = S.report;
@@ -673,7 +681,7 @@
       r.busy = true;
       try {
         if (!UG_PWA.state.online || !Repo.online()) {
-            await UG_PWA.enqueue({
+          await UG_PWA.enqueue({
             hazard_type: r.hazard, hazard_other_text: r.hazardOther || '', barangay: r.brgy, description: r.desc.trim(),
             severity: r.urg || 'advisory', urgency: r.urg, lat: r.lat, lng: r.lng,
             photoBlob: r.photoBlob || null
@@ -842,14 +850,17 @@
         title: 'Declare emergency',
         message: 'Broadcast a municipality-wide emergency alert to every subscribed device?',
         detail: '<div class="ug-kv"><dt>Reach</dt><dd>' + devices + ' subscribed devices</dd>' +
-                '<dt>SMS fallback</dt><dd>queued for devices without push</dd>' +
-                '<dt>Audit</dt><dd>this action is recorded</dd></div>',
+          '<dt>SMS fallback</dt><dd>queued for devices without push</dd>' +
+          '<dt>Audit</dt><dd>this action is recorded</dd></div>',
         confirmLabel: 'Broadcast now',
         danger: true
       });
       if (!ok) return;
       try {
-        const res = await Repo.declareEmergency({ title: 'Emergency declaration: municipality-wide response activated' });
+        const res = await Repo.declareEmergency({
+  title: 'Emergency declaration: municipality-wide response activated',
+  body: 'The Municipal DRRMO has declared a municipality-wide emergency. Follow official instructions, move to the nearest open evacuation center if advised, and keep monitoring UniGuard advisories.'
+});
         toast('Emergency declaration broadcast to ' + ((res && res.devices) != null ? res.devices : devices) + ' devices', 'emergency');
         if (S.role !== 'citizen') S.route = 'advisories';
       } catch (e) { toast(e.message, 'warning'); }
@@ -887,15 +898,15 @@
     'read-all': async () => {
       try {
         await Repo.markAllRead();
-        try { UG_NOTIF_STORE.markAllReadLocal(); } catch (e) {}
+        try { UG_NOTIF_STORE.markAllReadLocal(); } catch (e) { }
         toast('All notifications marked as read', 'info');
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
 
     'open-notification': async (d) => {
-      try { await Repo.markRead(d.id); } catch (e) {}
-      try { UG_NOTIF_STORE.markReadLocal(d.id); } catch (e) {}
+      try { await Repo.markRead(d.id); } catch (e) { }
+      try { UG_NOTIF_STORE.markReadLocal(d.id); } catch (e) { }
       /* a notification may deep-link to one of several destinations depending on
          its type / FK; pick the right one so the citizen lands where they expect. */
       if (d.advisory) { S.openId = d.advisory; S.route = 'advisory-detail'; }
@@ -1018,57 +1029,57 @@
     },
 
     'admin-create': async () => {
-  if (!requireRole(['lgu_ldrrmc'])) { toast('Only LGU can create officials', 'warning'); return; }
+      if (!requireRole(['lgu_ldrrmc'])) { toast('Only LGU can create officials', 'warning'); return; }
 
-  let list = S.barangays || [];
-  if (!list.length) { list = await Repo.listBarangays(); S.barangays = list; }
-  const opts = list.map((b) =>
-    '<option value="' + UG_UTIL.esc(b.id) + '">' + UG_UTIL.esc(b.name) + '</option>').join('');
+      let list = S.barangays || [];
+      if (!list.length) { list = await Repo.listBarangays(); S.barangays = list; }
+      const opts = list.map((b) =>
+        '<option value="' + UG_UTIL.esc(b.id) + '">' + UG_UTIL.esc(b.name) + '</option>').join('');
 
-  UG_FEATURES.modal({
-    title: 'Create a barangay official',
-    body:
-  '<div class="ug-field"><label class="ug-lab">Full name</label>' +
-    '<input class="ug-in" type="text" data-invite-name placeholder="Juan Dela Cruz" autocomplete="off"></div>' +
-  '<div class="ug-field"><label class="ug-lab">Email address</label>' +
-    '<input class="ug-in" type="email" data-invite-email placeholder="official@lingayen.gov.ph"></div>' +
-  '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Barangay</label>' +
-    '<select class="ug-sel" data-invite-brgy><option value="">Select a barangay</option>' + opts + '</select>' +
-    '<div class="ug-help">This official will only see and manage reports from this barangay.</div></div>',
-    footer:
-      '<button class="ug-btn" data-modal-close>Cancel</button>' +
-      '<button class="ug-btn ug-btn--signal" data-send>Send Invitation</button>',
-    onMount: (wrap, close) => {
-    const nameEl = wrap.querySelector('[data-invite-name]');
-    const emailEl = wrap.querySelector('[data-invite-email]');
-    const brgyEl = wrap.querySelector('[data-invite-brgy]');
-    const sendBtn = wrap.querySelector('[data-send]');
-    setTimeout(() => nameEl.focus(), 30);
+      UG_FEATURES.modal({
+        title: 'Create a barangay official',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Full name</label>' +
+          '<input class="ug-in" type="text" data-invite-name placeholder="Juan Dela Cruz" autocomplete="off"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Email address</label>' +
+          '<input class="ug-in" type="email" data-invite-email placeholder="official@lingayen.gov.ph"></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Barangay</label>' +
+          '<select class="ug-sel" data-invite-brgy><option value="">Select a barangay</option>' + opts + '</select>' +
+          '<div class="ug-help">This official will only see and manage reports from this barangay.</div></div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-send>Send Invitation</button>',
+        onMount: (wrap, close) => {
+          const nameEl = wrap.querySelector('[data-invite-name]');
+          const emailEl = wrap.querySelector('[data-invite-email]');
+          const brgyEl = wrap.querySelector('[data-invite-brgy]');
+          const sendBtn = wrap.querySelector('[data-send]');
+          setTimeout(() => nameEl.focus(), 30);
 
-    sendBtn.addEventListener('click', async () => {
-  const fullName = nameEl.value.trim();
-  const email = emailEl.value.trim();
-  const barangayId = brgyEl.value;
-  if (!fullName) { toast('Enter the official\'s full name', 'warning'); return; }
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email address', 'warning'); return; }
-  if (!barangayId) { toast('Select the barangay this official will manage', 'warning'); return; }
+          sendBtn.addEventListener('click', async () => {
+            const fullName = nameEl.value.trim();
+            const email = emailEl.value.trim();
+            const barangayId = brgyEl.value;
+            if (!fullName) { toast('Enter the official\'s full name', 'warning'); return; }
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email address', 'warning'); return; }
+            if (!barangayId) { toast('Select the barangay this official will manage', 'warning'); return; }
 
-  sendBtn.disabled = true;
-  try {
-    await Repo.adminUsers('create', { email: email, fullName: fullName, role: 'barangay_official', barangayId: barangayId })
-          close();
-          const name = (list.find((b) => String(b.id) === String(barangayId)) || {}).name || '';
-          toast('Invitation sent to ' + email + ' for ' + name, 'prepared');
-          S.users = await Repo.listUsers(); UG.DATA.users = S.users;
-          render();
-        } catch (e) {
-          sendBtn.disabled = false;
-          toast(e.message, 'warning');
+            sendBtn.disabled = true;
+            try {
+              await Repo.adminUsers('create', { email: email, fullName: fullName, role: 'barangay_official', barangayId: barangayId })
+              close();
+              const name = (list.find((b) => String(b.id) === String(barangayId)) || {}).name || '';
+              toast('Invitation sent to ' + email + ' for ' + name, 'prepared');
+              S.users = await Repo.listUsers(); UG.DATA.users = S.users;
+              render();
+            } catch (e) {
+              sendBtn.disabled = false;
+              toast(e.message, 'warning');
+            }
+          });
         }
       });
-    }
-  });
-},
+    },
 
     'admin-role': async (d, el) => {
       try {
@@ -1150,12 +1161,16 @@
     'report-status-filter': (d) => { S.reportStatusFilter = d.v; render(); },
 
     'relief-add': async () => {
-      const fields = await UG_FEATURES.prompt({ title: 'Add a relief distribution',
-        label: 'Title', placeholder: 'e.g. Family Food Pack Distribution' });
+      const fields = await UG_FEATURES.prompt({
+        title: 'Add a relief distribution',
+        label: 'Title', placeholder: 'e.g. Family Food Pack Distribution'
+      });
       if (!fields) return;
       try {
-        await Repo.createRelief({ title: fields, barangay: S.barangays[0] ? S.barangays[0].name : '', active: true,
-          eligibility: [], required_docs: [] });
+        await Repo.createRelief({
+          title: fields, barangay: S.barangays[0] ? S.barangays[0].name : '', active: true,
+          eligibility: [], required_docs: []
+        });
         toast('Relief distribution added', 'prepared');
       } catch (e) { toast(e.message, 'warning'); }
       render();
@@ -1175,8 +1190,10 @@
       const claimant = await UG_FEATURES.prompt({ title: 'Claimant', label: 'Who will claim on their behalf?', placeholder: 'Same as beneficiary' });
       const claimantId = await UG_FEATURES.prompt({ title: 'Claimant ID', label: 'ID number', placeholder: 'ID-2026-000000' });
       try {
-        await Repo.createBeneficiary({ beneficiary_name: name, claimant_name: claimant || name,
-          claimant_id: claimantId || '', barangay: S.barangays[0] ? S.barangays[0].name : '', category: 'Affected household' });
+        await Repo.createBeneficiary({
+          beneficiary_name: name, claimant_name: claimant || name,
+          claimant_id: claimantId || '', barangay: S.barangays[0] ? S.barangays[0].name : '', category: 'Affected household'
+        });
         toast('Beneficiary added', 'prepared');
       } catch (e) { toast(e.message, 'warning'); }
       render();
@@ -1317,7 +1334,7 @@
           reach: res && typeof res.reach === 'number' ? res.reach : null,
           at: new Date().toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })
         };
-        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); } catch (e) {}
+        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); } catch (e) { }
         toast('SOS sent. Duty officers have been notified.', 'emergency');
       } catch (e) {
         toast(e.message || 'Could not send SOS', 'warning');
