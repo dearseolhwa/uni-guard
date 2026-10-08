@@ -685,22 +685,21 @@ const Repo = (function () {
   /* -------------------------------------------------------- declare emergency */
   /* Runs through the declare_emergency() server function: it is LGU only, it
      writes an audit row, and it returns the real subscribed device count. */
-  async function declareEmergency(payload) {
+    async function declareEmergency(payload) {
     const c = client();
     if (!c) return { local: true, devices: 0, notified: 0 };
-    const { data, error } = await c.rpc('declare_emergency', {
-      p_title: (payload && payload.title) || 'Emergency declaration: municipality-wide response activated',
-      p_body: (payload && payload.body) || '',
-      p_area: (payload && payload.area) || UG_GEO.PLACE.areaAll
-    });
+    const title = (payload && payload.title) || 'Emergency declaration: municipality-wide response activated';
+    const body = (payload && payload.body) ||
+      'The Municipal DRRMO has declared a municipality-wide emergency. Follow official instructions, move to the nearest open evacuation center if advised, and keep monitoring UniGuard advisories.';
+    const area = (payload && payload.area) || UG_GEO.PLACE.areaAll;
+    const { data, error } = await c.rpc('declare_emergency', { p_title: title, p_body: body, p_area: area });
     if (error) fail(error);
     await loadAll();
     if (window.UG_PUSH_DISPATCH !== false && data && data.advisory_id) {
       /* best effort: hand the advisory to the push gateway */
       try {
         await c.functions.invoke('push-dispatch', {
-          body: { title: (payload && payload.title) || 'Emergency declaration', body: (payload && payload.body) || '',
-                  severity: 'emergency', advisoryId: data.advisory_id, area: (payload && payload.area) || UG_GEO.PLACE.areaAll }
+          body: { title: title, body: body, severity: 'emergency', advisoryId: data.advisory_id, area: area }
         });
       } catch (e) { /* push is an enhancement; the advisory is already published */ }
     }
