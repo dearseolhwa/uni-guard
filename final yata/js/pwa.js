@@ -68,6 +68,9 @@ const UG_PWA = (function () {
     return tx(STORE_SNAPSHOT, 'readonly', (s) => s.get('data')).catch(() => null);
   }
 
+    function clearSnapshot() {
+    return tx(STORE_SNAPSHOT, 'readwrite', (s) => s.delete('data')).catch(() => null);
+  }
   async function hydrateFromCache() {
     const snap = await readSnapshot();
     if (!snap) return false;
