@@ -203,7 +203,7 @@ const UG_WEB = (() => {
               '<div class="ug-hr" style="margin:14px 0"></div>' +
               '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Barangay queue</span><span class="ug-mono">' + esc(r.brgy) + '</span></div>' +
               '<div class="ug-rowf ug-between" style="font-size:12px;margin-top:8px"><span class="ug-dim">Verification</span>' +
-              '<span class="ug-mono" style="color:var(--ug-warning)">3 corroborations</span></div>' +
+              '<span class="ug-mono" style="color:var(--ug-warning)">1 of 3 at filing</span></div>' +
             '</div></div>' +
           '<button class="ug-btn ug-btn--signal ug-btn--block' + (r.desc.trim() ? '' : ' is-disabled') + '"' + A('submit-report') + '>' +
             I('check', 16) + 'Submit Report</button>' +
@@ -224,7 +224,6 @@ const UG_WEB = (() => {
         '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? U.DATA.advisories.length : U.DATA.advisories.filter(x => x.severity === c[0]).length) + '</span></button>').join('') + '</div>' +
       '<div class="ug-wgrid-cards">' + list.map((a, k) =>
         '<button class="ug-card" style="text-align:left;cursor:pointer"' + A('open-advisory', attr({ id: a.id })) + '>' +
-          (k === 0 ? '<div class="ug-banner" style="height:132px">' + U.thumb('surge', 'bn-img') + '</div>' : '') +
           '<div class="ug-card-b ug-col" style="gap:9px">' +
             '<div class="ug-rowf ug-between" style="gap:8px">' + U.sevBadge(a.severity) +
             '<span class="ug-dimmer ug-mono" style="font-size:10px">' + esc(a.time) + '</span></div>' +
