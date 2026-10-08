@@ -560,7 +560,7 @@
       if (!ok) return;
       MapView.destroy();
       await Auth.signOut();
-      await UG_PWA.clearSnapshot();
+      try { await UG_PWA.clearSnapshot(); } catch (e) { /* cleanup must never block signing out */ }
       S.session = null;
       S.auth = blankAuth();
       S.auth.notice = 'You have been signed out.';
