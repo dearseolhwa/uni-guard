@@ -32,6 +32,15 @@
 -- --------------------------------------------------------------- scope helper
 -- One predicate, reused by every view and function below. Kept in exactly one
 -- place so the analytics scope rule cannot drift between objects.
+
+drop view if exists public.analytics_by_hazard;
+drop view if exists public.analytics_pipeline;
+drop view if exists public.analytics_daily;
+drop view if exists public.analytics_response_times;
+drop view if exists public.analytics_corroboration;
+drop view if exists public.analytics_shelters;
+drop view if exists public.analytics_by_barangay;
+
 create or replace function public.analytics_visible()
 returns boolean language sql stable security definer set search_path = public as $$
   select public.is_lgu() or public.is_official();
