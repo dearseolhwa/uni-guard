@@ -8,17 +8,17 @@ prototype; everything behind them is now a working system.
 
 ## Phase status
 
-| Phase | Scope | Status |
-|---|---|---|
-| 1 | Schema and security (SQL migrations) | done |
-| 2 | Auth and login screen | done |
-| 3 | Data layer (async repository, loading/error/empty states, Realtime, viewport layout) | done |
-| 4 | Real features (report, corroboration, status, CRUD, notifications, declare) | done |
-| 5 | Map (Leaflet + OpenStreetMap) | done |
-| 6 | PWA and offline (manifest, service worker, IndexedDB, queue) | done |
-| 7 | Alerts (Web Push Edge Function, SMS fallback interface) | done, needs a deployed project to exercise |
-| 8 | Admin and analytics (users, audit, assignment, SQL views, CSV) | done |
-| 9 | Hardening and deploy (rate limiting, RLS test, logging, backups, privacy notice) | done |
+| Phase | Scope                                                                                | Status                                     |
+| ----- | ------------------------------------------------------------------------------------ | ------------------------------------------ |
+| 1     | Schema and security (SQL migrations)                                                 | done                                       |
+| 2     | Auth and login screen                                                                | done                                       |
+| 3     | Data layer (async repository, loading/error/empty states, Realtime, viewport layout) | done                                       |
+| 4     | Real features (report, corroboration, status, CRUD, notifications, declare)          | done                                       |
+| 5     | Map (Leaflet + OpenStreetMap)                                                        | done                                       |
+| 6     | PWA and offline (manifest, service worker, IndexedDB, queue)                         | done                                       |
+| 7     | Alerts (Web Push Edge Function, SMS fallback interface)                              | done, needs a deployed project to exercise |
+| 8     | Admin and analytics (users, audit, assignment, SQL views, CSV)                       | done                                       |
+| 9     | Hardening and deploy (rate limiting, RLS test, logging, backups, privacy notice)     | done                                       |
 
 ---
 
@@ -111,8 +111,9 @@ The first entry is **Home**, which is the operations dashboard.
 
 ## Getting started
 
-1. **Database.** Run `migrations/000` … `009` in order. `000` is read only and tells
-   you what already exists. Then, in development only, run `seed/001_sample_data.sql`.
+1. **Database.** Run `migrations/000` … `025` in order. `000` is read only and tells
+   you what already exists. Then, in development only, run `seed/001_sample_data.sql` and
+   `seed/002_relief_guides_faqs_roadwork.sql`.
 2. **Auth settings.** Confirm email, Site URL and redirect URLs. See `docs/DEPLOY.md` §2.
 3. **Configuration.** `cp .env.example .env.local`, fill it in, then generate `env.js`
    from it. Only the anon key goes in `env.js`.
@@ -138,18 +139,34 @@ credentials exist anywhere.
 
 Additive and re-runnable. No table, column or row is ever dropped.
 
-| File | Contents |
-|---|---|
-| `000_inspect_current_schema.sql` | read only inventory of what exists |
-| `001_align_core_tables.sql` | the six core tables brought up to the Phase 1 field list |
-| `002_report_workflow.sql` | `UG-YYYY-NNNN` codes, corroborations, status history, auto-verify trigger |
-| `003_notifications_audit.sql` | notifications, push subscriptions, audit log, advisory fan-out |
-| `004_rls_policies.sql` | role helpers, field protection, every RLS policy, `reports_feed` |
-| `005_storage_bucket.sql` | private `reports` bucket, image only, 5 MB, user prefixed paths |
-| `006_auth_profile_and_roles.sql` | profile trigger with the role forced to citizen, secure role admin |
-| `007_report_rpcs.sql` | `corroborate_report`, `advance_report_status`, responders and assignment |
-| `008_analytics_views.sql` | the six analytics views the console reads |
-| `009_hardening.sql` | rate limiting, `declare_emergency`, client error log, housekeeping |
+| File                                | Contents                                                                                           |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `000_inspect_current_schema.sql`    | read only inventory of what exists                                                                 |
+| `001_align_core_tables.sql`         | the six core tables brought up to the Phase 1 field list                                           |
+| `002_report_workflow.sql`           | `UG-YYYY-NNNN` codes, corroborations, status history, auto-verify trigger                          |
+| `003_notifications_audit.sql`       | notifications, push subscriptions, audit log, advisory fan-out                                     |
+| `004_rls_policies.sql`              | role helpers, field protection, every RLS policy, `reports_feed`                                   |
+| `005_storage_bucket.sql`            | private `reports` bucket, image only, 5 MB, user prefixed paths                                    |
+| `006_auth_profile_and_roles.sql`    | profile trigger with the role forced to citizen, secure role admin                                 |
+| `007_report_rpcs.sql`               | `corroborate_report`, `advance_report_status`, responders and assignment                           |
+| `008_analytics_views.sql`           | the six analytics views the console reads                                                          |
+| `009_hardening.sql`                 | rate limiting, `declare_emergency`, client error log, housekeeping                                 |
+| `010_hazard_types.sql`              | `hazard_other_text` for "Others", `rejected` report status                                         |
+| `011_relief_assistance.sql`         | `relief_distributions` and `authorized_beneficiaries`                                              |
+| `012_road_works.sql`                | `road_work_posts` and the `fanout_road_work` notification fan-out                                  |
+| `013_faqs.sql`                      | `faqs`, managed by the LGU                                                                         |
+| `014_preparedness_guides.sql`       | `preparedness_guides` by hazard and phase (before, during, after)                                  |
+| `015_urgent_alert_acks.sql`         | `alert_acknowledgments`; status changes notify the reporter                                        |
+| `016_sos_log.sql`                   | `sos_log` and the rate-limited `submit_sos` RPC                                                    |
+| `017_road_status.sql`               | `road_status` overlay (passable, caution, blocked)                                                 |
+| `018_others_review.sql`             | `others_hazard_review` view for the LGU                                                            |
+| `019_beneficiaries_privacy.sql`     | beneficiary list privacy rules                                                                     |
+| `020_report_barangay_pick.sql`      | barangay selection when filing a report                                                            |
+| `021_allow_backend_profile_ch….sql` | lets trusted backend functions change protected profile fields                                     |
+| `022_auto_verify_on_report.sql`     | auto-verify check when a report is filed                                                           |
+| `023_reports_feed_is_mine.sql`      | `is_mine` flag on `reports_feed`                                                                   |
+| `024_analytics_invoker.sql`         | analytics views run as the caller (`security_invoker`), so officials see only their barangay       |
+| `025_corroboration_radius.sql`      | 500 m corroboration radius, `distance_m()`, confirmer location, 1 / 3 count, `reports_feed` update |
 
 ## How security is enforced
 
@@ -196,7 +213,8 @@ Additive and re-runnable. No table, column or row is ever dropped.
    table if it is missing. Run `000` first and compare.
 2. Postgres 15+ for `security_invoker`; on older engines the view still filters explicitly.
 3. `reports.code` uses one global sequence, so numbering does not restart each January.
-4. The corroboration window is six hours either side of the report's `created_at`.
+4. The corroboration window is six hours either side of the report's `created_at`, and a
+   confirmation must come from within 500 m of the hazard (no GPS falls back to the barangay rule).
 5. `barangay` text and `barangay_id` uuid coexist; existing rows are not backfilled.
 6. Legacy rows that violate the new CHECK constraints will make those constraints fail.
    A cleanup migration will be written rather than weakening the rule.
