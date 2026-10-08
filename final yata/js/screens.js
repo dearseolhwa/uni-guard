@@ -998,9 +998,9 @@ const UG_SCREENS = (() => {
     ['relief', 'Relief', 'relief', null],
     ['centers', 'Shelters', 'shelter', null],
     ['roadwork', 'Road Work', 'road2', null],
-    ['guides', 'Guides', 'guide', null],
-    ['faqs', 'FAQs', 'faq', null],
-    ['sos', 'SOS Log', 'sos', null],
+    ['guides', 'Guides', 'guide', null, ['lgu_ldrrmc']],
+    ['faqs', 'FAQs', 'faq', null, ['lgu_ldrrmc']],
+    ['sos', 'SOS Log', 'sos', null, ['lgu_ldrrmc']],
     ['hotlines', 'Hotlines', 'phone', null],
     ['analytics', 'Analytics', 'layers', null],
     ['others-review', 'Others Review', 'help', null, ['lgu_ldrrmc']],
@@ -1015,7 +1015,7 @@ const UG_SCREENS = (() => {
     const navCount = (r) => r === 'incidents' ? nz(counts.openIncidents)
       : r === 'advisories' ? nz(counts.liveAdvisories)
       : r === 'centers' ? nz(counts.openCenters) : null;
-    const route = st.route === 'incident' ? 'incidents' : st.route;
+    const route = st.route === 'incident' ? 'incidents' : st.route === 'relief-verify' ? 'relief' : st.route;
     return '<aside class="ug-side" id="ug-console-nav">' +
       '<button class="ug-brand ug-brand-btn"' + A('nav', attr({ route: 'dashboard' })) + ' aria-label="Go to the dashboard">' + U.brandMark(32) +
         '<span class="ug-col" style="gap:0"><span class="ug-wordmark" style="font-size:15.5px">Uni<em>Guard</em></span>' +
@@ -1564,6 +1564,7 @@ const UG_SCREENS = (() => {
       case 'hotlines': return dHotlines(st);
       case 'analytics': return dAnalytics(st);
       case 'relief': return UG_RELIEF.dRelief(st);
+      case 'relief-verify': return UG_RELIEF.mReliefVerify(st);
       case 'roadwork': return UG_ROADWORK.dRoadwork(st);
       case 'guides': return UG_GUIDES.dGuides(st);
       case 'faqs': return UG_FAQS.dFaqs(st);
