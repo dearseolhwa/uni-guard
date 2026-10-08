@@ -6,3 +6,6 @@ overall done narin imigrate yung bagong files sa database, konting adjustments n
 -Leb Sept. 27, 2026
 
 dinelete ko rin lumang file
+
+oct 8
+di pa maayos road work status tsaka priority sort tsaka command view sa incidents
