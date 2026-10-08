@@ -306,7 +306,7 @@ const Repo = (function () {
       weekTotal: week,
       prevWeekTotal: prev,
       weekDelta: prev ? Math.round(((week - prev) / prev) * 100) : 0,
-      autoVerifiedShare: pct(inc.filter((i) => i.status !== 'reported').length),
+      autoVerifiedShare: pct(inc.filter((i) => ['verified', 'dispatched', 'resolved'].indexOf(i.status) !== -1).length),
       corroborationRate: pct(inc.filter((i) => (i.corr || 0) >= 3).length),
       resolvedShare: pct(stages.resolved)
     };
@@ -425,6 +425,7 @@ const Repo = (function () {
     try {
       channel = c.channel('uniguard')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => loadAll())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'report_corroborations' }, () => loadAll())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'advisories' }, () => loadAll())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => loadAll())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'evacuation_centers' }, () => loadAll())
@@ -510,7 +511,7 @@ const Repo = (function () {
     return data.signedUrl;
   }
 
-  async function corroborate(reportUuid, note) {
+  async function corroborate(reportUuid, note, pos) {
     const c = client();
     if (!c) {
       const row = (UG.DATA.incidents || []).find((i) => i.uuid === reportUuid || i.id === reportUuid);
@@ -521,7 +522,10 @@ const Repo = (function () {
       emit();
       return { verified: row && row.status === 'verified', corroborations: row ? row.corr : 0 };
     }
-    const { data, error } = await c.rpc('corroborate_report', { p_report_id: reportUuid, p_note: note || '' });
+        const { data, error } = await c.rpc('corroborate_report', {
+      p_report_id: reportUuid, p_note: note || '',
+      p_lat: pos ? pos.lat : null, p_lng: pos ? pos.lng : null
+    });
     if (error) fail(error);
     await loadAll();
     return data;
