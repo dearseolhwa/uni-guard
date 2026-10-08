@@ -26,6 +26,8 @@
 alter table public.reports add column if not exists location_note text not null default '';
 
 -- reports_feed carries it so the citizen edit form can pre-fill the field
+
+drop view if exists public.reports_feed;
 create or replace view public.reports_feed as
 select
     r.id,
