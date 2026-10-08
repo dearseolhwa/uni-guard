@@ -281,7 +281,7 @@ const UG_PWA = (function () {
   return {
     state, onChange, init, register, flushQueue, forceRefresh, retryNow,
     enqueue, listQueue, removeFromQueue, refreshQueueCount,
-    storeSnapshot, readSnapshot, hydrateFromCache,
+    storeSnapshot, readSnapshot, clearSnapshot, hydrateFromCache,
     enablePush, pushEnabled, pushSupported
   };
 })();
