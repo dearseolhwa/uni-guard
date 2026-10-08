@@ -44,7 +44,10 @@
 
   const q = (sel, el) => (el || document).querySelector(sel);
   const qa = (sel, el) => Array.prototype.slice.call((el || document).querySelectorAll(sel));
-
+    const myBrgyName = () =>
+    (S.session && S.session.role === 'barangay_official' && S.session.barangay)
+      ? S.session.barangay
+      : (S.barangays[0] ? S.barangays[0].name : '');
   /* ------------------------------------------------------------------ toast */
   function toast(msg, tone) {
     tone = tone || 'info';
@@ -557,6 +560,7 @@
       if (!ok) return;
       MapView.destroy();
       await Auth.signOut();
+      await UG_PWA.clearSnapshot();
       S.session = null;
       S.auth = blankAuth();
       S.auth.notice = 'You have been signed out.';
@@ -1193,7 +1197,7 @@
       if (!fields) return;
       try {
         await Repo.createRelief({
-          title: fields, barangay: S.barangays[0] ? S.barangays[0].name : '', active: true,
+          title: fields, barangay: myBrgyName(), active: true,
           eligibility: [], required_docs: []
         });
         toast('Relief distribution added', 'prepared');
@@ -1217,7 +1221,7 @@
       try {
         await Repo.createBeneficiary({
           beneficiary_name: name, claimant_name: claimant || name,
-          claimant_id: claimantId || '', barangay: S.barangays[0] ? S.barangays[0].name : '', category: 'Affected household'
+          claimant_id: claimantId || '', barangay: myBrgyName(), category: 'Affected household'
         });
         toast('Beneficiary added', 'prepared');
       } catch (e) { toast(e.message, 'warning'); }
