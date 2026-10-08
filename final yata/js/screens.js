@@ -246,7 +246,7 @@ const UG = (() => {
       '<span class="ug-mono" style="color:' + cls + '">' + Math.min(n,3) + ' / 3</span></div>' +
       '<div style="height:5px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden">' +
       '<div style="height:100%;width:' + pct + '%;background:' + cls + ';border-radius:3px"></div></div>' +
-      '<div class="ug-dimmer" style="font-size:10.5px">' + (n >= 3 ? 'Threshold reached. This report is auto-verified.' : 'Two more matching reports in this barangay within 6 hours will auto-verify it.') + '</div>' +
+      '<div class="ug-dimmer" style="font-size:10.5px">' + (n >= 3 ? 'Threshold reached. This report is auto-verified.' : (3 - n) + ' more nearby confirmation' + (3 - n === 1 ? '' : 's') + ' within 6 hours will auto-verify it.') + '</div>' +
     '</div>';
   }
 
@@ -848,7 +848,7 @@ const UG_SCREENS = (() => {
     return '<div class="ug-col" style="gap:14px">' +
       '<button class="ug-btn ug-btn--ghost ug-btn--sm" style="align-self:flex-start"' + A('nav', attr({ route: 'advisories' })) + '>' +
         '<span style="transform:rotate(180deg);display:flex">' + I('chevron', 14) + '</span>Back</button>' +
-      '<div class="ug-banner" style="height:168px">' + U.thumb('surge', 'bn-img') +
+      '<div class="ug-banner" style="height:120px;background:linear-gradient(135deg,' + (U.SEV[a.severity] || U.SEV.advisory).color + '40,#0C1524)">' +
         '<div class="bn-in"><div class="ug-rowf ug-gap8" style="gap:6px">' + U.sevBadge(a.severity) + U.badge('id', a.type) + '</div>' +
         '<h2 style="font-size:17px;line-height:1.3">' + esc(a.title) + '</h2></div></div>' +
       '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;font-size:11px;color:var(--ug-ink-3)">' +
@@ -1187,7 +1187,7 @@ const UG_SCREENS = (() => {
     const i = U.DATA.incidents.find(x => x.id === st.openId || x.uuid === st.openId) || U.DATA.incidents[0];
     const corr = st.corr[i.id] != null ? st.corr[i.id] : i.corr;
     const status = (corr >= 3 && i.status === 'reported') ? 'verified' : i.status;
-    const corrRows = ['Marites Aquino', 'Joel Villanueva', 'Andrea Fernandez'].slice(0, Math.min(2, corr));
+    const corrRows = [];
     return '<div class="ug-col" style="gap:14px">' +
       '<div class="ug-rowf ug-between ug-wrap" style="gap:12px;align-items:flex-start">' +
         '<div class="ug-rowf ug-gap12" style="gap:12px;align-items:flex-start">' +
@@ -1324,10 +1324,14 @@ const UG_SCREENS = (() => {
         return '<div class="ug-card"><div class="ug-card-b ug-col" style="gap:12px">' +
           '<div class="ug-rowf ug-between" style="gap:8px"><h3 style="font-size:13.5px">' + esc(c.name) + '</h3>' + U.badge(c.status, c.status.charAt(0).toUpperCase() + c.status.slice(1)) + '</div>' +
           '<div class="ug-dimmer ug-rowf ug-wrap" style="font-size:11px;gap:10px"><span class="ug-rowf" style="gap:4px">' + I('pin', 12) + esc(c.brgy) + '</span>' +
-            '<span class="ug-rowf" style="gap:4px">' + I('layers', 12) + esc(c.id) + '</span>' +
             (geoState === 'ok' ? '<span class="ug-rowf" style="gap:4px">' + I('map', 12) + esc(UG_GEO.fmt(c.lat, c.lng)) + '</span>' : '') + '</div>' +
           '<div class="ug-rowf ug-between" style="font-size:11.5px"><span class="ug-dim">Occupancy</span>' +
             '<span class="ug-mono">' + c.occ + ' / ' + c.cap + ' &middot; ' + pct + '%</span></div>' + occBar(c.occ, c.cap) +
+                      '<div class="ug-rowf" style="gap:6px">' +
+            [[-10, '−10'], [-1, '−1']].map(x => '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="flex:1"' + A('center-occ', attr({ id: c.id, d: x[0] })) + '>' + x[1] + '</button>').join('') +
+            '<button class="ug-btn ug-btn--sm" style="flex:1.4"' + A('center-occ-set', attr({ id: c.id })) + '>Set count</button>' +
+            [[1, '+1'], [10, '+10']].map(x => '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="flex:1"' + A('center-occ', attr({ id: c.id, d: x[0] })) + '>' + x[1] + '</button>').join('') +
+          '</div>' +
           '<div class="ug-dim" style="font-size:11.5px">' + esc(c.note) + '</div>' +
           '<div class="ug-rowf ug-gap8" style="gap:6px">' +
             ['open', 'full', 'closed'].map(s => '<button class="ug-btn ug-btn--sm' + (c.status === s ? ' ug-btn--signal' : '') + '" style="flex:1"' +
@@ -1411,7 +1415,7 @@ const UG_SCREENS = (() => {
 }).join('') + '</div></div>' +
       '</div>' +
       '<div class="ug-dgrid2">' +
-        '<div class="ug-card"><div class="ug-card-h"><h3>Hazard Type Distribution</h3><span class="ug-dimmer ug-mono" style="font-size:10px">REPORTS THIS WEEK</span></div>' +
+        '<div class="ug-card"><div class="ug-card-h"><h3>Hazard Type Distribution</h3><span class="ug-dimmer ug-mono" style="font-size:10px">ALL LOADED REPORTS</span></div>' +
           '<div class="ug-card-b ug-col" style="gap:12px">' +
             (function () {
               const rows = hazardRows(6);
