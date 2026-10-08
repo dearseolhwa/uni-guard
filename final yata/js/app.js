@@ -564,7 +564,16 @@
       render();
     }
   };
-
+    async function setOccupancy(c, n) {
+    n = Math.max(0, Math.min(c.cap || 0, n));
+    const patch = { occupancy: n };
+    if (c.status !== 'closed') patch.status = (c.cap > 0 && n >= c.cap) ? 'full' : 'open';
+    try {
+      await Repo.updateCenter(c.uuid || c.id, patch);
+      toast(c.name + ': ' + n + ' / ' + c.cap, patch.status === 'full' ? 'warning' : 'prepared');
+    } catch (e) { toast(e.message, 'warning'); }
+    render();
+  }
   /* ------------------------------------------------------------- app actions */
   const APP_ACTIONS = {
     nav: (d) => {
@@ -706,9 +715,11 @@
       render();
     },
 
-    'confirm-corr': async (d) => {
+        'confirm-corr': async (d) => {
+      let pos = null;
+      try { pos = await UG_FEATURES.locate(); } catch (e) { /* no GPS: the barangay rule applies */ }
       try {
-        const res = await Repo.corroborate(d.id);
+        const res = await Repo.corroborate(d.id, '', pos);
         if (res && res.verified) toast('Three corroborations reached. This report is verified.', 'prepared');
         else toast('Corroboration logged: ' + ((res && res.corroborations) || 0) + ' of ' + UG_CONFIG.CORROBORATION_THRESHOLD, 'warning');
       } catch (e) { toast(e.message, 'warning'); }
@@ -758,6 +769,20 @@
         toast('Shelter marked ' + d.s, d.s === 'open' ? 'prepared' : d.s === 'full' ? 'warning' : 'emergency');
       } catch (e) { toast(e.message, 'warning'); }
       render();
+    },
+
+        'center-occ': async (d) => {
+      const c = (UG.DATA.centers || []).find((x) => x.uuid === d.id || x.id === d.id);
+      if (c) await setOccupancy(c, (c.occ || 0) + parseInt(d.d, 10));
+    },
+    'center-occ-set': async (d) => {
+      const c = (UG.DATA.centers || []).find((x) => x.uuid === d.id || x.id === d.id);
+      if (!c) return;
+      const v = await UG_FEATURES.prompt({ title: 'Set occupancy', label: c.name + ' (capacity ' + c.cap + ')', value: String(c.occ || 0) });
+      if (v === null) return;
+      const n = parseInt(v, 10);
+      if (isNaN(n)) { toast('Enter a whole number', 'warning'); return; }
+      await setOccupancy(c, n);
     },
 
     'add-center': async () => {
