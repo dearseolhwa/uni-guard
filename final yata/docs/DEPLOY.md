@@ -29,6 +29,22 @@ Run the migrations in order in the Supabase SQL editor, or with the CLI.
 #   migrations/007_report_rpcs.sql
 #   migrations/008_analytics_views.sql
 #   migrations/009_hardening.sql
+#   migrations/010_hazard_types.sql
+#   migrations/011_relief_assistance.sql
+#   migrations/012_road_works.sql
+#   migrations/013_faqs.sql
+#   migrations/014_preparedness_guides.sql
+#   migrations/015_urgent_alert_acks.sql
+#   migrations/016_sos_log.sql
+#   migrations/017_road_status.sql
+#   migrations/018_others_review.sql
+#   migrations/019_beneficiaries_privacy.sql
+#   migrations/020_report_barangay_pick.sql
+#   migrations/021_allow_backend_profile_ch*.sql   (use the full file name in your repo)
+#   migrations/022_auto_verify_on_report.sql
+#   migrations/023_reports_feed_is_mine.sql
+#   migrations/024_analytics_invoker.sql
+#   migrations/025_corroboration_radius.sql
 
 # or with the CLI (copy migrations into supabase/migrations first)
 supabase link --project-ref <your-project-ref>
@@ -39,19 +55,20 @@ Then, in development or staging only:
 
 ```bash
 # seed/001_sample_data.sql
+# seed/002_relief_guides_faqs_roadwork.sql
 ```
 
 ## 2. Auth settings
 
 Dashboard → Authentication:
 
-| Setting | Value | Why |
-|---|---|---|
-| Email provider | enabled | accounts and password reset |
-| Confirm email | ON for production, OFF while testing | the app tells the user to confirm when it is on |
-| Site URL | your https URL | reset links return here |
-| Redirect URLs | `https://your-host/` and `http://localhost:5173/` | password recovery and email confirmation |
-| Minimum password length | 8 | matches the client side hint |
+| Setting                 | Value                                             | Why                                             |
+| ----------------------- | ------------------------------------------------- | ----------------------------------------------- |
+| Email provider          | enabled                                           | accounts and password reset                     |
+| Confirm email           | ON for production, OFF while testing              | the app tells the user to confirm when it is on |
+| Site URL                | your https URL                                    | reset links return here                         |
+| Redirect URLs           | `https://your-host/` and `http://localhost:5173/` | password recovery and email confirmation        |
+| Minimum password length | 8                                                 | matches the client side hint                    |
 
 Nothing else needs changing. The profile row for every new account is created by
 the `on_auth_user_created` trigger, with the role forced to `citizen`.
@@ -133,13 +150,13 @@ advisory triggers a push regardless of which client published it.
 
 Dashboard → Database → Webhooks → Create:
 
-| Field | Value |
-|---|---|
-| Table | `notifications` |
-| Events | `insert` |
-| Type | Supabase Edge Function |
-| Function | `push-dispatch` |
-| Method | POST |
+| Field    | Value                  |
+| -------- | ---------------------- |
+| Table    | `notifications`        |
+| Events   | `insert`               |
+| Type     | Supabase Edge Function |
+| Function | `push-dispatch`        |
+| Method   | POST                   |
 
 ## 8. Verification after deploy
 
