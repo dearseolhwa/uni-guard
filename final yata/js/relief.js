@@ -13,7 +13,9 @@ const UG_RELIEF = (function () {
   const esc = UG_UTIL.esc, I = UG.icon, U = UG;
   const A = (act, extra) => ' data-act="' + act + '"' + (extra ? ' ' + extra : '');
   const attr = (o) => Object.keys(o).map(k => ' data-' + k + '="' + esc(o[k]) + '"').join('');
-
+    /* only LGU staff and barangay officials may see the authorized-beneficiary list */
+  const isStaff = (st) => !!(st && st.session &&
+    (st.session.role === 'barangay_official' || st.session.role === 'lgu_ldrrmc'));
   /* --------------------------------------------------------------- the data */
   /* seeded defaults so the UI renders even without a Supabase project. Once
      Repo.loadAll runs, the live rows overwrite these in UG.DATA.relief. */
@@ -63,7 +65,8 @@ const UG_RELIEF = (function () {
 
   /* ------------------------------------------------------------- mobile UI */
   function mRelief(st) {
-    const barangays = ['All'].concat(U.DATA.barangays);
+        const isCitizen = !st.session || st.session.role === 'citizen';
+    const barangays = isCitizen ? [] : ['All'].concat(U.DATA.barangays);
     const f = st.reliefFilter || 'All';
     const list = U.DATA.relief.filter((r) => r.active !== false).filter((r) => f === 'All' || r.barangay === f);
     return '<div class="ug-col" style="gap:14px">' +
@@ -71,21 +74,21 @@ const UG_RELIEF = (function () {
       '<h2 style="font-size:19px;margin-top:3px">Relief Distribution</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Per-barangay relief schedules, eligibility, required documents, and the authorized-beneficiary list. Filter by your barangay.</p></div>' +
 
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' + barangays.map((b) =>
-        '<button class="ug-chip' + (f === b ? ' is-on' : '') + '"' + A('relief-filter', attr({ v: b })) + '>' + esc(b) + '</button>').join('') + '</div>' +
+            (barangays.length ? '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' + barangays.map((b) =>
+        '<button class="ug-chip' + (f === b ? ' is-on' : '') + '"' + A('relief-filter', attr({ v: b })) + '>' + esc(b) + '</button>').join('') + '</div>' : '') +
 
-      (list.length ? list.map((r) => reliefCard(r)).join('') :
+      (list.length ? list.map((r) => reliefCard(r, isStaff(st))).join(''):
         '<div class="ug-card"><div class="ug-empty"><span class="e-ico">' + I('info', 20) + '</span>' +
         '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No Active Distribution for ' + esc(f) + '</div>' +
         '<div class="ug-dim" style="font-size:11px">Check another barangay or contact your barangay desk.</div></div></div>') +
 
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
         '<span style="color:var(--ug-signal);display:flex">' + I('info', 17) + '</span>' +
-        '<div class="ug-note">If you are claiming on behalf of a named beneficiary, the distribution desk will check you against the authorized-names list. Search it from any distribution card below.</div></div></div>' +
+        '<div class="ug-note">If you are claiming on behalf of a named beneficiary, bring a valid ID and an authorization letter. The distribution desk checks representatives against the LGU authorized list.</div>' +
     '</div>';
   }
 
-  function reliefCard(r) {
+    function reliefCard(r, canVerify) {
     const geoState = UG_GEO.classify(r.lat, r.lng);
     const elig = (r.eligibility || []).map((e) => '<li>' + esc(e) + '</li>').join('');
     const docs = (r.required_docs || []).map((d) => '<li>' + esc(d) + '</li>').join('');
@@ -108,7 +111,9 @@ const UG_RELIEF = (function () {
         (docs ? '<div class="ug-field" style="margin:0"><div class="ug-lab">Bring these documents</div><ul class="ug-bullets">' + docs + '</ul></div>' : '') +
         (r.note ? '<div class="ug-note">' + esc(r.note) + '</div>' : '') +
         '<div class="ug-rowf ug-gap8" style="gap:8px">' +
-          '<button class="ug-btn ug-btn--sm" style="flex:1"' + A('relief-verify', attr({ id: r.id })) + '>' + I('users', 14) + 'Verify Beneficiary</button>' +
+          (canVerify
+            ? '<button class="ug-btn ug-btn--sm" style="flex:1"' + A('relief-verify', attr({ id: r.id })) + '>' + I('users', 14) + 'Verify Beneficiary</button>'
+            : '') +
           (geoState === 'ok'
             ? '<a class="ug-waze-btn" style="flex:1" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.lat, r.lng) + '">' + I('route', 13) + 'Navigate</a>'
             : '<div class="ug-help" style="flex:1">No coordinates on file for this distribution.</div>') +
@@ -158,11 +163,18 @@ const UG_RELIEF = (function () {
       '</div>' +
       U.badge(authorized ? 'open' : 'id', authorized ? 'Self' : 'Rep') + '</div>';
   }
-
+    /* officials only manage their own barangay; LGU sees everything */
+  function scopedBrgy(st) {
+    const s = st.session;
+    return s && s.role === 'barangay_official' ? (s.barangay || '__none__') : null;
+  }
   /* ------------------------------------------------------------- LGU admin */
   function dRelief(st) {
-    const barangays = U.DATA.barangays;
-    const rows = U.DATA.relief || [];
+        const mine = scopedBrgy(st);
+    const barangays = mine ? [mine] : U.DATA.barangays;
+    const rows = (U.DATA.relief || []).filter((r) => !mine || r.barangay === mine);
+    const bens = (UG.DATA.beneficiaries || []).filter((b) => !mine || b.barangay === mine);
+    const benFilter = mine || st.benBarangayFilter;
     return '<div class="ug-col" style="gap:18px">' +
       head('Relief Assistance', 'Manage per-barangay distribution schedules, eligibility, required documents and the authorized-beneficiary list.',
         '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('relief-add') + '>' + I('plus', 15) + 'Add Distribution</button>') +
@@ -173,18 +185,19 @@ const UG_RELIEF = (function () {
               '<div class="r-m"><span>' + I('pin', 12) + esc(r.barangay) + '</span>' +
               '<span>' + I('clock', 12) + esc(fmtDate(r.distribution_at)) + '</span>' +
               '<span class="ug-mono">' + esc(r.contact_phone) + '</span></div></div>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="relief-edit" data-id="' + esc(r.id) + '">' + I('settings', 14) + 'Edit</button></div>').join('') + '</div></div>' +
+               '<button class="ug-btn ug-btn--sm" data-act="relief-verify" data-id="' + esc(r.id) + '">' + I('users', 14) + 'Verify</button>' +
+   '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="relief-edit" data-id="' + esc(r.id) + '">' + I('settings', 14) + 'Edit</button></div>').join('') + '</div></div>' +
       '<div class="ug-card"><div class="ug-card-h"><h3>Authorized Beneficiaries</h3>' +
         '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('beneficiary-add') + '>' + I('plus', 14) + 'Add</button></div>' +
         '<div class="ug-card-b"><div class="ug-rowf ug-gap10 ug-wrap" style="gap:10px;align-items:flex-end">' +
           '<div class="ug-field" style="flex:1;min-width:200px;margin:0"><label class="ug-lab">Filter by barangay</label>' +
             '<select class="ug-sel" data-field="benBarangayFilter">' +
-            ['All'].concat(barangays).map((b) => '<option' + (st.benBarangayFilter === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select></div>' +
+                        (mine ? barangays : ['All'].concat(barangays)).map((b) => '<option' + (benFilter === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select></div>' +
           '<div class="ug-field" style="flex:1;min-width:200px;margin:0"><label class="ug-lab">Search</label>' +
             '<input class="ug-in" data-field="benSearchLgu" placeholder="Name or ID" value="' + esc(st.benSearchLgu || '') + '"></div>' +
         '</div></div>' +
         '<div class="ug-rows ug-scroll" style="max-height:280px;margin-top:6px">' +
-          (UG.DATA.beneficiaries || []).filter((b) => (!st.benBarangayFilter || st.benBarangayFilter === 'All' || b.barangay === st.benBarangayFilter))
+                    bens.filter((b) => (!benFilter || benFilter === 'All' || b.barangay === benFilter))
             .filter((b) => !((st.benSearchLgu || '').trim()) ||
               (b.beneficiary_name || '').toLowerCase().indexOf(st.benSearchLgu.toLowerCase()) >= 0 ||
               (b.claimant_name || '').toLowerCase().indexOf(st.benSearchLgu.toLowerCase()) >= 0 ||
