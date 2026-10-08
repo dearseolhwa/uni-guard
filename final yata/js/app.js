@@ -25,6 +25,13 @@
     offline: false, sevFilter: 'all', centerFilter: 'all', readNotifs: false,
     corr: {}, declareArmed: false, loading: false, error: null, syncNote: '',
     barangays: [], users: [], audit: [], responders: [],
+    /* incident queue sort: 'default' (newest first) or 'priority' (severity,
+       then corroboration count, then recency) */
+    incidentSort: 'default',
+    /* analytics date range (ISO yyyy-mm-dd) */
+    anFrom: '', anTo: '',
+    /* shelters: 'all' (default) or 'mine' */
+    shelterScope: 'all',
     /* new slices for the integrated features */
     reliefFilter: 'All', benSearch: '', benSearchLgu: '', benBarangayFilter: 'All',
     guideHazard: UG_HAZARDS.LIST[0].label, guidePhase: 'before',
@@ -38,7 +45,7 @@
     report: {
       hazard: UG_HAZARDS.LIST[0].label, hazardOther: '', brgy: UG_GEO.BARANGAYS[0], urg: 'warning', desc: '',
       photo: false, photoBlob: null, photoName: '', gps: false, lat: null, lng: null,
-      accuracy: null, error: '', busy: false, address: '', mapDragging: false
+      accuracy: null, error: '', busy: false, address: '', locationNote: '', mapDragging: false
     }
   };
 
@@ -234,7 +241,7 @@
      what you may actually see. */
   const HASH_ROUTES = ['home', 'report', 'reports', 'report-done', 'report-detail',
     'advisories', 'advisory-detail', 'centers', 'hotlines', 'notifications', 'offline',
-    'dashboard', 'incidents', 'incident', 'analytics', 'users', 'audit',
+    'dashboard', 'incidents', 'incident', 'analytics', 'users', 'audit', 'command', 'more',
     'relief', 'relief-verify', 'guides', 'faqs', 'roadwork', 'map', 'sos',
     'others-review'];
 
@@ -578,6 +585,109 @@
     } catch (e) { toast(e.message, 'warning'); }
     render();
   }
+
+  /* The full road-status form used by both Add and Edit. Fields: road name,
+     barangay, from/to segment, status, cause, severity, start time, estimated
+     reopening, map pin (lat/lng captured via GPS or typed from the map) and
+     notes. Barangay Officials can only create/edit inside their own barangay
+     (enforced by migration 029); the picker reflects that. */
+  function roadStatusForm(existing) {
+    const st = S.session || {};
+    const isOfficial = st.role === 'barangay_official';
+    const brgyList = (S.barangays && S.barangays.length) ? S.barangays.map((b) => b.name) : UG.DATA.barangays;
+    const brgyOpts = (isOfficial && st.barangay ? [st.barangay] : brgyList)
+      .map((b) => '<option' + (existing && existing.barangay === b ? ' selected' : '') + '>' + UG_UTIL.esc(b) + '</option>').join('');
+    const statusOpts = [['passable', 'Open'], ['one_lane', 'One lane'], ['blocked', 'Closed'], ['under_repair', 'Under repair']]
+      .map((s) => '<option value="' + s[0] + '"' + (existing && existing.status === s[0] ? ' selected' : '') + '>' + s[1] + '</option>').join('');
+    const causeOpts = [['', '—'], ['flood', 'Flood'], ['landslide', 'Landslide'], ['repair', 'Road repair'], ['accident', 'Accident'], ['other', 'Other']]
+      .map((c2) => '<option value="' + c2[0] + '"' + (existing && existing.cause === c2[0] ? ' selected' : '') + '>' + c2[1] + '</option>').join('');
+    const sevOpts = [['advisory', 'Moderate'], ['warning', 'High'], ['emergency', 'Critical']]
+      .map((s) => '<option value="' + s[0] + '"' + (existing && existing.severity === s[0] ? ' selected' : '') + '>' + s[1] + '</option>').join('');
+    const val = (v) => (existing && existing[v] != null) ? UG_UTIL.esc(String(existing[v])) : '';
+    UG_FEATURES.modal({
+      title: existing ? 'Edit road status' : 'Add road status',
+      body:
+        '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+          '<div class="ug-field" style="flex:2"><label class="ug-lab">Road name</label><input class="ug-in" data-rs-road value="' + val('road_name') + '" placeholder="e.g. Aguila Rd"></div>' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Barangay</label><select class="ug-sel" data-rs-brgy>' + brgyOpts + '</select></div>' +
+        '</div>' +
+        '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">From (segment or landmark)</label><input class="ug-in" data-rs-from value="' + val('segment_from') + '" placeholder="e.g. Brgy hall"></div>' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">To</label><input class="ug-in" data-rs-to value="' + val('segment_to') + '" placeholder="e.g. national highway junction"></div>' +
+        '</div>' +
+        '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Status</label><select class="ug-sel" data-rs-status>' + statusOpts + '</select></div>' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Cause</label><select class="ug-sel" data-rs-cause>' + causeOpts + '</select></div>' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Severity</label><select class="ug-sel" data-rs-sev>' + sevOpts + '</select></div>' +
+        '</div>' +
+        '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Start time</label><input class="ug-in" type="datetime-local" data-rs-start value="' + val('started_at') + '"></div>' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Estimated reopening</label><input class="ug-in" type="datetime-local" data-rs-reopen value="' + val('estimated_reopen') + '"></div>' +
+        '</div>' +
+        '<div class="ug-field"><label class="ug-lab">Map pin</label>' +
+          '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:center">' +
+            '<input class="ug-in" style="flex:1" data-rs-lat placeholder="lat" value="' + val('lat') + '">' +
+            '<input class="ug-in" style="flex:1" data-rs-lng placeholder="lng" value="' + val('lng') + '">' +
+            '<button class="ug-btn ug-btn--sm" type="button" data-act="rs-pin">Use my location</button>' +
+          '</div>' +
+          '<div class="ug-help">Tap the map on the Road Status screen and pick “Set pin here”, or type coordinates from it (latitude first). The pin powers the map overlay and navigation.</div></div>' +
+        '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Notes</label><textarea class="ug-ta" rows="2" data-rs-note>' + val('note') + '</textarea></div>',
+      footer:
+        '<button class="ug-btn" data-modal-close>Cancel</button>' +
+        '<button class="ug-btn ug-btn--signal" data-save>' + (existing ? 'Save changes' : 'Publish status') + '</button>',
+      onMount: (wrap, close) => {
+        wrap.querySelector('[data-save]').addEventListener('click', async () => {
+          const roadName = wrap.querySelector('[data-rs-road]').value.trim();
+          if (!roadName) { toast('The road name is required', 'warning'); return; }
+          const lat = UG_GEO.toNum(wrap.querySelector('[data-rs-lat]').value);
+          const lng = UG_GEO.toNum(wrap.querySelector('[data-rs-lng]').value);
+          if ((wrap.querySelector('[data-rs-lat]').value || wrap.querySelector('[data-rs-lng]').value)) {
+            const state = UG_GEO.classify(lat, lng);
+            if (state !== 'ok') { toast(UG_GEO.message(state) || 'Those coordinates do not look right', 'warning'); return; }
+          }
+          const toISO = (v) => v ? new Date(v).toISOString() : null;
+          const payload = {
+            road_name: roadName,
+            barangay: wrap.querySelector('[data-rs-brgy]').value,
+            status: wrap.querySelector('[data-rs-status]').value,
+            cause: wrap.querySelector('[data-rs-cause]').value,
+            severity: wrap.querySelector('[data-rs-sev]').value,
+            segment_from: wrap.querySelector('[data-rs-from]').value.trim(),
+            segment_to: wrap.querySelector('[data-rs-to]').value.trim(),
+            started_at: toISO(wrap.querySelector('[data-rs-start]').value),
+            estimated_reopen: toISO(wrap.querySelector('[data-rs-reopen]').value),
+            note: wrap.querySelector('[data-rs-note]').value.trim(),
+            lat: isFinite(lat) ? lat : null,
+            lng: isFinite(lng) ? lng : null
+          };
+          try {
+            if (existing) await Repo.updateRoadStatus(existing.id, payload);
+            else await Repo.createRoadStatus(payload);
+            toast(existing ? 'Road status updated' : 'Road status published', 'prepared');
+            close();
+            render();
+          } catch (e) { toast(e.message, 'warning'); }
+        });
+      }
+    });
+  }
+
+  /* Citizen edit of their own report inside the 15-minute window. Same
+     validation rules as submit; the server (migration 027) enforces the window
+     and the protected columns again. */
+  function editOwnReport(inc) {
+    const r = S.report;
+    S.route = 'report';
+    S.editing = { id: inc.uuid || inc.id, code: inc.id, desc: inc.desc, hazard: inc.hazard_type, hazardOther: inc.hazard_other_text || '', sev: inc.sev, lat: inc.lat, lng: inc.lng, locationNote: inc.location_note || '' };
+    r.hazard = inc.hazard_type || r.hazard;
+    r.hazardOther = inc.hazard_other_text || '';
+    r.urg = inc.sev || r.urg;
+    r.desc = inc.desc || '';
+    r.lat = inc.lat; r.lng = inc.lng; r.gps = (typeof inc.lat === 'number');
+    r.locationNote = inc.location_note || '';
+    toast('Editing ' + inc.id + '. Save before the 15-minute window closes.', 'info');
+    render();
+  }
   /* ------------------------------------------------------------- app actions */
   const APP_ACTIONS = {
     nav: (d) => {
@@ -590,6 +700,50 @@
     'open-advisory': (d) => { S.openId = d.id; S.route = 'advisory-detail'; render(); },
     'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); },
     'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); },
+    'open-sos-detail': (d) => { UG_SOS.sosDetailModal(S, d.id); },
+    'open-road-detail': (d) => { UG_ROADWORK.roadDetailModal(d.id); },
+
+    'rw-manual-pin': async () => {
+      const manual = await UG_FEATURES.prompt({
+        title: 'Pin coordinates', label: 'Latitude, longitude', placeholder: UG_GEO.EXAMPLE
+      });
+      const parsed = UG_FEATURES.parseCoords(manual);
+      if (parsed) {
+        S.roadDraft.lat = parsed.lat; S.roadDraft.lng = parsed.lng;
+        render();
+      } else if (manual) { toast('That does not look like a coordinate pair', 'warning'); }
+    },
+
+    'toggle-more': (d, el) => {
+      const wrap = el.closest('.ug-wmore');
+      if (!wrap) return;
+      const panel = wrap.querySelector('[data-more-panel]');
+      if (panel) panel.hidden = !panel.hidden;
+    },
+
+    /* shelter detail view: the full record, occupancy, contact and Waze */
+    'open-center-detail': (d, el) => {
+      const c = (UG.DATA.centers || []).find((x) => (x.uuid || x.id) === d.id || x.id === d.id);
+      if (!c) return;
+      const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + UG_UTIL.esc(k) + '</span><span style="text-align:right;font-weight:600">' + UG_UTIL.esc(v) + '</span></div>';
+      const pct = c.cap ? Math.min(100, Math.round((c.occ || 0) / c.cap * 100)) : 0;
+      UG_FEATURES.modal({
+        title: c.name || 'Evacuation center',
+        body:
+          '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' + UG.badge(c.status, (c.status || 'open').charAt(0).toUpperCase() + (c.status || '').slice(1)) +
+            '<span class="ug-mono" style="font-size:12px">' + (c.occ || 0) + ' / ' + (c.cap || 0) + ' slots</span></div>' +
+          '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;margin-bottom:12px">' +
+            '<div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + '"></div></div>' +
+          kv('Barangay', c.brgy || '—') +
+          kv('Address / notes', c.note || '—') +
+          kv('Capacity', String(c.cap || 0)) +
+          kv('Current occupancy', String(c.occ || 0)) +
+          kv('Coordinates', (typeof c.lat === 'number' && typeof c.lng === 'number') ? UG_GEO.fmt(c.lat, c.lng) : 'Not recorded') +
+          (typeof c.lat === 'number' && typeof c.lng === 'number' && UG_GEO.canNavigate(c.lat, c.lng)
+            ? '<a class="ug-waze-btn" style="margin-top:12px;display:inline-flex" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(c.lat, c.lng) + '">' + UG.icon('route', 13) + ' Navigate with Waze</a>' : ''),
+        footer: '<button class="ug-btn" data-modal-close>Close</button>'
+      });
+    },
     'sev-filter': (d) => { S.sevFilter = d.v; render(); },
     'center-filter': (d) => { S.centerFilter = d.v; render(); },
     'set-urg': (d) => { S.report.urg = d.v; render(); },
@@ -614,24 +768,35 @@
           }
         } catch (e) { S.report.address = ''; }
       } catch (e) {
-        const manual = await UG_FEATURES.prompt({
-          title: 'Enter coordinates',
-          label: 'Latitude, longitude',
-          placeholder: UG_GEO.EXAMPLE,
-          help: e.message
-        });
-        const parsed = UG_FEATURES.parseCoords(manual);
-        if (parsed) {
-          S.report.lat = parsed.lat; S.report.lng = parsed.lng; S.report.gps = true; S.report.accuracy = null;
-          try {
-            const geo = await UG_FEATURES.reverseGeocode(parsed.lat, parsed.lng);
-            S.report.address = geo.address || '';
-            if (geo.barangay) S.report.brgy = geo.barangay;
-          } catch (er) { S.report.address = ''; }
-          toast(parsed.outside ? 'Coordinates set, but they look outside Lingayen — double-check them' : 'Coordinates set manually', parsed.outside ? 'warning' : 'prepared');
-        } else if (manual) {
-          toast('That does not look like a coordinate pair', 'warning');
-        }
+        /* Plain explanation + the map pin is the fallback. The pin on the report
+           map is already live: dragging or tapping it sets the location. A manual
+           coordinate entry stays available as a small secondary control. */
+        S.report.gpsDenied = true;
+        toast('We could not read your GPS (' + (e.message || 'unavailable') + '). ' +
+          'Drop the pin on the map below at the hazard location — the report needs a location so it reaches the right barangay.', 'warning');
+      }
+      render();
+    },
+
+    /* manual coordinate fallback for when GPS AND the map are impractical */
+    'manual-coords': async () => {
+      const manual = await UG_FEATURES.prompt({
+        title: 'Enter coordinates',
+        label: 'Latitude, longitude',
+        placeholder: UG_GEO.EXAMPLE,
+        help: 'Example: 16.0206, 120.2306 — latitude first.'
+      });
+      const parsed = UG_FEATURES.parseCoords(manual);
+      if (parsed) {
+        S.report.lat = parsed.lat; S.report.lng = parsed.lng; S.report.gps = true; S.report.accuracy = null;
+        try {
+          const geo = await UG_FEATURES.reverseGeocode(parsed.lat, parsed.lng);
+          S.report.address = geo.address || '';
+          if (geo.barangay) S.report.brgy = geo.barangay;
+        } catch (er) { S.report.address = ''; }
+        toast(parsed.outside ? 'Coordinates set, but they look outside Lingayen — double-check them' : 'Coordinates set manually', parsed.outside ? 'warning' : 'prepared');
+      } else if (manual) {
+        toast('That does not look like a coordinate pair', 'warning');
       }
       render();
     },
@@ -682,6 +847,24 @@
       render();
     },
 
+    'start-edit-report': (d) => {
+      if (S.role !== 'citizen') { APP_ACTIONS['edit-report'](d); return; }
+      const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
+      if (!inc) return;
+      const age = Date.now() - Date.parse(inc.created_at || '');
+      if (age > 15 * 60000) {
+        toast('The 15-minute edit window for this report has closed. An official can still help you.', 'warning');
+        return;
+      }
+      editOwnReport(inc);
+    },
+
+    'cancel-edit': () => {
+      S.editing = null;
+      go(S.role === 'citizen' ? 'reports' : 'incidents');
+      render();
+    },
+
     'submit-report': async () => {
       const r = S.report;
       if (!r.desc.trim()) { toast('Add a short description before submitting', 'warning'); return; }
@@ -690,13 +873,37 @@
         toast('Tell us what the hazard is before submitting', 'warning');
         return;
       }
+      /* Location is MANDATORY: the server routes the report to the barangay that
+         contains its coordinates, so a report without a valid in-Lingayen fix
+         cannot be accepted. This client check mirrors migration 030. */
+      const locState = UG_GEO.classify(r.lat, r.lng);
+      if (locState !== 'ok') {
+        toast(UG_GEO.message(locState) || 'A location is required. Acquire your GPS or drop the pin on the map before submitting.', 'warning');
+        return;
+      }
       if (r.busy) return;
       r.busy = true;
       try {
-        if (!UG_PWA.state.online || !Repo.online()) {
+        if (S.editing) {
+          /* citizen edit of an existing report (15-minute window) */
+          await Repo.updateReport(S.editing.id, {
+            description: r.desc.trim(), hazard_type: r.hazard,
+            hazard_other_text: r.hazardOther || null,
+            severity: r.urg || 'advisory', urgency: r.urg,
+            location_note: r.locationNote || '',
+            lat: r.lat, lng: r.lng
+          });
+          toast(S.editing.code + ' updated. The change was recorded in the audit log.', 'prepared');
+          S.editing = null;
+          S.route = 'reports';
+          S.report = { hazard: r.hazard, hazardOther: '', brgy: r.brgy, urg: 'warning', desc: '', photo: false, photoBlob: null, photoName: '', gps: false, lat: null, lng: null, accuracy: null, error: '', busy: false, address: '', locationNote: '', _autoTriggered: false };
+        } else if (!UG_PWA.state.online || !Repo.online()) {
+          /* the queue refuses null coordinates too — a queued report without a
+             location would be rejected by the server on upload anyway */
           await UG_PWA.enqueue({
             hazard_type: r.hazard, hazard_other_text: r.hazardOther || '', barangay: r.brgy, description: r.desc.trim(),
             severity: r.urg || 'advisory', urgency: r.urg, lat: r.lat, lng: r.lng,
+            location_note: r.locationNote || '',
             photoBlob: r.photoBlob || null
           });
           toast('Saved on this device. It uploads when you are back online.', 'warning');
@@ -705,13 +912,14 @@
           const res = await Repo.createReport({
             hazard_type: r.hazard, hazard_other_text: r.hazardOther || '', barangay: r.brgy, description: r.desc.trim(),
             severity: r.urg || 'advisory', urgency: r.urg, lat: r.lat, lng: r.lng,
+            location_note: r.locationNote || '',
             photoBlob: r.photoBlob, reportCodeHint: 'draft'
           });
           toast(res.queued ? 'Saved for upload' : 'Report ' + res.row.id + ' submitted to the ' + r.brgy + ' queue', 'prepared');
           S.lastReport = { id: res.row ? res.row.id : null, brgy: r.brgy };
         }
         S.route = 'report-done';
-        S.report = { hazard: r.hazard, hazardOther: '', brgy: r.brgy, urg: 'warning', desc: '', photo: false, photoBlob: null, photoName: '', gps: false, lat: null, lng: null, accuracy: null, error: '', busy: false, address: '', _autoTriggered: false };
+        S.report = { hazard: r.hazard, hazardOther: '', brgy: r.brgy, urg: 'warning', desc: '', photo: false, photoBlob: null, photoName: '', gps: false, lat: null, lng: null, accuracy: null, error: '', busy: false, address: '', locationNote: '', _autoTriggered: false };
       } catch (e) {
         r.busy = false;
         toast(e.message || 'Could not submit the report', 'warning');
@@ -839,36 +1047,94 @@
     'edit-hotline': async (d) => {
       const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
       if (!h) return;
-      const value = await UG_FEATURES.prompt({ title: 'Update hotline', label: h.agency, value: h.number, placeholder: '(075) 000-0000' });
-      if (!value) return;
-      try { await Repo.updateHotline(d.id, { contact_number: value }); toast('Hotline updated', 'prepared'); }
+      UG_FEATURES.modal({
+        title: 'Edit hotline',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Agency</label>' +
+          '<input class="ug-in" data-hl-agency value="' + UG_UTIL.esc(h.agency) + '"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Contact number</label>' +
+          '<input class="ug-in" data-hl-number value="' + UG_UTIL.esc(h.number) + '"></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Scope</label>' +
+          '<input class="ug-in" data-hl-scope value="' + UG_UTIL.esc(h.scope) + '"></div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-save>Save</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', async () => {
+            const agency = wrap.querySelector('[data-hl-agency]').value.trim();
+            const number = wrap.querySelector('[data-hl-number]').value.trim();
+            const scope = wrap.querySelector('[data-hl-scope]').value.trim();
+            if (!agency || !number) { toast('An agency and a contact number are required', 'warning'); return; }
+            try {
+              await Repo.updateHotline(h.uuid || h.id, { agency_name: agency, contact_number: number, scope: scope });
+              toast('Hotline updated', 'prepared');
+              close();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
+    },
+
+    'delete-hotline': async (d) => {
+      const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
+      if (!h) return;
+      const ok = await UG_FEATURES.confirm({
+        title: 'Delete hotline', message: 'Remove ' + h.agency + ' from the directory on every device?',
+        confirmLabel: 'Delete', danger: true
+      });
+      if (!ok) return;
+      try { await Repo.deleteHotline(h.uuid || h.id); toast('Hotline deleted', 'warning'); }
       catch (e) { toast(e.message, 'warning'); }
       render();
     },
 
-    'verify-hotline': async (d) => {
-      try { await Repo.updateHotline(d.id, { active: true }); toast('Hotline marked verified today', 'prepared'); }
-      catch (e) { toast(e.message, 'warning'); }
-      render();
-    },
-
-    'export-hotlines': () => {
-      const rows = (UG.DATA.hotlines || []).map((h) => ({
-        agency: h.agency, contact_number: h.number, scope: h.scope
-      }));
+    'export-hotlines': async () => {
+      const rows = (UG.DATA.hotlines || []).map((h) => [
+        h.agency || '', h.number || '', h.scope || ''
+      ]);
       if (!rows.length) { toast('Nothing to export', 'info'); return; }
-      UG_UTIL.download('uniguard-hotlines.csv', UG_UTIL.toCSV(rows, ['agency', 'contact_number', 'scope']));
-      toast('Hotline directory exported', 'info');
+      try {
+        UG_PDF.exportDoc({
+          title: 'Emergency Hotline Directory',
+          subtitle: 'Every agency contact cached offline on resident devices.',
+          kind: 'Directory export',
+          generatedBy: (S.session ? S.session.name + ' · ' + (UG_WEB.ROLE_INFO[S.session.role] || {}).label : 'UniGuard'),
+          scope: UG_GEO.PLACE.scope,
+          filename: 'uniguard-hotlines.pdf',
+          tables: [{ name: 'Hotlines', note: 'Numbers are listed exactly as published by each agency.', head: ['Agency', 'Contact number', 'Scope'], rows: rows }]
+        });
+        toast('Hotline directory exported as PDF', 'info');
+      } catch (e) { toast(e.message, 'warning'); }
     },
 
     'export-analytics': async () => {
       try {
-        const a = await Repo.analytics();
-        const rows = Object.keys(a.byHazard || {}).map((k) => ({ hazard_type: k, total: a.byHazard[k] }));
-        (Object.keys(a.stages || {})).forEach((k) => rows.push({ hazard_type: 'STATUS: ' + k, total: a.stages[k] }));
-        if (!rows.length) { toast('No analytics data yet', 'info'); return; }
-        UG_UTIL.download('uniguard-analytics.csv', UG_UTIL.toCSV(rows, ['hazard_type', 'total']));
-        toast('Analytics exported', 'info');
+        const a = await Repo.analytics(S.anFrom || null, S.anTo || null);
+        const hazardRows = Object.keys(a.byHazard || {}).map((k) => [k, a.byHazard[k]]);
+        const statusRows = Object.keys(a.stages || {}).map((k) => [UG_THEME.status(k).label, a.stages[k]]);
+        if (!hazardRows.length && !statusRows.length) { toast('No analytics data yet', 'info'); return; }
+        const fmtDur = (s) => s == null ? '—' : (s >= 3600 ? (s / 3600).toFixed(1) + ' h' : Math.round(s / 60) + ' min');
+        try {
+          UG_PDF.exportDoc({
+            title: 'Analytics Report',
+            subtitle: 'Incident volume, response performance and verification quality.',
+            kind: 'Analytics',
+            generatedBy: (S.session ? S.session.name + ' · ' + (UG_WEB.ROLE_INFO[S.session.role] || {}).label : 'UniGuard'),
+            scope: (S.session && S.session.role === 'barangay_official') ? 'Barangay ' + (S.session.barangay || '') : UG_GEO.PLACE.scope,
+            meta: 'Date range: ' + (a.from || '') + ' to ' + (a.to || ''),
+            filename: 'uniguard-analytics.pdf',
+            tables: [
+              { name: 'Incidents by hazard type', note: 'Number of reports filed per hazard type in the selected range.', head: ['Hazard type', 'Reports'], rows: hazardRows },
+              { name: 'Incidents by status', note: 'Where reports in the range sit in the status pipeline right now.', head: ['Status', 'Reports'], rows: statusRows },
+              { name: 'Response performance', note: 'Average time from report to dispatch, and report to resolution.', head: ['Measure', 'Average'], rows: [
+                ['Report → Response Dispatched', fmtDur(a.avgDispatchSeconds)],
+                ['Report → Resolved', fmtDur(a.avgResolveSeconds)],
+                ['Auto-verified by corroboration', (a.corroborationRate || 0) + '% of reports']
+              ] }
+            ].filter((t) => t.rows.length)
+          });
+          toast('Analytics exported as PDF', 'info');
+        } catch (err) { toast(err.message, 'warning'); }
       } catch (e) { toast(e.message, 'warning'); }
     },
 
@@ -1146,22 +1412,142 @@
     },
 
     'admin-export-users': () => {
-      const rows = (S.users || []).map((u) => ({
-        name: u.full_name, email: u.email, role: u.role, barangay: u.barangay || '',
-        status: u.disabled ? 'disabled' : 'active', created_at: u.created_at
-      }));
+      const rows = (S.users || []).map((u) => [
+        u.full_name || '', u.email || '',
+        (UG_ADMIN.ROLE_LABEL[u.role] || u.role || ''),
+        u.barangay || '',
+        u.disabled ? 'disabled' : 'active',
+        UG_UTIL.absTime(u.created_at) || ''
+      ]);
       if (!rows.length) { toast('Nothing to export', 'info'); return; }
-      UG_UTIL.download('uniguard-users.csv', UG_UTIL.toCSV(rows, ['name', 'email', 'role', 'barangay', 'status', 'created_at']));
-      toast('User list exported', 'info');
+      try {
+        UG_PDF.exportDoc({
+          title: 'User Accounts',
+          subtitle: 'Every account, its role and barangay assignment.',
+          kind: 'User export',
+          generatedBy: (S.session ? S.session.name + ' · ' + (UG_WEB.ROLE_INFO[S.session.role] || {}).label : 'UniGuard'),
+          scope: UG_GEO.PLACE.scope,
+          filename: 'uniguard-users.pdf',
+          tables: [{ name: 'Accounts', note: 'Roles are enforced by row level security; this list mirrors the console.', head: ['Name', 'Email', 'Role', 'Barangay', 'Status', 'Created'], rows: rows }]
+        });
+        toast('User list exported as PDF', 'info');
+      } catch (e) { toast(e.message, 'warning'); }
     },
 
     'admin-export-audit': () => {
-      const rows = (S.audit || []).map((a) => ({
-        created_at: a.created_at, actor_id: a.actor_id, action: a.action, entity: a.entity, entity_id: a.entity_id
-      }));
+      const rows = (S.audit || []).map((a) => [
+        UG_UTIL.absTime(a.created_at) || '',
+        a.actor_name || (a.actor_id ? String(a.actor_id).slice(0, 8) : 'system'),
+        a.action || '', a.entity || '', a.entity_id || '',
+        JSON.stringify(a.meta || {}).slice(0, 160)
+      ]);
       if (!rows.length) { toast('Nothing to export', 'info'); return; }
-      UG_UTIL.download('uniguard-audit-log.csv', UG_UTIL.toCSV(rows, ['created_at', 'actor_id', 'action', 'entity', 'entity_id']));
-      toast('Audit log exported', 'info');
+      try {
+        UG_PDF.exportDoc({
+          title: 'Audit Log',
+          subtitle: 'Every privileged action, newest first.',
+          kind: 'Audit export',
+          landscape: true,
+          generatedBy: (S.session ? S.session.name + ' · ' + (UG_WEB.ROLE_INFO[S.session.role] || {}).label : 'UniGuard'),
+          scope: UG_GEO.PLACE.scope,
+          filename: 'uniguard-audit-log.pdf',
+          tables: [{ name: 'Audit entries', note: 'Actor, action, entity and the change details recorded at write time.', head: ['When', 'Actor', 'Action', 'Entity', 'Entity id', 'Detail'], rows: rows }]
+        });
+        toast('Audit log exported as PDF', 'info');
+      } catch (e) { toast(e.message, 'warning'); }
+    },
+
+    'open-audit': (d) => {
+      const a = (S.audit || []).find((x) => x.id === d.id);
+      if (!a) return;
+      const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + UG_UTIL.esc(k) + '</span><span style="text-align:right;max-width:60%">' + UG_UTIL.esc(v) + '</span></div>';
+      let changed = '';
+      try {
+        const m = a.meta || {};
+        if (m.changed) {
+          changed = Object.keys(m.changed).map((k) =>
+            '<div style="font-size:11.5px;padding:6px 0;border-bottom:1px solid var(--ug-line)"><b>' + UG_UTIL.esc(k) + '</b>: ' +
+            UG_UTIL.esc(String(m.changed[k].from)) + ' → ' + UG_UTIL.esc(String(m.changed[k].to)) + '</div>').join('');
+        }
+      } catch (e) { changed = ''; }
+      UG_FEATURES.modal({
+        title: 'Audit entry',
+        body:
+          kv('When', UG_UTIL.absTime(a.created_at) || '') +
+          kv('Actor', a.actor_name || (a.actor_id ? String(a.actor_id).slice(0, 8) : 'system')) +
+          kv('Action', a.action || '') +
+          kv('Entity', a.entity || '') +
+          kv('Entity id', a.entity_id || '') +
+          (changed ? '<div style="margin-top:10px"><div class="ug-lab">Changed</div>' + changed + '</div>' : '') +
+          (a.meta && !changed ? '<div style="margin-top:10px"><div class="ug-lab">Detail</div><pre class="ug-note" style="white-space:pre-wrap">' + UG_UTIL.esc(JSON.stringify(a.meta, null, 2)) + '</pre></div>' : ''),
+        footer: '<button class="ug-btn" data-modal-close>Close</button>'
+      });
+    },
+
+    'sos-ack': async (d) => {
+      try { await Repo.updateSosStatus(d.id, 'acknowledged'); toast('SOS acknowledged — the sender has been notified', 'prepared'); }
+      catch (e) { toast(e.message, 'warning'); }
+      render();
+    },
+
+    'sos-resolve': async (d) => {
+      try { await Repo.updateSosStatus(d.id, 'resolved'); toast('SOS marked resolved', 'prepared'); }
+      catch (e) { toast(e.message, 'warning'); }
+      render();
+    },
+
+    /* Priority Sort: toggles the incident queue between newest-first and
+       severity → corroboration → recency. */
+    'sort-toggle': () => {
+      S.incidentSort = (S.incidentSort === 'priority') ? 'default' : 'priority';
+      render();
+    },
+
+    'shelter-scope': (d) => { S.shelterScope = d.v || 'all'; render(); },
+
+    /* analytics date range: date inputs land in S via the change handler */
+    'an-apply': async () => {
+      render();
+      try {
+        const a = await Repo.analytics(S.anFrom || null, S.anTo || null);
+        UG.DATA.analytics = Object.assign({ live: true }, a);
+      } catch (e) { toast(e.message, 'warning'); }
+      render();
+    },
+
+    /* ------------------------------------------ edit an incident (officials) */
+    'edit-report': async (d) => {
+      const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
+      if (!inc) return;
+      const hazardOpts = UG.DATA.hazards.map((h) => '<option value="' + UG_UTIL.esc(h) + '"' + (h === inc.hazard_type ? ' selected' : '') + '>' + UG_UTIL.esc(h) + '</option>').join('');
+      const sevOpts = ['advisory', 'warning', 'emergency'].map((sv) => '<option value="' + sv + '"' + (sv === inc.sev ? ' selected' : '') + '>' + UG_UTIL.esc(UG_THEME.sev(sv).label) + '</option>').join('');
+      UG_FEATURES.modal({
+        title: 'Edit incident ' + inc.id,
+        body:
+          '<div class="ug-field"><label class="ug-lab">Hazard type</label><select class="ug-sel" data-er-hazard>' + hazardOpts + '</select></div>' +
+          '<div class="ug-field"><label class="ug-lab">Severity</label><select class="ug-sel" data-er-sev>' + sevOpts + '</select></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Description</label>' +
+          '<textarea class="ug-ta" rows="4" data-er-desc>' + UG_UTIL.esc(inc.desc || '') + '</textarea>' +
+          '<div class="ug-help">Status, barangay and reporter identity are workflow-managed and cannot be edited here. Every change is written to the audit log.</div></div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-save>Save changes</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', async () => {
+            const patch = {
+              hazard_type: wrap.querySelector('[data-er-hazard]').value,
+              severity: wrap.querySelector('[data-er-sev]').value,
+              description: wrap.querySelector('[data-er-desc]').value.trim()
+            };
+            if (!patch.description) { toast('The description cannot be empty', 'warning'); return; }
+            try {
+              await Repo.updateReport(inc.uuid || inc.id, patch);
+              toast('Incident updated and logged to the audit trail', 'prepared');
+              close();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
     },
 
     'load-responders': async () => {
@@ -1235,44 +1621,153 @@
 
     'guide-hazard': (d) => { S.guideHazard = d.v; render(); },
     'guide-phase': (d) => { S.guidePhase = d.v; render(); },
-    'guide-add': async () => {
-      const title = await UG_FEATURES.prompt({ title: 'Add guide', label: 'Title', placeholder: 'e.g. Before an earthquake' });
-      if (!title) return;
-      const body = await UG_FEATURES.prompt({ title: 'Body', label: 'Content', placeholder: 'The guidance text…' });
-      if (!body) return;
-      try {
-        await Repo.createGuide({ hazard_type: S.guideHazard, phase: S.guidePhase, title: title, body: body });
-        toast('Guide added', 'prepared');
-      } catch (e) { toast(e.message, 'warning'); }
-      render();
+    'guide-open': (d) => { S.openId = d.id; S.route = 'guide-detail'; render(); },
+
+    /* one guide = title + hazard category + summary + Before/During/After + PDF.
+       A real modal form replaces the old one-line prompt() dialog. */
+    'guide-add': () => {
+      if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can manage guides', 'warning'); return; }
+      const hazardOpts = UG.DATA.hazards.map((h) => '<option>' + UG_UTIL.esc(h) + '</option>').join('');
+      UG_FEATURES.modal({
+        title: 'Add a preparedness guide',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Title</label><input class="ug-in" data-g-title placeholder="e.g. Typhoon safety for coastal households"></div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px"><div class="ug-field" style="flex:1"><label class="ug-lab">Hazard category</label><select class="ug-sel" data-g-hazard>' + hazardOpts + '</select></div></div>' +
+          '<div class="ug-field"><label class="ug-lab">Brief summary</label><input class="ug-in" data-g-summary placeholder="One or two sentences shown in the list"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Before — what to do in advance</label><textarea class="ug-ta" rows="3" data-g-before></textarea></div>' +
+          '<div class="ug-field"><label class="ug-lab">During — what to do while it happens</label><textarea class="ug-ta" rows="3" data-g-during></textarea></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">After — what to do to recover</label><textarea class="ug-ta" rows="3" data-g-after></textarea>' +
+          '<div class="ug-help">Fill at least one section. Citizens see the guide as soon as you save.</div></div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-save>Publish guide</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', async () => {
+            const title = wrap.querySelector('[data-g-title]').value.trim();
+            const before = wrap.querySelector('[data-g-before]').value.trim();
+            const during = wrap.querySelector('[data-g-during]').value.trim();
+            const after = wrap.querySelector('[data-g-after]').value.trim();
+            if (!title) { toast('Give the guide a title', 'warning'); return; }
+            if (!before && !during && !after) { toast('Fill at least one of the three sections', 'warning'); return; }
+            try {
+              await Repo.createGuide({
+                hazard_type: wrap.querySelector('[data-g-hazard]').value,
+                phase: 'all', title: title,
+                summary: wrap.querySelector('[data-g-summary]').value.trim(),
+                body: before || during || after,
+                body_before: before, body_during: during, body_after: after
+              });
+              toast('Guide published', 'prepared');
+              close();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
     },
+
     'guide-edit': async (d) => {
       const g = (UG.DATA.guides || []).find((x) => x.id === d.id);
       if (!g) return;
-      const body = await UG_FEATURES.prompt({ title: 'Edit guide', label: g.title, value: g.body });
-      if (body === null) return;
-      try { await Repo.updateGuide(d.id, { body: body }); toast('Guide updated', 'prepared'); }
-      catch (e) { toast(e.message, 'warning'); }
+      UG_FEATURES.modal({
+        title: 'Edit guide',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Title</label><input class="ug-in" data-g-title value="' + UG_UTIL.esc(g.title) + '"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Brief summary</label><input class="ug-in" data-g-summary value="' + UG_UTIL.esc(g.summary || '') + '"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Before</label><textarea class="ug-ta" rows="3" data-g-before>' + UG_UTIL.esc(g.body_before || g.body || '') + '</textarea></div>' +
+          '<div class="ug-field"><label class="ug-lab">During</label><textarea class="ug-ta" rows="3" data-g-during>' + UG_UTIL.esc(g.body_during || '') + '</textarea></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">After</label><textarea class="ug-ta" rows="3" data-g-after>' + UG_UTIL.esc(g.body_after || '') + '</textarea></div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-save>Save changes</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', async () => {
+            const before = wrap.querySelector('[data-g-before]').value.trim();
+            const during = wrap.querySelector('[data-g-during]').value.trim();
+            const after = wrap.querySelector('[data-g-after]').value.trim();
+            try {
+              await Repo.updateGuide(g.id, {
+                title: wrap.querySelector('[data-g-title]').value.trim(),
+                summary: wrap.querySelector('[data-g-summary]').value.trim(),
+                body: before || during || after,
+                body_before: before, body_during: during, body_after: after
+              });
+              toast('Guide updated', 'prepared');
+              close();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
+    },
+
+    'guide-del': async (d) => {
+      const ok = await UG_FEATURES.confirm({ title: 'Delete guide', message: 'Citizens will no longer see this guide.', danger: true, confirmLabel: 'Delete' });
+      if (!ok) return;
+      const c = Repo.client();
+      try {
+        if (c) { await c.from('preparedness_guides').delete().eq('id', d.id); }
+        UG.DATA.guides = (UG.DATA.guides || []).filter((g) => g.id !== d.id);
+        toast('Guide deleted', 'warning');
+      } catch (e) { toast(e.message, 'warning'); }
       render();
     },
 
-    'faq-add': async () => {
-      const q = await UG_FEATURES.prompt({ title: 'Add FAQ', label: 'Question' });
-      if (!q) return;
-      const a = await UG_FEATURES.prompt({ title: 'Answer', label: 'Answer' });
-      if (!a) return;
-      try { await Repo.createFaq({ question: q, answer: a, category: 'General' }); toast('FAQ added', 'prepared'); }
-      catch (e) { toast(e.message, 'warning'); }
-      render();
+    'faq-add': () => {
+      if (!requireRole(['lgu_ldrrmc'])) { toast('Only LGU can manage FAQs', 'warning'); return; }
+      UG_FEATURES.modal({
+        title: 'Add an FAQ',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Question</label><input class="ug-in" data-f-q placeholder="e.g. How do I update my address?"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Category</label><select class="ug-sel" data-f-cat>' +
+            ['Reports', 'Relief', 'Evacuation', 'SOS', 'Roads', 'General'].map((c) => '<option>' + c + '</option>').join('') + '</select></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Answer</label>' +
+          '<textarea class="ug-ta" rows="5" data-f-a placeholder="Write the full answer citizens will read."></textarea>' +
+          '<div class="ug-help">Published FAQs appear in every resident\'s Help Center immediately.</div></div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-save>Publish FAQ</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', async () => {
+            const question = wrap.querySelector('[data-f-q]').value.trim();
+            const answer = wrap.querySelector('[data-f-a]').value.trim();
+            if (!question || !answer) { toast('A question and an answer are required', 'warning'); return; }
+            try {
+              await Repo.createFaq({ question: question, answer: answer, category: wrap.querySelector('[data-f-cat]').value, active: true });
+              toast('FAQ published', 'prepared');
+              close();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
     },
+
     'faq-edit': async (d) => {
       const f = (UG.DATA.faqs || []).find((x) => x.id === d.id);
       if (!f) return;
-      const ans = await UG_FEATURES.prompt({ title: 'Edit answer', label: f.question, value: f.answer });
-      if (ans === null) return;
-      try { await Repo.updateFaq(d.id, { answer: ans }); toast('FAQ updated', 'prepared'); }
-      catch (e) { toast(e.message, 'warning'); }
-      render();
+      UG_FEATURES.modal({
+        title: 'Edit FAQ',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Question</label><input class="ug-in" data-f-q value="' + UG_UTIL.esc(f.question) + '"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Category</label><select class="ug-sel" data-f-cat>' +
+            ['Reports', 'Relief', 'Evacuation', 'SOS', 'Roads', 'General'].map((c) => '<option' + (c === f.category ? ' selected' : '') + '>' + c + '</option>').join('') + '</select></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Answer</label>' +
+          '<textarea class="ug-ta" rows="6" data-f-a>' + UG_UTIL.esc(f.answer || '') + '</textarea>' +
+          '<div class="ug-help">The complete existing answer is loaded above — edit any part of it.</div></div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-save>Save changes</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', async () => {
+            const question = wrap.querySelector('[data-f-q]').value.trim();
+            const answer = wrap.querySelector('[data-f-a]').value.trim();
+            if (!question || !answer) { toast('A question and an answer are required', 'warning'); return; }
+            try {
+              await Repo.updateFaq(f.id, { question: question, answer: answer, category: wrap.querySelector('[data-f-cat]').value });
+              toast('FAQ updated', 'prepared');
+              close();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
     },
     'faq-del': async (d) => {
       const ok = await UG_FEATURES.confirm({ title: 'Delete FAQ', message: 'This FAQ will be removed for every resident.', danger: true, confirmLabel: 'Delete' });
@@ -1316,26 +1811,25 @@
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
-    'rs-add': async () => {
-      const road = await UG_FEATURES.prompt({ title: 'Add road status', label: 'Road name', placeholder: 'e.g. Aguila Rd' });
-      if (!road) return;
-      const brgy = await UG_FEATURES.prompt({ title: 'Barangay', label: 'Barangay' });
-      const note = await UG_FEATURES.prompt({ title: 'Note', label: 'Why is the status this way?' });
-      try {
-        await Repo.createRoadStatus({ road_name: road, barangay: brgy || '', status: 'caution', note: note || '', lat: null, lng: null });
-        toast('Road status added', 'prepared');
-      } catch (e) { toast(e.message, 'warning'); }
-      render();
-    },
-    'rs-cycle': async (d) => {
+    /* Road status: the full form (road, barangay, segment, status, cause,
+       severity, timing, pin, note) replaces the old road-name-only prompt. */
+    'rs-add': () => roadStatusForm(null),
+    'rs-edit': (d) => {
       const r = (UG.DATA.roadStatus || []).find((x) => x.id === d.id);
-      if (!r) return;
-      const order = ['passable', 'caution', 'blocked'];
-      const next = order[(order.indexOf(r.status) + 1) % order.length];
-      try { await Repo.updateRoadStatus(d.id, { status: next }); toast('Status → ' + next, 'info'); }
-      catch (e) { toast(e.message, 'warning'); }
-      render();
+      if (r) roadStatusForm(r);
     },
+    'rs-pin': async () => {
+      try {
+        const pos = await UG_FEATURES.locate();
+        const latEl = q('[data-rs-lat]'), lngEl = q('[data-rs-lng]');
+        if (latEl) latEl.value = pos.lat;
+        if (lngEl) lngEl.value = pos.lng;
+        toast('Pin set to your current position', 'prepared');
+      } catch (e) {
+        toast(e.message + ' — you can also type coordinates from the map.', 'warning');
+      }
+    },
+    /* rs-add / rs-edit open the full road-status form (roadStatusForm above) */
     'rs-del': async (d) => {
       const ok = await UG_FEATURES.confirm({ title: 'Remove road status', message: 'This entry will be removed from the map and the road status list.', confirmLabel: 'Remove' });
       if (!ok) return;
@@ -1425,6 +1919,7 @@
     if (f === 'benSearch') { S.benSearch = v; render(f); return; }
     if (f === 'benSearchLgu') { S.benSearchLgu = v; render(f); return; }
     if (f === 'faqSearch') { S.faqSearch = v; render(f); return; }
+    if (f === 'reportAddress') { S.report.locationNote = v; return; }
     /* road work composer fields */
     if (f === 'rwTitle') { S.roadDraft.title = v; return; }
     if (f === 'rwDescription') { S.roadDraft.description = v; return; }
@@ -1445,6 +1940,8 @@
     if (f === 'advSev') S.draft.sev = v;
     else if (f === 'advType') S.draft.type = v;
     else if (f === 'advArea') S.draft.area = v;
+    else if (f === 'anFrom') { S.anFrom = v; return; }
+    else if (f === 'anTo') { S.anTo = v; return; }
     else if (f === 'hazard') S.report.hazard = v;
     else if (f === 'brgy') S.report.brgy = v;
     else if (f === 'rwBarangay') { S.roadDraft.barangay = v; render(); return; }
@@ -1467,10 +1964,13 @@
 
   /* Click outside any open combo closes it. Fires after the [data-act] click
      handler, which already returned without preventing default for clicks
-     that are not on a ug-combo-option. */
+     that are not on a ug-combo-option. Also closes the citizen "More" panel. */
   document.addEventListener('click', (e) => {
     if (e.target.closest && e.target.closest('.ug-combo')) return;
     closeAllBarangayCombos();
+    if (e.target.closest && !e.target.closest('.ug-wmore')) {
+      document.querySelectorAll('[data-more-panel]').forEach((p) => { p.hidden = true; });
+    }
   });
 
   /* The panel is anchored to its trigger via position:absolute, so scrolling

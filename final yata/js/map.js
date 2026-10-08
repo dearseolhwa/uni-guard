@@ -91,6 +91,7 @@ const MapView = (function () {
     }).addTo(map);
 
     ctx = { map: map, layer: L.layerGroup().addTo(map), container: container, fallback: false };
+    addLocateControl(map);
     if (opts.incidents) setIncidents(opts.incidents);
     if (opts.centers) setCenters(opts.centers);
     if (opts.relief) setRelief(opts.relief);
@@ -219,6 +220,54 @@ const MapView = (function () {
       if (onDrop) onDrop(ll.lat, ll.lng);
     });
     ctx.reportMarker = marker;
+  }
+
+  /* ---------------------------------------------------- "My Location" control
+   * A single Leaflet control, shared by every map: same corner, same size and
+   * spacing as the other map controls, and it works with touch (a plain button
+   * with a pointerdown handler, no hover dependency). On success it drops a
+   * temporary accuracy circle + marker and re-centres the map; on failure it
+   * raises a toast via the normal toast host. */
+  function addLocateControl(map) {
+    const L = window.L;
+    const Locate = L.Control.extend({
+      options: { position: 'bottomright' },
+      onAdd: function () {
+        const div = L.DomUtil.create('div', 'ug-locate-wrap');
+        div.innerHTML = '<button type="button" class="ug-locate-btn" aria-label="Show my location" title="Show my location">' +
+          '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>';
+        const btn = div.querySelector('button');
+        L.DomEvent.disableClickPropagation(div);
+        L.DomEvent.on(btn, 'click', async (e) => {
+          L.DomEvent.preventDefault(e);
+          btn.classList.add('is-busy');
+          try {
+            const pos = await (typeof UG_FEATURES !== 'undefined' ? UG_FEATURES.locate() : Promise.reject(new Error('unavailable')));
+            if (ctx && ctx.locateLayer) { try { ctx.locateLayer.remove(); } catch (er) {} }
+            ctx.locateLayer = L.layerGroup([
+              L.circle([pos.lat, pos.lng], { radius: Math.max(30, pos.accuracy || 60), color: '#34D6F0', weight: 1, fillOpacity: 0.12 }),
+              L.marker([pos.lat, pos.lng], { icon: shapeIcon({ color: '#34D6F0', on: '#062B36', short: 'YOU', shape: 'circle' }, 22) })
+            ]).addTo(map);
+            map.setView([pos.lat, pos.lng], Math.max(map.getZoom(), 15));
+          } catch (err) {
+            try {
+              const host = document.getElementById('ug-toasts');
+              if (host) {
+                const t = document.createElement('div');
+                t.className = 'ug-toast ug-toast--warning';
+                t.innerHTML = UG.icon('info', 16) + '<span>' + UG_UTIL.esc(err.message || 'Could not read your location.') + '</span>';
+                host.appendChild(t);
+                setTimeout(() => t.remove(), 3200);
+              }
+            } catch (er) {}
+          }
+          btn.classList.remove('is-busy');
+        });
+        return div;
+      }
+    });
+    try { Locate.prototype.options.position = 'bottomright'; new Locate().addTo(map); } catch (e) {}
   }
 
   function invalidate() { if (ctx && ctx.map) { try { ctx.map.invalidateSize(); } catch (e) {} } }

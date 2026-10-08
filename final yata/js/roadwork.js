@@ -48,10 +48,15 @@ const UG_ROADWORK = (function () {
   }
 
   function statusBadge(s) {
+    /* Open / One lane / Closed / Under repair (migration 031 keys); the legacy
+       keys keep rendering. Labels come from one map so the cards, filters and
+       map popup never disagree. */
     const map = {
-      passable: ['open', 'Passable', 'var(--ug-prepared)'],
-      caution:  ['warning', 'Caution', 'var(--ug-warning)'],
-      blocked:  ['closed', 'Blocked', 'var(--ug-emergency)']
+      passable:     ['open', 'Open', 'var(--ug-prepared)'],
+      one_lane:     ['warning', 'One lane', 'var(--ug-warning)'],
+      caution:      ['warning', 'One lane', 'var(--ug-warning)'],
+      blocked:      ['closed', 'Closed', 'var(--ug-emergency)'],
+      under_repair: ['id', 'Under repair', 'var(--ug-signal)']
     };
     const m = map[s] || map.passable;
     return '<span class="ug-badge ug-badge--' + m[0] + '">' + m[1] + '</span>';
@@ -81,12 +86,34 @@ const UG_ROADWORK = (function () {
       '<div class="ug-card"><div class="ug-card-h"><h3>Road Status</h3>' +
         '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('nav', attr({ route: 'map' })) + '>' + I('map', 14) + 'Open Map</button></div>' +
         '<div class="ug-rows">' + roadStatus.map((r) =>
-          '<div class="ug-row"><span class="r-dot" style="background:' + (r.status === 'passable' ? 'var(--ug-prepared)' : r.status === 'blocked' ? 'var(--ug-emergency)' : 'var(--ug-warning)') + '"></span>' +
+          '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer" data-act="open-road-detail" data-id="' + esc(r.id) + '"><span class="r-dot" style="background:' + (r.status === 'passable' ? 'var(--ug-prepared)' : r.status === 'blocked' ? 'var(--ug-emergency)' : 'var(--ug-warning)') + '"></span>' +
             '<div class="r-main"><div class="r-t">' + esc(r.road_name) + '</div>' +
               '<div class="r-m"><span>' + I('pin', 12) + esc(r.barangay) + '</span>' +
-              '<span>' + esc(r.note || '') + '</span></div></div>' +
-            statusBadge(r.status) + '</div>').join('') + '</div></div>' +
+              '<span>' + esc((r.cause ? r.cause + ' · ' : '') + (r.note || '')) + '</span></div></div>' +
+            statusBadge(r.status) + '</button>').join('') + '</div></div>' +
     '</div>';
+  }
+
+  /* the road status / road work detail view (full record) */
+  function roadDetailModal(id) {
+    const r = (UG.DATA.roadStatus || []).find((x) => x.id === id);
+    if (!r) return;
+    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600">' + esc(v) + '</span></div>';
+    UG_FEATURES.modal({
+      title: r.road_name || 'Road status',
+      body:
+        '<div style="margin-bottom:10px">' + statusBadge(r.status) + '</div>' +
+        kv('Barangay', r.barangay || '—') +
+        kv('Segment', (r.segment_from || r.segment_to) ? (r.segment_from || '—') + '  →  ' + (r.segment_to || '—') : '—') +
+        kv('Cause', r.cause || '—') +
+        kv('Started', r.started_at ? fmt(r.started_at) : '—') +
+        kv('Estimated reopening', r.estimated_reopen ? fmt(r.estimated_reopen) : '—') +
+        kv('Last updated', (r.updated_at ? fmt(r.updated_at) : '—') + (r.updater_name ? ' · ' + r.updater_name : '')) +
+        (r.note ? kv('Notes', r.note) : '') +
+        ((typeof r.lat === 'number' && typeof r.lng === 'number' && UG_GEO.canNavigate(r.lat, r.lng))
+          ? '<a class="ug-waze-btn" style="margin-top:12px;display:inline-flex" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.lat, r.lng) + '">' + I('route', 13) + ' Open in Waze</a>' : ''),
+      footer: '<button class="ug-btn" data-modal-close>Close</button>'
+    });
   }
 
   /* --------------------------------------------------------------- LGU */
@@ -110,13 +137,12 @@ const UG_ROADWORK = (function () {
             '<div class="ug-field" style="flex:1"><label class="ug-lab">Road name</label>' +
               '<input class="ug-in" data-field="rwRoad" value="' + esc(d.road_name || '') + '" placeholder="Aguila Rd"></div>' +
           '</div>' +
-          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
-            '<div class="ug-field" style="flex:1"><label class="ug-lab">Latitude</label>' +
-              '<input class="ug-in" data-field="rwLat" value="' + esc(d.lat != null ? d.lat : '') + '" placeholder="16.0206" inputmode="decimal"></div>' +
-            '<div class="ug-field" style="flex:1"><label class="ug-lab">Longitude</label>' +
-              '<input class="ug-in" data-field="rwLng" value="' + esc(d.lng != null ? d.lng : '') + '" placeholder="120.2306" inputmode="decimal"></div>' +
-            '<button class="ug-btn ug-btn--ghost" style="align-self:flex-end"' + A('rw-locate') + '>' + I('pin', 15) + 'My Location</button>' +
-          '</div>' +
+          '<div class="ug-field"><label class="ug-lab">Map pin</label>' +
+            '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:center">' +
+              '<span class="ug-mono" style="flex:1;font-size:12px">' + (d.lat != null && d.lng != null ? esc(UG_GEO.fmt(d.lat, d.lng)) : 'No pin set — use your location or type coordinates') + '</span>' +
+              '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('rw-locate') + '>' + I('pin', 15) + 'My Location</button>' +
+              '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('rw-manual-pin') + '>Type</button>' +
+            '</div></div>' +
           '<div class="ug-field"><label class="ug-lab">Expected duration (hours)</label>' +
             '<input class="ug-in" data-field="rwHours" value="' + esc(d.expected_hours != null ? d.expected_hours : 6) + '" inputmode="numeric"></div>' +
           '<div class="ug-rowf ug-gap8" style="gap:8px">' +
@@ -130,9 +156,9 @@ const UG_ROADWORK = (function () {
         '<div class="ug-rows ug-scroll" style="max-height:280px">' + (UG.DATA.roadStatus || []).map((r) =>
           '<div class="ug-row"><span class="r-dot" style="background:' + (r.status === 'passable' ? 'var(--ug-prepared)' : r.status === 'blocked' ? 'var(--ug-emergency)' : 'var(--ug-warning)') + '"></span>' +
             '<div class="r-main"><div class="r-t">' + esc(r.road_name) + '</div>' +
-              '<div class="r-m"><span>' + I('pin', 12) + esc(r.barangay) + '</span><span>' + esc(r.note || '') + '</span></div></div>' +
+              '<div class="r-m"><span>' + I('pin', 12) + esc(r.barangay) + '</span><span>' + esc((r.cause ? r.cause + ' · ' : '') + (r.note || '')) + '</span></div></div>' +
             statusBadge(r.status) +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-cycle" data-id="' + esc(r.id) + '">' + I('sort', 14) + '</button>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-edit" data-id="' + esc(r.id) + '">' + I('settings', 14) + '</button>' +
             '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-del" data-id="' + esc(r.id) + '">' + I('x', 14) + '</button>' +
           '</div>').join('') + '</div></div>' +
 
@@ -152,5 +178,5 @@ const UG_ROADWORK = (function () {
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';
   }
 
-  return { mRoadwork, dRoadwork, statusBadge, fmt, head };
+  return { mRoadwork, dRoadwork, roadDetailModal, statusBadge, fmt, head };
 })();

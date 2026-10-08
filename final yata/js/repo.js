@@ -80,6 +80,7 @@ const Repo = (function () {
       created_at: r.created_at,
       time: UG_UTIL.relTime(r),
       desc: r.description || '',
+      location_note: r.location_note || '',
       corr: typeof r.corroborations === 'number' ? r.corroborations
            : (Array.isArray(r.report_corroborations) ? r.report_corroborations.length : 0),
       thumb: r.photo_path ? 'remote' : null,
@@ -183,8 +184,11 @@ const Repo = (function () {
   }
   function toGuide(g) {
     return {
-      id: g.id, hazard_type: g.hazard_type || '', phase: g.phase || 'before',
+      id: g.id, hazard_type: g.hazard_type || '', phase: g.phase || 'all',
       title: g.title || '', body: g.body || '',
+      summary: g.summary || '',
+      body_before: g.body_before || '', body_during: g.body_during || '', body_after: g.body_after || '',
+      pdf_path: g.pdf_path || null,
       sort_order: g.sort_order || 0, active: g.active !== false
     };
   }
@@ -208,7 +212,12 @@ const Repo = (function () {
   function toRoadStatus(r) {
     return {
       id: r.id, road_name: r.road_name || '', barangay: r.barangay || '',
+      barangay_id: r.barangay_id || null,
       status: r.status || 'passable', note: r.note || '',
+      segment_from: r.segment_from || '', segment_to: r.segment_to || '',
+      cause: r.cause || '', severity: r.severity || 'advisory',
+      started_at: r.started_at, estimated_reopen: r.estimated_reopen,
+      updater_name: r.updater_name || '',
       lat: r.lat, lng: r.lng, updated_at: r.updated_at
     };
   }
@@ -479,12 +488,20 @@ const Repo = (function () {
       description: input.description,
       severity: input.severity,
       urgency: input.urgency || input.severity,
+      location_note: input.location_note || null,
       lat: input.lat, lng: input.lng,
       photo_path: photo_path
     };
 
-    const { data, error } = await c.from('reports').insert(payload).select('*').single();
-    if (error) fail(error);
+    let ins = await c.from('reports').insert(payload).select('*').single();
+    /* migration 027 not applied yet? retry without location_note so reports
+       keep flowing until the live project is migrated. */
+    if (ins.error && /location_note|column/i.test(ins.error.message || '')) {
+      delete payload.location_note;
+      ins = await c.from('reports').insert(payload).select('*').single();
+    }
+    if (ins.error) fail(ins.error);
+    const data = ins.data;
 
     await loadAll();
     const row = (UG.DATA.incidents || []).find((i) => i.uuid === data.id) || toIncident(data, 0);
@@ -555,6 +572,37 @@ const Repo = (function () {
       .select('*').eq('report_id', reportUuid).order('created_at');
     if (error) return [];
     return data || [];
+  }
+
+  /* Edit an existing report. Citizens may edit their own row for 15 minutes
+     (enforced again by guard_report_edit in migration 027); officials in scope
+     and LGU may edit through the same policy. Only whitelisted columns are
+     ever sent. Barangay is derived server side from the coordinates. */
+  async function updateReport(reportUuid, patch) {
+    const allowed = ['description', 'hazard_type', 'hazard_other_text', 'location_note',
+      'lat', 'lng', 'severity', 'urgency', 'photo_path'];
+    const clean = {};
+    allowed.forEach((k) => { if (patch[k] !== undefined) clean[k] = patch[k]; });
+    const c = client();
+    if (!c) {
+      const row = (UG.DATA.incidents || []).find((i) => i.uuid === reportUuid || i.id === reportUuid);
+      if (row) {
+        if (clean.description != null) row.desc = clean.description;
+        if (clean.severity != null) row.sev = clean.severity;
+      }
+      emit();
+      return row || null;
+    }
+    let upd = await c.from('reports').update(clean).eq('id', reportUuid).select('*').single();
+    /* migration 027 not applied yet? retry without location_note. */
+    if (upd.error && /location_note|column/i.test(upd.error.message || '')) {
+      delete clean.location_note;
+      upd = await c.from('reports').update(clean).eq('id', reportUuid).select('*').single();
+    }
+    if (upd.error) fail(upd.error);
+    const data = upd.data;
+    await loadAll();
+    return data;
   }
 
   /* -------------------------------------------------------------- advisories */
@@ -633,11 +681,19 @@ const Repo = (function () {
 
   async function updateHotline(id, patch) {
     const c = client();
-    if (!c) return null;
+    if (!c) { const h = (UG.DATA.hotlines || []).find((x) => x.uuid === id || x.id === id); if (h) Object.assign(h, patch); emit(); return h; }
     const { data, error } = await c.from('emergency_hotlines').update(patch).eq('id', id).select('*').single();
     if (error) fail(error);
     await loadAll();
     return data;
+  }
+
+  async function deleteHotline(id) {
+    const c = client();
+    if (!c) { UG.DATA.hotlines = (UG.DATA.hotlines || []).filter((h) => !(h.uuid === id || h.id === id)); emit(); return; }
+    const { error } = await c.from('emergency_hotlines').delete().eq('id', id);
+    if (error) fail(error);
+    await loadAll();
   }
 
   /* ---------------------------------------------------------- notifications */
@@ -747,43 +803,73 @@ const Repo = (function () {
     } catch (e) { return null; }
   }
 
-  /* ---------------------------------------------------------------- analytics */
-  async function analytics() {
+    /* ---------------------------------------------------------------- analytics */
+  /* Date-ranged analytics over the scoped SQL functions from migration 024.
+     Scope (LGU = municipality-wide, official = own barangay, citizen = none)
+     is enforced inside the functions; the UI only reflects it. */
+  async function analytics(fromISO, toISO) {
+    const from = fromISO || new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+    const to = toISO || new Date().toISOString().slice(0, 10);
     const c = client();
     if (!c) {
-  const byHazard = {};
-  (UG.DATA.incidents || []).forEach((i) => { byHazard[i.hazard] = (byHazard[i.hazard] || 0) + 1; });
-  const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0, rejected: 0 };
-  (UG.DATA.incidents || []).forEach((i) => { stages[i.status] = (stages[i.status] || 0) + 1; });
-  const inc = UG.DATA.incidents || [];
-  const corroborationRate = inc.length
-    ? Math.round(inc.filter((i) => (i.corr || 0) >= 3).length / inc.length * 100)
-    : 0;
-  return { local: true, byHazard: byHazard, stages: stages, daily: [], corroborationRate: corroborationRate };
-}
-    const [hazard, pipeline, dailyRows] = await Promise.all([
-      c.from('analytics_by_hazard').select('*'),
-      c.from('analytics_pipeline').select('*'),
-      c.from('analytics_daily').select('*').order('day')
+      const byHazard = {};
+      const inc = UG.DATA.incidents || [];
+      inc.forEach((i) => { byHazard[i.hazard] = (byHazard[i.hazard] || 0) + 1; });
+      const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0, rejected: 0 };
+      inc.forEach((i) => { stages[i.status] = (stages[i.status] || 0) + 1; });
+      const corroborationRate = inc.length
+        ? Math.round(inc.filter((i) => (i.corr || 0) >= 3).length / inc.length * 100)
+        : 0;
+      return { local: true, from: from, to: to, byHazard: byHazard, stages: stages, daily: [], corroborationRate: corroborationRate, avgDispatchSeconds: null, avgResolveSeconds: null, byBarangay: [], shelters: null };
+    }
+    const [hazard, pipeline, dailyRows, resp, corr, byBrgy, shelters] = await Promise.all([
+      c.rpc('analytics_by_hazard', { p_from: from, p_to: to }),
+      c.rpc('analytics_pipeline', { p_from: from, p_to: to }),
+      c.rpc('analytics_daily', { p_from: from, p_to: to }),
+      c.rpc('analytics_response_times', { p_from: from, p_to: to }),
+      c.rpc('analytics_corroboration', { p_from: from, p_to: to }),
+      c.rpc('analytics_by_barangay', { p_from: from, p_to: to }),
+      c.rpc('analytics_shelters', { p_from: from, p_to: to })
     ]);
+    const e = [hazard, pipeline, dailyRows].find((r) => r.error);
+    /* migration 024 not applied yet? fall back to the (older) analytics views
+       so the screen keeps working until the live project is migrated. */
+    if (e && /does not exist|schema cache/i.test(e.error && e.error.message || '')) {
+      const legacy = await analyticsFromViews();
+      if (legacy) return Object.assign(legacy, { from: from, to: to });
+    }
+    if (e) fail(e.error);
+
     const byHazard = {};
     (hazard.data || []).forEach((r) => { byHazard[r.hazard_type] = Number(r.total); });
-        const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0, rejected: 0 };
+    const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0, rejected: 0 };
     (pipeline.data || []).forEach((r) => { stages[r.status] = Number(r.total); });
-    const daily = (dailyRows.data || []).map((r) => Number(r.total));
-        const total = Object.values(stages).reduce((a, b) => a + b, 0);
-    /* share of reports that reached the corroboration threshold, as a whole
-       percent, same scale as localAnalytics(). Taken from the analytics_corroboration
-       view's auto_verified count, which is the number of reports verified by
-       corroboration. */
-    let corroborationRate = 0;
-    try {
-      const corr = await c.from('analytics_corroboration').select('*').maybeSingle();
-      if (corr && corr.data && Number(corr.data.total_reports)) {
-        corroborationRate = Math.round(Number(corr.data.auto_verified) / Number(corr.data.total_reports) * 100);
-      }
-    } catch (e) { corroborationRate = 0; }
-    return { byHazard, stages, daily, corroborationRate };
+    const daily = (dailyRows.data || []).map((r) => ({ day: r.day, total: Number(r.total) }));
+
+    let avgDispatchSeconds = null, avgResolveSeconds = null;
+    if (resp && !resp.error && resp.data) {
+      const d = resp.data.map((r) => Number(r.seconds_to_dispatch)).filter((n) => isFinite(n) && n >= 0);
+      const s = resp.data.map((r) => Number(r.seconds_to_resolve)).filter((n) => isFinite(n) && n >= 0);
+      avgDispatchSeconds = d.length ? Math.round(d.reduce((a, b) => a + b, 0) / d.length) : null;
+      avgResolveSeconds = s.length ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : null;
+    }
+    let corroborationRate = 0, autoVerified = 0, totalReports = 0;
+    if (corr && !corr.error && corr.data && corr.data.length && Number(corr.data[0].total_reports)) {
+      totalReports = Number(corr.data[0].total_reports);
+      autoVerified = Number(corr.data[0].auto_verified);
+      corroborationRate = Math.round(autoVerified / totalReports * 100);
+    }
+    const byBarangay = (byBrgy && !byBrgy.error ? byBrgy.data : []).map((r) => ({
+      barangay: r.barangay, total: Number(r.total), open: Number(r.open_total), emergency: Number(r.emergency_total)
+    }));
+    const shelterRows = (shelters && !shelters.error ? shelters.data : []).map((r) => ({
+      status: r.status, centres: Number(r.centres), capacity: Number(r.capacity), occupancy: Number(r.occupancy)
+    }));
+
+    return { from: from, to: to, byHazard: byHazard, stages: stages, daily: daily,
+      corroborationRate: corroborationRate, autoVerified: autoVerified, totalReports: totalReports,
+      avgDispatchSeconds: avgDispatchSeconds, avgResolveSeconds: avgResolveSeconds,
+      byBarangay: byBarangay, shelters: shelterRows };
   }
 
   /* -------------------------------------------------------------- admin ops */
@@ -811,9 +897,21 @@ const Repo = (function () {
   async function listAudit(limit) {
     const c = client();
     if (!c) return [];
-    const { data, error } = await c.from('audit_log').select('*').order('created_at', { ascending: false }).limit(limit || 200);
+    /* actor names join through the FK to profiles; if the embedded select is
+       not available for any reason, fall back to the plain rows */
+    let data, error;
+    ({ data, error } = await c.from('audit_log')
+      .select('id, created_at, actor_id, action, entity, entity_id, meta, profiles:actor_id ( full_name )')
+      .order('created_at', { ascending: false }).limit(limit || 200));
+    if (error || !data) {
+      ({ data, error } = await c.from('audit_log').select('*').order('created_at', { ascending: false }).limit(limit || 200));
+    }
     if (error) fail(error);
-    return data || [];
+    return (data || []).map((a) => ({
+      id: a.id, created_at: a.created_at, actor_id: a.actor_id,
+      actor_name: (a.profiles && a.profiles.full_name) || a.actor_name || null,
+      action: a.action, entity: a.entity, entity_id: a.entity_id, meta: a.meta
+    }));
   }
 
   async function listResponders() {
@@ -984,9 +1082,27 @@ const Repo = (function () {
     return (data || []).map((s) => ({
       id: s.id, profile_name: s.profile_name, profile_phone: s.profile_phone,
       barangay: s.barangay, lat: s.lat, lng: s.lng, accuracy: s.accuracy,
-      note: s.note, status: s.status,
+      note: s.note, status: s.status || 'sent',
+      created_at: s.created_at,
       time: UG_UTIL.relTime(s)
     }));
+  }
+
+  /* SOS status changes go through the update_sos_status RPC (migration 029):
+     scoped per barangay for officials, LGU sees all, every change is audited. */
+  async function updateSosStatus(sosId, status) {
+    const c = client();
+    if (!c) {
+      const row = (UG.DATA.sosLog || []).find((s) => s.id === sosId);
+      if (row) row.status = status;
+      emit();
+      return { id: sosId, status: status };
+    }
+    const { data, error } = await c.rpc('update_sos_status', { p_sos_id: sosId, p_status: status });
+    if (error) fail(error);
+    UG.DATA.sosLog = await listSos();
+    emit();
+    return data;
   }
   async function listOthersReview() {
     const c = client();
@@ -999,8 +1115,8 @@ const Repo = (function () {
   return {
     client, online, state, onChange,
     loadAll, subscribe, unsubscribe,
-    createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, reportHistory,
-    createAdvisory, updateCenter, createCenter, createHotline, updateHotline,
+    createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, reportHistory, updateReport,
+    createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,
     markRead, markAllRead, listBarangays,
     declareEmergency, subscribedDeviceCount,
     analytics, analyticsFromViews, listUsers, adminUsers, listAudit, listResponders, assignResponder,
@@ -1009,7 +1125,7 @@ const Repo = (function () {
     createGuide, updateGuide,
     createFaq, updateFaq, deleteFaq,
     createRoadWork, createRoadStatus, updateRoadStatus, deleteRoadStatus,
-    submitSos, listSos, listOthersReview,
+    submitSos, listSos, updateSosStatus, listOthersReview,
     logClientError,
     toIncident, toAdvisory, toCenter, toHotline, toNotification, posFrom,
     toRelief, toBeneficiary, toGuide, toFaq, toRoadWork, toRoadStatus

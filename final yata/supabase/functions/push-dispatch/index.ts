@@ -61,7 +61,7 @@ Deno.serve(async (req: Request) => {
   const message = String(body.body || '');
   const severity = String(body.severity || 'advisory');
   const advisoryId = (body.advisoryId as string) || null;
-  const area = String(body.area || 'Citywide');
+  const area = String(body.area || 'Municipality-wide');
   const urlTarget = String(body.url || './index.html');
 
   const payload = JSON.stringify({

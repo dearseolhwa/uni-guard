@@ -1,3 +1,181 @@
+
+---
+
+# UniGuard revision 2 — security, workflow and module fixes (fix prompt v2)
+
+JS syntax-checked with `node --check` on every file; new migrations are
+additive and idempotent; no demo accounts or credentials were added anywhere
+(seed files untouched). See `docs/MIGRATION-NOTES.md` for the live-project
+run order and `DOC_UPDATES.md` for the paper edits.
+
+## Phase A — security and database
+- **024 created** (was missing though referenced by README/DEPLOY): analytics
+  views now run as the caller AND carry explicit scope predicates — LGU sees
+  all barangays, an official only their own, citizens zero rows. Views over
+  permissive tables (`evacuation_centers`) are scoped inside the view body.
+  Date-ranged function twins added; old view names keep working.
+- **027**: citizen edits of their own report (15-minute window) can only
+  change description / hazard type / "Others" text / location note / photo /
+  coordinates / severity (severity is reporter-set by design, stated in the
+  summary). Status, barangay, reporter, code, resolved_at are trigger-
+  protected; status only moves through the RPC. `reports_update.with check`
+  tightened. Every citizen edit writes an audit row.
+- **028**: strict status flow for ALL roles — one step at a time,
+  `resolved`/`rejected` final. `guard_report_status` + `advance_report_status`
+  redefined; corroboration auto-verify (022/025) still works (a legal step).
+- **029**: SOS reads scoped to the sender's barangay for officials (LGU all,
+  citizens own); `update_sos_status` RPC (scoped + audited + notifies the
+  sender); road-status and road-work writes scoped to the official's own
+  barangay; `road_status` added to `fill_barangay_id()`; advisory publishing
+  restricted (official = own barangay only, citywide LGU-only) with guards on
+  `advisory_targets` and a widen-block on updates.
+- **030**: server-side location routing. Coordinates mandatory and validated
+  (missing / invalid / swapped / outside Lingayen all rejected — same ladder
+  as `UG_GEO.classify`). Barangay derived from coordinates for every role;
+  the picked name is only a hint. `barangay_geoms` ships approximate
+  centroids (OSM/PhilAtlas) — **verify against MDRRMO records** (see
+  MIGRATION-NOTES). Existing reports with coordinates backfilled in a
+  reviewable step.
+- **033**: audit coverage — one generic row-change trigger on advisories,
+  shelters, road status, road work, hotlines, guides, FAQs (with before/after
+  change maps), SOS status changes, plus `shelter_occupancy_log` and a trend
+  view for analytics.
+- Edge functions: `'Citywide'` defaults replaced with `'Municipality-wide'`
+  (push-dispatch, sms-fallback).
+
+## Phase B — hazard reporting (citizen)
+- Submission is blocked without a valid in-Lingayen location — online AND in
+  the offline queue path (the database re-checks).
+- GPS denial shows a plain explanation (routing + verification reasons) and
+  falls back to the draggable map pin; manual coordinate entry remains as a
+  secondary control.
+- The raw coordinate display is replaced by the map pin (drag-to-adjust) plus
+  a readable reverse-geocoded address label.
+- Optional **"Exact address / landmark"** field added end-to-end (column,
+  RPC payload, feed, detail views, edit form).
+- **Edit own report** within 15 minutes: Edit button on the citizen detail
+  view (mobile + web), same validation as submit, window enforced again by
+  027, every edit audited; after 15 minutes the control explains the closure.
+
+## Phase C — incidents (console)
+- **Priority Sort** is now a real toggle: severity → corroboration count →
+  recency, with an active state and switch-back.
+- **Command View** built: live map + active incident list (Reported / Verified
+  / Response Dispatched) + status pipeline, scope-respecting, with an exit
+  control.
+- **Edit incident** (officials in scope + LGU): modal form on the detail
+  view; every change audit-logged; identity/status fields excluded.
+- Status labels + strict flow applied everywhere from `js/theme.js`; the
+  Verify action stays.
+- Dashboard: recent incidents and advisories are clickable to their detail
+  views; recent rows carry "View Details" affordance.
+- Home stat cards read live store data (open reports in the citizen's
+  barangay was a hardcoded "1" before).
+
+## Phase D — navigation and layout
+- Citizen top nav rebuilt: secondary destinations (Guides, FAQs, Hotlines,
+  Offline) collapse into a **"More" dropdown**; SOS, user menu and **Sign Out
+  (labelled, last in row)** stay visible at 1280/1366/1440 and on mobile at
+  100% zoom; name column collapses first, then the Sign Out label.
+- Stacking fixed at the variable level: one z-index scale (`--ug-z-*`),
+  Leaflet sealed in its own stacking context; drawer, scrim, modal, dropdown,
+  toasts, urgent alerts, SOS button can no longer interleave wrongly.
+- **"My Location"** map control added to every Leaflet map (same corner,
+  size and spacing as the other controls; touch-friendly). Road-work
+  composer's My Location button aligned; raw lat/lng inputs replaced by a
+  pin readout + GPS button + typed fallback.
+
+## Phase E — details views
+- **SOS entries**: the missing detail view exists (sender, contact, time,
+  status, map location, Waze, acknowledge/resolve actions) from the console
+  SOS log.
+- **Shelters**: citizen cards open the full record (address/notes, capacity,
+  occupancy, status, coordinates, Waze).
+- **Road status**: full record view (segment, cause, timing, updater, Waze).
+- **Audit log rows**: clickable with the full change map ("from → to").
+- Advisories keep their detail view; "Reach 0 subscribed devices" was not
+  shown from real data so the hardcoded reach line stays off the advisory
+  detail.
+
+## Phase F — module fixes
+- **Shelters**: **All Shelters (default) / My Barangay** toggle on the citizen
+  directory; Open/Full/Closed filters verified working; occupancy changes
+  audit-logged (033) and shown with capacity on the detail view.
+- **Road status**: full form (road, barangay, segment, status Open/One
+  lane/Closed/Under repair, cause, severity, start, estimated reopening, pin,
+  notes, auto-filled updater) + Edit/Delete with confirmation; cards show
+  status, cause and update time; citizens see a detail view.
+- **Guides**: restructured to one guide with summary + Before/During/After +
+  optional PDF; conversion migration keeps all content; visible "+ Add Guide"
+  button opens a real modal form (no `prompt()`); list shows title+summary,
+  detail shows the sections.
+- **FAQs**: prompt()-based add/edit replaced with proper modal forms
+  (question, category, multi-line answer, complete pre-filled answer); the
+  "Verified, In Progress, and Resolved" wording fixed to the new labels.
+- **Hotlines**: Verify button and `verify-hotline` action removed together
+  with the "single verified list" wording; add/edit/delete work (LGU only,
+  per RLS); the number and the Call control are real `tel:` links.
+- **Audit page**: short description added; rows clickable; no stray "Layer"
+  control existed in the audit screen (map layer toggles are a separate,
+  working feature — left in place).
+
+## Phase G — analytics and PDF exports
+- **jsPDF + jspdf-autotable vendored** into `vendor/`, added to `sw.js`
+  PRECACHE; one shared `js/pdf.js` helper (title, generated date/time,
+  generated-by name+role, scope, table headers, "Page X of Y").
+- **All CSV exports removed**: hotlines, analytics, users, audit log now
+  export formatted PDFs; `toCSV` and the CSV branch of `download` are gone.
+- Analytics screen: date-range filters (defaults last 30 days) applied on the
+  server; response performance (avg report→dispatch, report→resolve);
+  barangay comparison (LGU) / breakdown (official); every chart carries a
+  one-line description of what it shows; PDF export of the current view and
+  range.
+
+## Phase H — dead controls audit (table)
+
+| Control | Location | Status |
+|---|---|---|
+| Priority Sort (navigated to hotlines) | screens.js incident queue | **Fixed** — real toggle |
+| Command View (navigated to dashboard) | screens.js incident queue | **Fixed** — new screen |
+| Hotline "Verify" button | screens.js hotlines | **Removed** (with action) |
+| `verify-hotline` action | app.js | **Removed** |
+| "single verified list…" wording | screens.js hotlines header | **Fixed** |
+| Export CSV buttons ×4 | app.js, screens.admin.js | **Fixed** → Export PDF |
+| `toCSV` / CSV download branch | util.js | **Removed** |
+| rs-cycle (status roulette) | app.js/roadwork.js | **Removed** → proper Edit form |
+| Raw rwLat/rwLng inputs | roadwork.js composer | **Fixed** → pin + GPS + typed |
+| Static "In your barangay: 1" stat | screens.web.js home | **Fixed** → live data |
+| "Accuracy 6 m · captured just now" (hardcoded) | screens.web.js report | **Fixed** → real accuracy |
+| Offline DATA demo set | screens.js | **Kept** — legitimate offline fallback; only shown when Supabase is not configured |
+| Map "Layers" chip (dashboard header) | screens.js dashboard | **Kept (label)** — the real layer toggle now renders on the live map beneath it (app.js mountMaps) |
+| Enter-coordinates fallback | report form | **Kept** — secondary control behind the pin map |
+
+## Phase I — documentation
+- `DOC_UPDATES.md` (new): paper edits for administrator roles, UC-16,
+  advisory scope, status flow and location capture.
+- `docs/MIGRATION-NOTES.md` (new): run order for the live project + a manual
+  verification query per migration + data provenance note.
+- `README.md` / `docs/DEPLOY.md`: migrations 026–033 added, cache name fixed
+  (`uniguard-v5`), PDF libraries noted in the vendor list.
+- `docs/RLS-TEST.sql`: Phase A assertions appended (rolled-back transactions).
+- `docs/TEST-CHECKLIST-ALL.md`: status names and new checks updated.
+
+## Assumptions taken (per the fix prompt's rule)
+1. **Severity is reporter-set** — the report form's urgency chips set it, so
+   the 15-minute edit allows changing it; the assumption is stated in 027.
+2. **Stored status keys unchanged**; only labels changed, in `js/theme.js`.
+3. **No official boundary polygons exist**, so 030 ships nearest-centroid
+   routing with explicit validation, clearly flagged for MDRRMO verification.
+4. Legacy `caution` road statuses map to `one_lane` (closest meaning).
+5. `analytics_response_times` view gained `barangay_id` for scoping; the UI
+   never showed it.
+
+## Not verifiable from this repo (must be checked on live)
+- Whether migration **024 was ever applied** to the live database (the file
+  was missing from the repo). 024 is idempotent and safe to re-run.
+- Whether the `admin-users` edge function writes audit rows for role changes
+  on the live deployment (the repo version does; verify the deployed copy).
+
 # UniGuard revision — summary
 
 18 files changed, 3 new files added. Tested with a headless-browser pass over

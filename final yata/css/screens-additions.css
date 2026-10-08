@@ -482,3 +482,91 @@
 
 /* hotline number stays on one line */
 .ug-dgrid-hotlines .ug-mono { white-space: nowrap; }
+
+/* ============================================================================
+   Phase D fixes · stacking order, More dropdown, Sign Out, map controls
+   ========================================================================== */
+
+/* --- z-index layer system (fix stacking at the variable level) -------------
+   One ordered scale for every floating surface, so nothing can end up behind
+   something it should be above:
+     base UI            0–20
+     console drawer     70  · scrim 65 (already in screens.css)
+     toasts (in-frame)  60  · leaflet panes 400–700
+     dropdown / More    720 · above leaflet controls (leaflet uses up to 1000
+                          inside its own pane context, which is sealed by
+                          .ug-map isolation below)
+     modal + scrim      900 (screens.css)
+     SOS fab            950
+     urgent alert       960 · toast host 1000 (app.css)
+   Defined as custom properties so future changes stay in one place. */
+:root{
+  --ug-z-nav:70;
+  --ug-z-dropdown:720;
+  --ug-z-modal:900;
+  --ug-z-sos:950;
+  --ug-z-urgent:960;
+  --ug-z-toast:1000;
+}
+.ug-toast-host{ z-index:var(--ug-z-toast); }
+.ug-sos-fab{ z-index:var(--ug-z-sos); }
+.ug-urgent-host{ z-index:var(--ug-z-urgent); }
+.ug-modal{ z-index:var(--ug-z-modal); }
+.ug-drawer{ z-index:var(--ug-z-nav); }
+
+/* seal Leaflet into its own stacking context so panes (400-700) can never
+   crawl above the drawer, dropdown, modal or toasts */
+.ug-map{ isolation:isolate; }
+
+/* --- citizen top nav: More dropdown + visible Sign Out --------------------- */
+.ug-wmore{ position:relative; display:inline-flex; }
+.ug-wmore .ug-wnav-i .ug-i:last-child{ margin-left:2px; opacity:.7; }
+.ug-wmore-panel{
+  position:absolute; top:calc(100% + 8px); right:0; min-width:190px;
+  background:var(--ug-surface); border:1px solid var(--ug-line);
+  border-radius:12px; padding:6px; display:flex; flex-direction:column; gap:2px;
+  box-shadow:0 18px 44px rgba(0,0,0,.5); z-index:var(--ug-z-dropdown);
+}
+.ug-wmore-panel[hidden]{ display:none; }
+.ug-wmore-item{
+  display:flex; align-items:center; gap:9px; padding:9px 11px; border:0;
+  background:none; color:var(--ug-ink-2); font-size:12.5px; font-weight:600;
+  border-radius:8px; cursor:pointer; text-align:left; font-family:inherit;
+}
+.ug-wmore-item:hover{ background:rgba(255,255,255,.05); color:var(--ug-ink); }
+.ug-wmore-item.is-on{ color:var(--ug-signal); background:rgba(52,214,240,.1); }
+
+.ug-signout-lab{ font-size:12px; font-weight:600; }
+/* keep the whole right cluster on one line down to ~1180px: the name column
+   hides first, then the Sign Out label collapses to an icon-only control */
+@media (max-width:1440px){
+  .ug-wnav{ gap:14px; }
+  .ug-wnav-i{ padding:7px 10px; }
+}
+@media (max-width:1330px){
+  .ug-wtop{ gap:12px; }
+  .ug-wnav-i{ padding:7px 8px; font-size:12px; }
+  .ug-wtop .ug-col[style]{ display:none; } /* the name/scope column */
+}
+@media (max-width:1220px){
+  .ug-signout-lab{ display:none; }
+}
+@media (max-width:1180px){
+  .ug-wnav .ug-wnav-i:nth-child(n+6){ display:none; } /* extra items move into More */
+}
+
+/* --- map "My Location" control (aligned with the other map controls) ------ */
+.ug-locate-wrap{ margin:0 10px 10px 0; }
+.leaflet-bottom.leaflet-right .ug-locate-wrap{ margin-bottom:26px; } /* clears the attribution bar */
+.ug-locate-btn{
+  width:36px; height:36px; border-radius:10px; border:1px solid var(--ug-line);
+  background:var(--ug-surface); color:var(--ug-ink-2); cursor:pointer;
+  display:grid; place-items:center; box-shadow:0 8px 22px rgba(0,0,0,.4);
+  touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+}
+.ug-locate-btn:hover{ color:var(--ug-ink); border-color:var(--ug-line-strong); }
+.ug-locate-btn:focus-visible{ outline:2px solid var(--ug-signal); outline-offset:1px; }
+.ug-locate-btn.is-busy{ opacity:.55; pointer-events:none; }
+
+/* road work / shelter composer pin buttons align with the field row */
+.ug-rowf .ug-locate-hint{ font-size:11px; color:var(--ug-ink-3); }

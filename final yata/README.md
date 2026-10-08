@@ -38,7 +38,7 @@ uniguard/
 │   └── screens.css                account controls, admin tables, live map
 │
 ├── fonts/                         Archivo + IBM Plex Sans + IBM Plex Mono (latin)
-├── vendor/                        Leaflet and supabase-js, no CDN at runtime
+├── vendor/                        Leaflet, supabase-js, jsPDF + autotable (no CDN)
 │
 ├── js/
 │   ├── config.js                  env, feature flags, business constants
@@ -62,7 +62,9 @@ uniguard/
     ├── BACKUP.md                  backup, restore and rotation
     ├── TEST-CHECKLIST-ALL.md      per-role manual test checklist
     ├── TEST-CHECKLIST-PHASE-1.md  schema and security, at SQL level
-    └── RLS-TEST.sql               runnable per-role assertions
+    ├── RLS-TEST.sql               runnable per-role assertions
+    ├── MIGRATION-NOTES.md         live-project run order + verification queries
+    └── DOC_UPDATES.md (repo root) paper edits
 ```
 
 ### Updating an installed app
@@ -78,7 +80,8 @@ If you are testing and want to be certain you are on the current build:
    console sidebar. The current build string is shown there.
 2. Press **Force Refresh** there. It unregisters the service worker, deletes every cache and
    reloads, which is the guaranteed way off a stale build.
-3. DevTools → Application → Service Workers should show the cache name `uniguard-v2`.
+3. DevTools → Application → Service Workers should show the cache name `uniguard-v5` (the
+   `VERSION` constant at the top of `sw.js`; every deploy bumps it).
 
 The build string comes from `BUILD` in `env.js`. Bump it on every deploy so you can tell at a
 glance which version a device is running.
@@ -111,7 +114,7 @@ The first entry is **Home**, which is the operations dashboard.
 
 ## Getting started
 
-1. **Database.** Run `migrations/000` … `025` in order. `000` is read only and tells
+1. **Database.** Run `migrations/000` … `033` in order. `000` is read only and tells
    you what already exists. Then, in development only, run `seed/001_sample_data.sql` and
    `seed/002_relief_guides_faqs_roadwork.sql`.
 2. **Auth settings.** Confirm email, Site URL and redirect URLs. See `docs/DEPLOY.md` §2.
@@ -167,6 +170,18 @@ Additive and re-runnable. No table, column or row is ever dropped.
 | `023_reports_feed_is_mine.sql`      | `is_mine` flag on `reports_feed`                                                                   |
 | `024_analytics_invoker.sql`         | analytics views run as the caller (`security_invoker`), so officials see only their barangay       |
 | `025_corroboration_radius.sql`      | 500 m corroboration radius, `distance_m()`, confirmer location, 1 / 3 count, `reports_feed` update |
+| `026_scope_reads_by_barangay.sql`   | `fill_barangay_id()` trigger, backfills, scoped reads for relief / shelters / advisories / road work |
+| `027_report_edit_guard.sql`         | citizen edit guard (15-minute window, protected columns), `reports.location_note`, tighter `reports_update` |
+| `028_status_flow.sql`               | strict status flow for every role: one step at a time, `resolved` / `rejected` final |
+| `029_barangay_scoping.sql`          | SOS reads scoped per barangay, road-status & road-work writes scoped, advisory publishing scope + targets guard, `update_sos_status` RPC |
+| `030_barangay_routing.sql`          | server-side barangay routing from coordinates (`barangay_geoms`, `resolve_barangay()`), coordinate validation, backfill |
+| `031_road_status_full.sql`          | road status full form columns (segment, cause, severity, timing, updater), `one_lane` / `under_repair` statuses |
+| `032_guides_v2.sql`                 | guides restructure: one guide with Before / During / After sections + summary + optional PDF |
+| `033_audit_coverage.sql`            | generic audit triggers on all writable tables, `shelter_occupancy_log`, occupancy trend view |
+
+All exports are formatted PDFs generated client-side with the vendored jsPDF +
+jspdf-autotable copies (no CDN at runtime, precached by the service worker) —
+there are no CSV or JSON exports anywhere in the system.
 
 ## How security is enforced
 

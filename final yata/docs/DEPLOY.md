@@ -45,6 +45,14 @@ Run the migrations in order in the Supabase SQL editor, or with the CLI.
 #   migrations/023_reports_feed_is_mine.sql
 #   migrations/024_analytics_invoker.sql
 #   migrations/025_corroboration_radius.sql
+#   migrations/026_scope_reads_by_barangay.sql
+#   migrations/027_report_edit_guard.sql
+#   migrations/028_status_flow.sql
+#   migrations/029_barangay_scoping.sql
+#   migrations/030_barangay_routing.sql
+#   migrations/031_road_status_full.sql
+#   migrations/032_guides_v2.sql
+#   migrations/033_audit_coverage.sql
 
 # or with the CLI (copy migrations into supabase/migrations first)
 supabase link --project-ref <your-project-ref>

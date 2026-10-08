@@ -52,7 +52,7 @@ Deno.serve(async (req: Request) => {
   const title = String(body.title || 'UniGuard alert');
   const message = String(body.message || '');
   const severity = String(body.severity || 'advisory');
-  const area = String(body.area || 'Citywide');
+  const area = String(body.area || 'Municipality-wide');
 
   // Only accounts with a mobile number, and only for anything above an advisory,
   // so we never burn gateway credit on routine posts.

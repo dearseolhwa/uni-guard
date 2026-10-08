@@ -45,25 +45,54 @@ const UG_WEB = (() => {
     const unread = (U.DATA.notifications || []).filter(n => n.unread).length;
     const active = st.route === 'advisory-detail' ? 'advisories'
       : (st.route === 'report-detail' ? 'notifications' : st.route);
+    /* Sign Out is the LAST item after the nav, SOS, name and avatar, so extra
+       items can never push it off-screen. Secondary destinations (FAQs,
+       Guides, Hotlines, Offline) collapse into a "More" dropdown so the SOS
+       button, user menu and Sign Out stay visible at 1280 / 1366 / 1440 px
+       and on mobile at 100% zoom with no horizontal scroll. */
+    const primary = [['home', 'Home', 'home'], ['report', 'Report a Hazard', 'plus'], ['relief', 'Relief', 'relief'], ['advisories', 'Advisories', 'megaphone'], ['map', 'Hazard Map', 'map'], ['centers', 'Shelters', 'shelter'], ['notifications', 'Notifications', 'bell']];
+    const secondary = [['guides', 'Guides', 'guide'], ['faqs', 'FAQs', 'faq'], ['hotlines', 'Hotlines', 'phone'], ['offline', 'Offline', 'download']];
+    const navBtn = (n) =>
+      '<button class="ug-wnav-i' + (active === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '>' +
+      I(n[2], 16) + n[1] + (n[0] === 'notifications' && unread ? '<span class="ug-wdot' + (unread > 9 ? ' is-many' : '') + '">' + (unread > 9 ? '9+' : unread) + '</span>' : '') + '</button>';
     return '<header class="ug-wtop">' +
       '<button class="ug-brand ug-brand-btn"' + A('nav', attr({ route: 'home' })) + ' aria-label="Go to the home screen">' + U.brandMark(32) +
         '<span class="ug-col" style="gap:0"><span class="ug-wordmark" style="font-size:16px">Uni<em>Guard</em></span>' +
         '<span class="ug-dimmer" style="font-size:9px;letter-spacing:.11em;text-transform:uppercase">Resident portal</span></span></button>' +
-      '<nav class="ug-wnav">' + CNAV.map(n =>
-        '<button class="ug-wnav-i' + (active === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '>' +
-        I(n[2], 16) + n[1] + (n[0] === 'notifications' && unread ? '<span class="ug-wdot' + (unread > 9 ? ' is-many' : '') + '">' + (unread > 9 ? '9+' : unread) + '</span>' : '') + '</button>').join('') +
+      '<nav class="ug-wnav">' + primary.map(navBtn).join('') +
+        '<span class="ug-wmore">' +
+          '<button class="ug-wnav-i" aria-haspopup="true"' + A('toggle-more') + '>' + I('grid', 16) + 'More' + I('chevron', 12) + '</button>' +
+          '<span class="ug-wmore-panel" data-more-panel hidden>' + secondary.map((n) =>
+            '<button class="ug-wmore-item' + (active === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '>' + I(n[2], 15) + n[1] + '</button>').join('') + '</span>' +
+        '</span>' +
       '</nav>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px;margin-left:auto">' +
-        '<button class="ug-ico-btn" aria-label="Offline readiness"' + A('nav', attr({ route: 'offline' })) + '>' + I(st.offline ? 'wifioff' : 'download', 17) + '</button>' +
         '<button class="ug-btn ug-btn--danger ug-btn--sm" aria-label="Send SOS"' + A('sos-trigger') + '>' + I('alert', 16) + 'SOS</button>' +
         '<div class="ug-rowf ug-gap10" style="gap:9px;padding-left:8px;border-left:1px solid var(--ug-line);margin-left:2px">' +
           '<span class="ug-col" style="gap:0;align-items:flex-end"><span style="font-size:12px;font-weight:600">' + esc(s.name) + '</span>' +
           '<span class="ug-dimmer" style="font-size:10px">' + esc(s.scope) + '</span></span>' +
           '<span class="ug-av">' + esc(s.initials) + '</span>' +
-          '<button class="ug-ico-btn" aria-label="Sign out"' + A('logout') + '>' + I('logout', 17) + '</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" aria-label="Sign out"' + A('logout') + '>' + I('logout', 16) + '<span class="ug-signout-lab">Sign Out</span></button>' +
         '</div>' +
       '</div>' +
     '</header>';
+  }
+
+  function cwMore(st) {
+    return '<div class="ug-col" style="gap:14px">' +
+      cwHead('More', 'Guides, FAQs, hotlines and offline readiness.') +
+      '<div class="ug-wgrid-3">' +
+        [['guides', 'Preparedness Guides', 'guide', 'What to do before, during and after every hazard.'],
+         ['faqs', 'FAQs', 'faq', 'Answers about reports, relief, shelters and SOS.'],
+         ['hotlines', 'Hotlines', 'phone', 'The official emergency numbers, cached offline.'],
+         ['offline', 'Offline readiness', 'download', 'What works without a connection and how syncing behaves.'],
+         ['notifications', 'Notifications', 'bell', 'Every push alert delivered to this device.'],
+         ['map', 'Hazard Map', 'map', 'The live map with every overlay layer.']]
+          .map((x) => '<button class="ug-card" style="text-align:left;cursor:pointer"' + A('nav', attr({ route: x[0] })) + '>' +
+            '<div class="ug-card-b ug-col" style="gap:8px"><span style="color:var(--ug-signal);display:flex">' + I(x[2], 20) + '</span>' +
+            '<div><div style="font-size:13px;font-weight:700">' + esc(x[1]) + '</div>' +
+            '<div class="ug-dimmer" style="font-size:11px">' + esc(x[3]) + '</div></div></div></button>').join('') +
+      '</div></div>';
   }
 
   function cwHead(title, sub, actions) {
@@ -82,11 +111,15 @@ const UG_WEB = (() => {
     const top = U.DATA.advisories[0];
     const mine = U.DATA.incidents.filter(i => i.mine);
     const openCenters = U.DATA.centers.filter(c => c.status === 'open');
+    /* live figures: open reports in the citizen's barangay come from the store
+       the repository keeps hydrated — no static placeholder values */
+    const myBrgy = (st.session && st.session.barangay) || UG_GEO.BARANGAYS[0];
+    const inMyBrgy = U.DATA.incidents.filter(i => i.brgy === myBrgy && i.status !== 'resolved' && i.status !== 'rejected').length;
     return '<div class="ug-col" style="gap:18px">' +
-      cwHead('Home', 'Live situation for Barangay ' + esc((st.session && st.session.barangay) || UG_GEO.BARANGAYS[0]) + ', ' + esc(UG_GEO.PLACE.label) + '.',
+      cwHead('Home', 'Live situation for Barangay ' + esc(myBrgy) + ', ' + esc(UG_GEO.PLACE.label) + '.',
         '<button class="ug-btn ug-btn--signal"' + A('nav', attr({ route: 'report' })) + '>' + I('plus', 16) + 'Report a Hazard</button>') +
       '<div class="ug-wgrid-3">' +
-        readout('1', 'In your barangay', 'var(--ug-warning)') +
+        readout(String(inMyBrgy), 'Open in your barangay', 'var(--ug-warning)') +
         readout(String(U.DATA.advisories.filter(a => a.severity !== 'prepared').length), 'Active advisories', 'var(--ug-advisory)') +
         readout(String(openCenters.length), 'Shelters open', 'var(--ug-prepared)') +
       '</div>' +
@@ -161,8 +194,10 @@ const UG_WEB = (() => {
     const r = st.report;
     const urg = [['advisory', 'Looks Minor'], ['warning', 'Getting Worse'], ['emergency', 'People at Risk']];
     return '<div class="ug-col" style="gap:18px">' +
-      cwHead('Report a Hazard', 'Multi-Hazard Reporting. Your report reaches your barangay queue with its timestamp and position.',
-        '<button class="ug-btn ug-btn--ghost"' + A('nav', attr({ route: 'home' })) + '>Cancel</button>') +
+      cwHead(st.editing ? 'Edit Your Report' : 'Report a Hazard', st.editing ? 'Corrections stay within the same rules as filing — the change is audit-logged.' : 'Multi-Hazard Reporting. Your report reaches your barangay queue with its timestamp and position.',
+        st.editing
+          ? '<button class="ug-btn ug-btn--ghost"' + A('cancel-edit') + '>Cancel edit</button>'
+          : '<button class="ug-btn ug-btn--ghost"' + A('nav', attr({ route: 'home' })) + '>Cancel</button>') +
       '<div class="ug-wgrid-form">' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Hazard Details</h3><span class="ug-dimmer" style="font-size:10.5px">Step 1 of 2</span></div>' +
           '<div class="ug-card-b">' +
@@ -195,19 +230,22 @@ const UG_WEB = (() => {
                   '<span style="font-size:13px;font-weight:600">Tap to Attach a Hazard Photo</span>' +
                   '<span class="ug-dimmer" style="font-size:10.5px">JPG or PNG up to 10 MB</span></button>') +
             '</div></div>' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Incident Coordinates</h3></div>' +
-            '<div class="ug-card-b"><div class="ug-geo"><span class="geo-ico">' + I('pin', 18) + '</span>' +
-              '<span style="min-width:0"><span class="geo-val">' + (r.gps && UG_GEO.isNum(r.lat) ? UG_GEO.fmt(r.lat, r.lng) : 'Not acquired') + '</span>' +
-              '<span class="geo-sub">' + (r.gps ? 'Accuracy 6 m &middot; captured just now' : 'GPS tagging attaches your position to the report') + '</span></span>' +
-              '<button class="ug-btn ug-btn--sm" style="margin-left:auto"' + A('gps') + '>' + (r.gps ? 'Refresh' : 'Acquire') + '</button></div>' +
-              '<div class="ug-hr" style="margin:14px 0"></div>' +
-              '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Barangay queue</span><span class="ug-mono">' + esc(r.brgy) + '</span></div>' +
-              '<div class="ug-rowf ug-between" style="font-size:12px;margin-top:8px"><span class="ug-dim">Verification</span>' +
-              '<span class="ug-mono" style="color:var(--ug-warning)">1 of 3 at filing</span></div>' +
+          '<div class="ug-card"><div class="ug-card-h"><h3>Incident Location</h3>' + (r.gpsDenied && !r.gps ? '<span class="ug-dimmer" style="font-size:10.5px;color:var(--ug-warning)">GPS unavailable</span>' : '') + '</div>' +
+            '<div class="ug-card-b">' +
+              (r.gpsDenied && !r.gps
+                ? '<div class="ug-note" style="margin-bottom:10px">We could not read your GPS. The location is needed to route the report to the right barangay and to verify it with nearby reports — drop the pin on the map below at the hazard spot.</div>' : '') +
+              '<div class="ug-geo"><span class="geo-ico">' + I('pin', 18) + '</span>' +
+              '<span style="min-width:0"><span class="geo-val">' + (r.gps && UG_GEO.isNum(r.lat) ? UG_GEO.fmt(r.lat, r.lng) : 'Not set — drop the pin on the map') + '</span>' +
+              '<span class="geo-sub">' + (r.address || (r.gps ? 'Position captured' : 'Drag the pin to the hazard location')) + '</span></span>' +
+              '<button class="ug-btn ug-btn--sm" style="margin-left:auto"' + A('gps') + '>' + (r.gps ? 'Refresh' : 'Acquire GPS') + '</button></div>' +
+              '<div class="ug-map" data-map="report-pin" style="height:220px;margin-top:12px;border-radius:10px;overflow:hidden">' + U.mapSVG({}) + '</div>' +
+              '<div class="ug-help" style="margin-top:8px">Drag the pin to the hazard. The server confirms which barangay receives the report from these coordinates.</div>' +
+              '<div class="ug-field" style="margin-top:10px;margin-bottom:0"><label class="ug-lab">Exact address / landmark (optional)</label>' +
+              '<input class="ug-in" data-field="reportAddress" value="' + esc(r.locationNote || '') + '" placeholder="e.g. beside the seawall, near the chapel"></div>' +
             '</div></div>' +
           '<button class="ug-btn ug-btn--signal ug-btn--block' + (r.desc.trim() ? '' : ' is-disabled') + '"' + A('submit-report') + '>' +
-            I('check', 16) + 'Submit Report</button>' +
-          '<div class="ug-dimmer" style="font-size:10.5px;text-align:center;margin-top:-8px">Reports stay editable for 15 minutes after submission.</div>' +
+            I('check', 16) + (st.editing ? 'Save changes' : 'Submit Report') + '</button>' +
+          '<div class="ug-dimmer" style="font-size:10.5px;text-align:center;margin-top:-8px">' + (st.editing ? 'Editing ' + esc(st.editing.code || '') + ' — audit-logged.' : 'Reports stay editable for 15 minutes after submission.') + '</div>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -272,8 +310,14 @@ const UG_WEB = (() => {
 
   function cwCenters(st) {
     const f = st.centerFilter;
+    const scope = st.shelterScope || 'all';
+    const myBrgy = (st.session && st.session.barangay) || UG_GEO.BARANGAYS[0];
     const chips = [['all', 'All'], ['open', 'Open'], ['full', 'Full'], ['closed', 'Closed']];
-    const list = U.DATA.centers.filter(c => f === 'all' || c.status === f);
+    /* citizens see all municipality shelters by default; "My Barangay" narrows */
+    const scoped = scope === 'mine'
+      ? U.DATA.centers.filter(c => c.brgy === myBrgy)
+      : U.DATA.centers;
+    const list = scoped.filter(c => f === 'all' || c.status === f);
     const occBar = (occ, cap) => {
       const pct = Math.min(100, Math.round(occ / cap * 100));
       const col = pct >= 100 ? 'var(--ug-warning)' : 'var(--ug-prepared)';
@@ -282,36 +326,43 @@ const UG_WEB = (() => {
     };
     return '<div class="ug-col" style="gap:18px">' +
       cwHead('Shelters', 'Evacuation Center Directory with live availability for ' + U.DATA.city + '.') +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + chips.map(c =>
+      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' +
+        '<button class="ug-chip' + (scope === 'all' ? ' is-on' : '') + '"' + A('shelter-scope', attr({ v: 'all' })) + '>All Shelters</button>' +
+        '<button class="ug-chip' + (scope === 'mine' ? ' is-on' : '') + '"' + A('shelter-scope', attr({ v: 'mine' })) + '>My Barangay (' + esc(myBrgy) + ')</button>' +
+        '<span style="width:1px;height:22px;background:var(--ug-line);margin:0 4px"></span>' +
+        chips.map(c =>
         '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('center-filter', attr({ v: c[0] })) + '>' + c[1] +
-        '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? U.DATA.centers.length : U.DATA.centers.filter(x => x.status === c[0]).length) + '</span></button>').join('') +
+        '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? scoped.length : scoped.filter(x => x.status === c[0]).length) + '</span></button>').join('') +
         '<span class="ug-dimmer" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px">' + I('wifioff', 13) + 'This list works without a connection</span></div>' +
-      '<div class="ug-wgrid-cards">' + list.map(c =>
-        '<div class="ug-card"><div class="ug-card-b ug-col" style="gap:11px">' +
+      (list.length ? '<div class="ug-wgrid-cards">' + list.map(c =>
+        '<button class="ug-card" style="text-align:left;cursor:pointer"' + A('open-center-detail', attr({ id: c.uuid || c.id })) + '><div class="ug-card-b ug-col" style="gap:11px">' +
           '<div class="ug-rowf ug-between" style="gap:8px"><h3 style="font-size:13.5px">' + esc(c.name) + '</h3>' +
           U.badge(c.status, c.status.charAt(0).toUpperCase() + c.status.slice(1)) + '</div>' +
           '<div class="ug-dimmer ug-rowf ug-wrap" style="font-size:11px;gap:10px">' +
             '<span class="ug-rowf" style="gap:4px">' + I('pin', 12) + esc(c.brgy) + '</span>' +
             '<span class="ug-rowf" style="gap:4px">' + I('users', 12) + c.occ + ' of ' + c.cap + ' slots</span></div>' +
           occBar(c.occ, c.cap) +
-          '<div class="ug-dim" style="font-size:11.5px">' + esc(c.note) + '</div>' +
+          '<div class="ug-dim" style="font-size:11.5px">' + esc(c.note || 'Tap for the full record, capacity and directions.') + '</div>' +
           '<div class="ug-rowf ug-gap8" style="gap:8px">' +
-            '<button class="ug-btn ug-btn--sm ug-btn--signal" style="flex:1;background:var(--ug-waze);color:var(--ug-waze-ink);border-color:transparent"' + A('directions', attr({ id: c.id, name: c.name })) + '>' + I('route', 14) + 'Navigate with Waze</button>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('save-center-offline', attr({ id: c.id })) + '>' + I('download', 14) + '</button></div>' +
-        '</div></div>').join('') + '</div>' +
+            '<span class="ug-btn ug-btn--sm ug-btn--signal" style="flex:1;background:var(--ug-waze);color:var(--ug-waze-ink);border-color:transparent">' + I('route', 14) + 'Navigate with Waze</span>' +
+            '<span class="ug-btn ug-btn--sm ug-btn--ghost">Details</span></div>' +
+        '</div></button>').join('') + '</div>'
+      : '<div class="ug-card"><div class="ug-empty"><span class="e-ico">' + I('shelter', 20) + '</span>' +
+        '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No shelters match this filter</div>' +
+        '<div class="ug-dim" style="font-size:11px">Try “All Shelters”, or a different status.</div></div></div>') +
     '</div>';
   }
 
   function cwHotlines(st) {
     return '<div class="ug-col" style="gap:18px">' +
-      cwHead('Hotlines', 'Emergency Hotline Directory for barangay and city offices.',
+      cwHead('Hotlines', 'Emergency Hotline Directory for barangay and municipal offices.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('save-center-offline', attr({ id: 'hotlines' })) + '>' + I('download', 15) + 'Save Offline</button>') +
       '<div class="ug-wgrid-hotlines">' + U.DATA.hotlines.map(h =>
         '<div class="ug-card"><div class="ug-card-b ug-col" style="gap:10px">' +
           '<div class="ug-rowf ug-between" style="gap:8px"><span class="ug-lab">' + esc(h.scope) + '</span>' + I('phone', 16) + '</div>' +
           '<h3 style="font-size:13.5px">' + esc(h.agency) + '</h3>' +
-          '<div class="ug-mono" style="font-size:17px;color:var(--ug-signal)">' + esc(h.number) + '</div>' +
-          '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('call', attr({ num: h.number, agency: h.agency })) + '>' + I('phone', 14) + 'Call</button>' +
+          '<a class="ug-mono" style="font-size:17px;color:var(--ug-signal);text-decoration:none" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '">' + esc(h.number) + '</a>' +
+          '<a class="ug-btn ug-btn--sm ug-btn--signal" style="text-decoration:none;justify-content:center" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '">' + I('phone', 14) + 'Call now</a>' +
         '</div></div>').join('') + '</div>' +
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
         '<span style="color:var(--ug-signal);display:flex">' + I('info', 17) + '</span>' +
@@ -393,6 +444,7 @@ const UG_WEB = (() => {
       case 'hotlines': return cwHotlines(st);
       case 'notifications': return cwNotifications(st);
       case 'offline': return cwOffline(st);
+      case 'more': return cwMore(st);
       /* the new citizen web routes reuse the mobile render functions inside a
          centered page column with the standard desktop header */
       case 'relief':

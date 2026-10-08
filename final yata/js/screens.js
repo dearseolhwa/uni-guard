@@ -615,26 +615,36 @@ const UG_SCREENS = (() => {
             '<span class="ug-dimmer" style="font-size:10.5px">JPG or PNG up to 10 MB, or capture with the camera</span></button>') +
       '</div>' +
 
-      '<div class="ug-field"><label class="ug-lab">Incident coordinates</label>' +
+      '<div class="ug-field"><label class="ug-lab">Incident location</label>' +
+        (r.gpsDenied && !r.gps
+          ? '<div class="ug-note" style="margin-bottom:8px">We could not read your GPS. The location is needed to route the report to the right barangay and to verify it with nearby reports — drop the pin on the map below at the hazard spot.</div>'
+          : '') +
         '<div class="ug-geo"><span class="geo-ico">' + I('pin', 18) + '</span>' +
-          '<span style="min-width:0"><span class="geo-val" data-field="geoCoords">' + (r.gps && UG_GEO.isNum(r.lat) ? UG_GEO.fmt(r.lat, r.lng) : 'Not acquired') + '</span>' +
+          '<span style="min-width:0"><span class="geo-val" data-field="geoCoords">' + (r.gps && UG_GEO.isNum(r.lat) ? UG_GEO.fmt(r.lat, r.lng) : 'Not set — drop the pin on the map') + '</span>' +
           '<span class="geo-sub" data-field="geoAddress">' + (r.address || (r.gps ? 'Position captured' : 'GPS tagging attaches your position to the report')) + '</span>' +
           (r.accuracy != null && r.gps ? '<span class="ug-geo-accuracy"><span class="bar"><i style="width:' + Math.min(100, Math.max(8, Math.round(r.accuracy / 2))) + '%"></i></span>Accuracy ~' + esc(r.accuracy) + ' m</span>' : '') +
           '</span>' +
           '<button class="ug-btn ug-btn--sm" style="margin-left:auto"' + A('gps') + '>' + (r.gps ? 'Refresh' : 'Acquire GPS') + '</button>' +
-        '</div></div>' +
+        '</div>' +
+        '<div class="ug-rowf" style="margin-top:8px"><button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('manual-coords') + '>Enter coordinates instead</button></div></div>' +
 
       /* drag-to-adjust pin map: a small Leaflet map with a draggable marker
-         so the citizen can correct the GPS pin if it landed on the wrong spot
-         (e.g. inside a building). The pin-drop callback is wired in
-         js/app.js's mountMaps -> reportPin path. */
-      '<div class="ug-field"><label class="ug-lab">Adjust the pin (drag if needed)</label>' +
+         so the citizen can place / correct the pin. The pin-drop callback is
+         wired in js/app.js's mountMaps -> reportPin path. */
+      '<div class="ug-field"><label class="ug-lab">Drop the pin at the hazard (drag to adjust)</label>' +
         '<div class="ug-map" data-map="report-pin" style="height:200px;border-radius:10px;overflow:hidden">' + U.mapSVG({}) + '</div>' +
-        '<div class="ug-help">Long-press and drag the pin to where the hazard actually is. The address above updates automatically.</div></div>' +
+        '<div class="ug-help">Drag the pin to where the hazard actually is. The address and barangay update automatically; the server confirms the barangay from these coordinates.</div></div>' +
+
+      '<div class="ug-field"><label class="ug-lab">Exact address / landmark (optional)</label>' +
+        '<input class="ug-in" data-field="reportAddress" value="' + esc(r.locationNote || '') + '" placeholder="e.g. near the gate of Pangapisan Elementary School">' +
+        '<div class="ug-help">A typed address helps responders, but the map pin is what routes the report.</div></div>' +
 
       '<button class="ug-btn ug-btn--signal ug-btn--block' + (r.desc.trim() ? '' : ' is-disabled') + '"' + A('submit-report') + '>' +
-        I('check', 16) + 'Submit Report</button>' +
-      '<div class="ug-dimmer" style="font-size:10.5px;text-align:center;margin-top:-6px">Reports stay editable for 15 minutes after submission.</div>' +
+        I('check', 16) + (st.editing ? 'Save changes' : 'Submit Report') + '</button>' +
+      (st.editing
+        ? '<button class="ug-btn ug-btn--block ug-btn--ghost"' + A('cancel-edit') + '>Cancel edit</button>' +
+          '<div class="ug-dimmer" style="font-size:10.5px;text-align:center;margin-top:-6px">Editing ' + esc(st.editing.code || '') + ' — the change is audit-logged and cannot change the status or barangay.</div>'
+        : '<div class="ug-dimmer" style="font-size:10.5px;text-align:center;margin-top:-6px">Reports stay editable for 15 minutes after submission.</div>') +
     '</div>';
   }
 
@@ -758,6 +768,10 @@ const UG_SCREENS = (() => {
         '<div class="ug-dimmer ug-mono" style="font-size:11px">' + esc(i.id) + ' &middot; ' + esc(i.time) + ' &middot; ' + esc(i.brgy) + '</div>' +
         U.photo(i, 'bn-img') +
         '<p class="ug-dim" style="font-size:12.5px;line-height:1.55">' + esc(i.desc) + '</p>' +
+        (i.location_note ? '<div class="ug-dim" style="font-size:11.5px"><b>Exact address / landmark:</b> ' + esc(i.location_note) + '</div>' : '') +
+        (i.mine && (Date.now() - (Date.parse(i.created_at || '') || 0)) <= 15 * 60000 && status === 'reported'
+          ? '<button class="ug-btn ug-btn--sm" style="align-self:flex-start"' + A('start-edit-report', attr({ id: i.id })) + '>' + I('settings', 14) + 'Edit this report</button>'
+          : (i.mine && status === 'reported' ? '<div class="ug-dimmer" style="font-size:10.5px">The 15-minute edit window has closed.</div>' : '')) +
       '</div></div>' +
 
       (auto ? '<div class="ug-card" style="border-color:rgba(47,208,138,.4)"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
@@ -1085,14 +1099,14 @@ const UG_SCREENS = (() => {
           '<div class="ug-map" data-map="live" style="height:260px">' + U.mapSVG({ animated: true }) + U.mapLegend() +
             '<div class="map-scale">1 : 25 000</div></div></div>' +
         '<div class="ug-card ug-col" style="min-height:0"><div class="ug-card-h" style="padding:14px 16px">' +
-          '<div><h3>Recent Incidents</h3><span class="ug-dimmer" style="font-size:10.5px">Newest first, all barangays</span></div>' +
+          '<div><h3>Recent Incidents</h3><span class="ug-dimmer" style="font-size:10.5px">Tap a row for the full detail view</span></div>' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('nav', attr({ route: 'incidents' })) + '>View All</button></div>' +
           '<div class="ug-rows ug-scroll" style="max-height:330px">' + recent.map(i =>
-            '<div class="ug-row"><span class="r-dot" style="background:' + (U.SEV[i.sev] || U.SEV.advisory).color + '"></span>' +
+            '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-incident', attr({ id: i.id })) + '><span class="r-dot" style="background:' + (U.SEV[i.sev] || U.SEV.advisory).color + '"></span>' +
               '<div class="r-main"><div class="r-t">' + esc(i.hazard) + '<span class="ug-badge ug-badge--id">' + esc(i.id) + '</span></div>' +
                 '<div class="r-m"><span>' + I('pin', 12) + esc(i.area) + ', ' + esc(i.brgy) + '</span></div>' +
                 '<div class="r-m"><span>' + I('clock', 12) + esc(i.time) + '</span><span>' + I('shield', 12) + i.corr + ' corroborations</span></div></div>' +
-              U.stageBadge(i.status) + '</div>').join('') + '</div></div>' +
+              U.stageBadge(i.status) + '</button>').join('') + '</div></div>' +
       '</div>' +
       '<div class="ug-dgrid3">' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Incidents by Hazard Type</h3><span class="ug-dimmer ug-mono" style="font-size:10px">' + (U.DATA.counts ? U.DATA.counts.incidents : 0) + ' ON RECORD</span></div>' +
@@ -1109,10 +1123,10 @@ const UG_SCREENS = (() => {
           '</div></div>' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Active Advisories</h3><span class="ug-chip is-on" style="font-size:10px">' + U.DATA.advisories.slice(0, 2).filter(a => a.severity !== 'prepared').length + ' live</span></div>' +
           '<div class="ug-rows">' + U.DATA.advisories.slice(0, 2).map(a =>
-            '<div class="ug-row"><span class="r-dot" style="background:' + U.SEV[a.severity].color + '"></span>' +
+            '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-advisory', attr({ id: a.id })) + '><span class="r-dot" style="background:' + U.SEV[a.severity].color + '"></span>' +
               '<div class="r-main"><div class="r-t" style="font-size:12.5px">' + esc(a.title) + '</div>' +
               '<div class="r-m"><span>' + I('pin', 12) + esc(a.area) + '</span><span>' + esc(a.time) + '</span></div></div>' +
-              U.sevBadge(a.severity) + '</div>').join('') + '</div></div>' +
+              U.sevBadge(a.severity) + '</button>').join('') + '</div></div>' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Readiness</h3></div><div class="ug-card-b ug-col" style="gap:11px">' +
           [['Shelters open', (U.DATA.counts ? U.DATA.counts.openCenters : U.DATA.centers.filter(c => c.status === 'open').length) + ' of ' + U.DATA.centers.length, 'prepared'],
            ['Units assigned', (U.DATA.counts ? U.DATA.counts.units : 0) + ' deployed', 'verified'],
@@ -1144,7 +1158,17 @@ const UG_SCREENS = (() => {
     const f = st.sevFilter;
     const chips = [['all', 'All'], ['reported', UG_THEME.STATUS.reported.label], ['verified', UG_THEME.STATUS.verified.label],
       ['dispatched', UG_THEME.STATUS.dispatched.label], ['resolved', UG_THEME.STATUS.resolved.label], ['rejected', UG_THEME.STATUS.rejected.label]];
-    const list = U.DATA.incidents.filter(i => f === 'all' || i.status === f);
+    /* Priority Sort toggle: severity first, then corroboration count, then recency.
+       Default stays newest-first. */
+    const priority = st.incidentSort === 'priority';
+    const SEV_RANK = { emergency: 0, warning: 1, advisory: 2, prepared: 3 };
+    const base = U.DATA.incidents.filter(i => f === 'all' || i.status === f);
+    const list = priority
+      ? base.slice().sort((a, b) =>
+          (SEV_RANK[a.sev] != null ? SEV_RANK[a.sev] : 9) - (SEV_RANK[b.sev] != null ? SEV_RANK[b.sev] : 9) ||
+          (b.corr || 0) - (a.corr || 0) ||
+          (Date.parse(b.created_at || '') || 0) - (Date.parse(a.created_at || '') || 0))
+      : base;
     const action = (i) => {
       if (i.status === 'reported') return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Verify</button>';
       if (i.status === 'verified') return '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>Dispatch</button>';
@@ -1154,8 +1178,8 @@ const UG_SCREENS = (() => {
     };
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Incident Queue', 'Track every report through reported, verified, response dispatched and resolved.',
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('nav', attr({ route: 'hotlines' })) + '>' + I('sort', 15) + 'Priority Sort</button>' +
-        '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('nav', attr({ route: 'dashboard' })) + '>' + I('grid', 15) + 'Command View</button>') +
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm' + (priority ? ' is-active' : '') + '" style="' + (priority ? 'border-color:var(--ug-signal);color:var(--ug-signal)' : '') + '"' + A('sort-toggle') + '>' + I('sort', 15) + (priority ? 'Priority Sort: On' : 'Priority Sort') + '</button>' +
+        '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('nav', attr({ route: 'command' })) + '>' + I('grid', 15) + 'Command View</button>') +
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + chips.map(c =>
         '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('sev-filter', attr({ v: c[0] })) + '>' + c[1] +
         '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? U.DATA.incidents.length : U.DATA.incidents.filter(x => x.status === c[0]).length) + '</span></button>').join('') +
@@ -1199,6 +1223,7 @@ const UG_SCREENS = (() => {
           '<p class="ug-dim" style="font-size:12px;margin-top:4px">' + esc(i.area) + ', ' + esc(i.brgy) + ' &middot; reported ' + esc(i.time) + '</p></div>' +
         '</div>' +
         '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+          '<button class="ug-btn ug-btn--sm"' + A('edit-report', attr({ id: i.id })) + '>' + I('settings', 15) + 'Edit</button>' +
           '<button class="ug-btn ug-btn--sm"' + A('load-responders') + '>' + I('truck', 15) + 'Assign Units</button>' +
           (status !== 'resolved' && status !== 'rejected' ? '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('check', 15) + 'Advance Status</button>' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>' : '') +
@@ -1283,7 +1308,7 @@ const UG_SCREENS = (() => {
             '<div class="ug-rowf ug-gap8" style="gap:8px">' +
               '<button class="ug-btn ug-btn--signal' + (ready ? '' : ' is-disabled') + '"' + A('publish') + '>' + I('megaphone', 16) + 'Publish Broadcast</button>' +
               '<button class="ug-btn ug-btn--ghost"' + A('clear-draft') + '>Clear</button>' +
-              '<span class="ug-dimmer" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px">' + I('users', 13) + 'Reach ' + (U.DATA.subscribedDevices != null ? U.DATA.subscribedDevices : 0) + ' subscribed devices</span></div>' +
+              '<span class="ug-dimmer" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px">' + I('users', 13) + 'Reach ' + (U.DATA.subscribedDevices > 0 ? U.DATA.subscribedDevices + ' subscribed devices' : 'list: no push devices registered yet') + '</span></div>' +
           '</div></div>' +
         '<div class="ug-col" style="gap:18px">' +
           '<div class="ug-card"><div class="ug-card-h"><h3>Preview</h3><span class="ug-dimmer" style="font-size:10.5px">Lock Screen</span></div>' +
@@ -1356,20 +1381,72 @@ const UG_SCREENS = (() => {
     '</div>';
   }
 
+  /* ---- command view (focused operational layout) ----
+     Live map + active incident list (Reported / Verified / Response Dispatched)
+     + the status pipeline. Scope comes from the data layer: an official's
+     session only receives their own barangay's rows. */
+  function dCommand(st){
+    const active = U.DATA.incidents.filter(i => i.status === 'reported' || i.status === 'verified' || i.status === 'dispatched');
+    return '<div class="ug-col" style="gap:18px">' +
+      pageHead('Command View', 'Focused operational view: live map, open incidents and the pipeline. Scope: ' + esc(sess(st).scope || ''),
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('nav', attr({ route: 'incidents' })) + '>' + I('x', 15) + 'Exit Command View</button>') +
+      '<div class="ug-card" style="padding:0;overflow:hidden"><div class="ug-map" data-map="live" style="height:400px">' + U.mapSVG({ animated: true }) + U.mapLegend() + layerNote(st) + '</div></div>' +
+      '<div class="ug-dgrid-main">' +
+        '<div class="ug-card ug-col" style="min-height:0"><div class="ug-card-h"><div><h3>Active Incidents</h3>' +
+          '<span class="ug-dimmer" style="font-size:10.5px">Reported · Verified · Response Dispatched — tap to open</span></div>' +
+          '<span class="ug-chip is-on">' + active.length + ' open</span></div>' +
+          '<div class="ug-rows ug-scroll" style="max-height:420px">' + (active.length ? active.map(i =>
+            '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-incident', attr({ id: i.id })) + '>' +
+              '<span class="r-dot" style="background:' + (U.SEV[i.sev] || U.SEV.advisory).color + '"></span>' +
+              '<div class="r-main"><div class="r-t">' + esc(i.hazard) + '<span class="ug-badge ug-badge--id">' + esc(i.id) + '</span></div>' +
+                '<div class="r-m"><span>' + I('pin', 12) + esc(i.brgy) + '</span><span>' + I('clock', 12) + esc(i.time) + '</span><span>' + I('shield', 12) + (i.corr || 0) + '/3</span></div></div>' +
+              '<span class="ug-rowf ug-gap8" style="gap:8px">' + U.stageBadge(i.status) + actionChip(i) + '</span>' +
+            '</button>').join('')
+            : '<div class="ug-empty"><span class="e-ico">' + I('check', 20) + '</span><div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">Nothing open in your scope</div></div>') + '</div></div>' +
+        '<div class="ug-col" style="gap:18px">' +
+          '<div class="ug-card"><div class="ug-card-h"><h3>Status Pipeline</h3></div><div class="ug-card-b ug-col" style="gap:12px">' +
+            U.STAGES.concat([{ key: 'rejected', label: UG_THEME.STATUS.rejected.label, color: UG_THEME.STATUS.rejected.color }]).map(s => {
+              const total = U.DATA.incidents.length;
+              const n = U.DATA.incidents.filter(i => i.status === s.key).length;
+              const pct = total ? Math.round(n / total * 100) : 0;
+              return '<div class="ug-col" style="gap:6px"><div class="ug-rowf ug-between" style="font-size:11.5px">' +
+                '<span style="color:' + s.color + ';font-weight:600">' + s.label + '</span><span class="ug-mono">' + n + (n === 1 ? ' report' : ' reports') + '</span></div>' +
+                '<div style="height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden">' +
+                (n ? '<div style="height:100%;width:' + Math.max(4, pct) + '%;background:' + s.color + '"></div>' : '') + '</div></div>';
+            }).join('') + '</div></div>' +
+          '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">Statuses move one step at a time — Reported, Verified, Response Dispatched, Resolved. Rejected is final. Open an incident to advance it.</div></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+  function actionChip(i){
+    if (i.status === 'reported') return '<span class="ug-btn ug-btn--sm" style="pointer-events:none">Verify</span>';
+    if (i.status === 'verified') return '<span class="ug-btn ug-btn--sm ug-btn--signal" style="pointer-events:none">Dispatch</span>';
+    if (i.status === 'dispatched') return '<span class="ug-btn ug-btn--sm" style="pointer-events:none">Resolve</span>';
+    return '';
+  }
+  function layerNote(st){
+    return '<div class="ug-layer-toggle" role="group" aria-label="Map layers">' +
+      [['hazards', 'Hazards', 'octagon', 'var(--ug-emergency)'], ['relief', 'Relief', 'square', 'var(--ug-prepared)'], ['centers', 'Shelters', 'square', 'var(--ug-shelter)'], ['roadStatus', 'Road status', 'diamond', 'var(--ug-warning)']].map((it) =>
+        '<button class="' + (st.mapLayers && st.mapLayers[it[0]] ? 'is-on' : '') + '" data-act="map-layer-toggle" data-layer="' + it[0] + '">' +
+        '<span class="swatch shape-' + it[2] + '" style="background:' + it[3] + '"></span>' + it[1] + '</button>').join('') + '</div>';
+  }
+
   /* ---- hotlines management (feature 8) ---- */
   function dHotlines(st){
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Emergency Hotlines', 'A single verified list for barangay and city offices, cached offline on every device.',
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('export-hotlines') + '>' + I('download', 15) + 'Export</button>') +
+      pageHead('Emergency Hotlines', 'The official directory for barangay and municipal offices, cached offline on every device.',
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('export-hotlines') + '>' + I('download', 15) + 'Export PDF</button>') +
       '<div class="ug-dgrid-hotlines">' + U.DATA.hotlines.map(h =>
         '<div class="ug-card"><div class="ug-card-b ug-col" style="gap:10px">' +
           '<div class="ug-rowf ug-between" style="gap:8px"><span class="ug-lab">' + esc(h.type) + '</span>' + I('phone', 16) + '</div>' +
           '<h3 style="font-size:13.5px">' + esc(h.agency) + '</h3>' +
-          '<div class="ug-mono" style="font-size:17px;color:var(--ug-signal)">' + esc(h.number) + '</div>' +
+          '<a class="ug-mono" style="font-size:17px;color:var(--ug-signal);text-decoration:none" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '">' + esc(h.number) + '</a>' +
           '<div class="ug-dim" style="font-size:11.5px">' + esc(h.scope) + '</div>' +
           '<div class="ug-rowf ug-gap8" style="gap:6px">' +
-            '<button class="ug-btn ug-btn--sm" style="flex:1"' + A('edit-hotline', attr({ id: h.id })) + '>' + I('settings', 14) + 'Edit</button>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('verify-hotline', attr({ id: h.id })) + '>' + I('check', 14) + 'Verify</button>' +
+            '<a class="ug-btn ug-btn--sm" style="flex:1;text-decoration:none" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '">' + I('phone', 14) + 'Call</a>' +
+            '<button class="ug-btn ug-btn--sm"' + A('edit-hotline', attr({ id: h.id })) + '>' + I('settings', 14) + 'Edit</button>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('delete-hotline', attr({ id: h.id })) + '>' + I('x', 14) + '</button>' +
           '</div></div></div>').join('') +
       '</div>' +
       '<div class="ug-card"><div class="ug-card-h"><h3>Add Hotline</h3></div>' +
@@ -1386,10 +1463,18 @@ const UG_SCREENS = (() => {
   function dAnalytics(st){
     const an = U.DATA.analytics || {};
     const cnt = U.DATA.counts || {};
-    const trend = (an.daily && an.daily.length) ? an.daily : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    const trendDaily = (an.daily && an.daily.length && typeof an.daily[0] === 'object') ? an.daily.map(d => d.total) : (an.daily || []);
+    const trend = (trendDaily.length) ? trendDaily : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    const fmtDur = (s) => s == null ? '—' : (s >= 3600 ? (s / 3600).toFixed(1) + ' h' : Math.round(s / 60) + ' min');
+    const isLGU = st.session && st.session.role === 'lgu_ldrrmc';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Analytics and Reporting', 'City-wide telemetry across hazards, response times and verification quality.',
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('export-analytics') + '>' + I('doc', 15) + 'Export Report</button>') +
+      pageHead('Analytics and Reporting', (isLGU ? 'Municipality-wide telemetry across hazards, response times and verification quality.' : 'Barangay telemetry across hazards, response times and verification quality. Scope is enforced by the database.'),
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('export-analytics') + '>' + I('doc', 15) + 'Export PDF</button>') +
+      '<div class="ug-card"><div class="ug-card-b ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:flex-end">' +
+        '<div class="ug-field" style="margin:0"><label class="ug-lab">From</label><input class="ug-in" type="date" data-field="anFrom" value="' + esc(st.anFrom || '') + '"></div>' +
+        '<div class="ug-field" style="margin:0"><label class="ug-lab">To</label><input class="ug-in" type="date" data-field="anTo" value="' + esc(st.anTo || '') + '"></div>' +
+        '<button class="ug-btn ug-btn--sm"' + A('an-apply') + '>' + I('check', 14) + 'Apply range</button>' +
+        '<span class="ug-dimmer" style="font-size:11px;margin-left:auto">Empty dates default to the last 30 days</span></div></div>' +
       '<div class="ug-dgrid4">' +
         U.stat({ label: 'Reports This Week', value: String(an.weekTotal || 0), delta: (an.weekDelta >= 0 ? '+' : '') + (an.weekDelta || 0) + '% vs previous week', dir: (an.weekDelta >= 0 ? 'up' : 'down'), tone: 'advisory', icon: 'inbox' }) +
         U.stat({ label: 'Verified Share', value: (an.autoVerifiedShare || 0) + '%', delta: (an.total || 0) + ' reports on record', dir: 'flat', tone: 'resolved', icon: 'shield' }) +
@@ -1402,19 +1487,26 @@ const UG_SCREENS = (() => {
           '<span class="ug-chip is-on">' + I('wave', 13) + 'All hazards</span></div></div>' +
           '<div class="ug-card-b">' + trendSVG(trend) +
             '<div class="ug-rowf ug-between ug-mt8" style="font-size:10px;color:var(--ug-ink-3);padding-left:36px;padding-right:2px">' +
-              '<span>13 days ago</span><span>10 days ago</span><span>7 days ago</span><span>4 days ago</span><span>Today</span></div></div></div>' +
-        '<div class="ug-card"><div class="ug-card-h"><h3>Pipeline Load</h3></div><div class="ug-card-b ug-col" style="gap:12px">' +
-          U.STAGES.concat([{ key: 'rejected', label: UG_THEME.STATUS.rejected.label, color: UG_THEME.STATUS.rejected.color }]).map(s => {
-  const total = U.DATA.incidents.length;
-  const n = U.DATA.incidents.filter(i => i.status === s.key).length;
-  const pct = total ? Math.round(n / total * 100) : 0;
-  return '<div class="ug-col" style="gap:6px"><div class="ug-rowf ug-between" style="font-size:11.5px">' +
-    '<span style="color:' + s.color + ';font-weight:600">' + s.label + '</span><span class="ug-mono">' + n + (n === 1 ? ' report' : ' reports') + '</span></div>' +
-    '<div style="height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden">' +
-    (n ? '<div style="height:100%;width:' + Math.max(4, pct) + '%;background:' + s.color + '"></div>' : '') + '</div></div>';
-}).join('') + '</div></div>' +
+              '<span>13 days ago</span><span>10 days ago</span><span>7 days ago</span><span>4 days ago</span><span>Today</span></div>' +
+            '<div class="ug-dim" style="font-size:11px;margin-top:8px">Daily report volume over the last two weeks — a spike usually reaches the queue before the first official advisory does.</div></div></div>' +
+        '<div class="ug-card"><div class="ug-card-h"><h3>Response Performance</h3><span class="ug-dimmer ug-mono" style="font-size:10px">SELECTED RANGE</span></div>' +
+          '<div class="ug-card-b ug-col" style="gap:12px">' +
+            '<div><div class="ug-mono" style="font-size:22px;font-weight:700;color:var(--ug-signal)">' + fmtDur(an.avgDispatchSeconds) + '</div>' +
+            '<div class="ug-dimmer" style="font-size:10.5px">average report &rarr; Response Dispatched</div></div>' +
+            '<div><div class="ug-mono" style="font-size:22px;font-weight:700;color:var(--ug-prepared)">' + fmtDur(an.avgResolveSeconds) + '</div>' +
+            '<div class="ug-dimmer" style="font-size:10.5px">average report &rarr; Resolved</div></div>' +
+            '<div class="ug-dim" style="font-size:11px;line-height:1.55">How fast reports in the range moved through the pipeline. A long dispatch time usually means the queue needs another duty officer.</div>' +
+          '</div></div>' +
       '</div>' +
       '<div class="ug-dgrid2">' +
+        '<div class="ug-card"><div class="ug-card-h"><h3>' + (isLGU ? 'Barangay Comparison' : 'Barangay Breakdown') + '</h3><span class="ug-dimmer ug-mono" style="font-size:10px">INCIDENTS BY BARANGAY</span></div>' +
+          '<div class="ug-card-b ug-col" style="gap:9px">' +
+            ((an.byBarangay && an.byBarangay.length) ? an.byBarangay.slice(0, 8).map(b =>
+              '<div class="ug-col" style="gap:5px"><div class="ug-rowf ug-between" style="font-size:11.5px"><span>' + esc(b.barangay || '—') + '</span><span class="ug-mono">' + b.total + ' total · ' + b.open + ' open</span></div>' +
+              '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, b.total * 4) + '%;background:var(--ug-signal)"></div></div></div>').join('')
+              : '<div class="ug-dim" style="font-size:12px">No incidents in the selected range.</div>') +
+            '<div class="ug-dim" style="font-size:11px">' + (isLGU ? 'Municipality-wide comparison across all barangays.' : 'Your barangay only — the scope is enforced server side.') + '</div>' +
+          '</div></div>' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Hazard Type Distribution</h3><span class="ug-dimmer ug-mono" style="font-size:10px">ALL LOADED REPORTS</span></div>' +
           '<div class="ug-card-b ug-col" style="gap:12px">' +
             (function () {
@@ -1539,6 +1631,7 @@ const UG_SCREENS = (() => {
     dashboard: ['UniGuard Command Console', UG_GEO.PLACE.label],
     incidents: ['UniGuard Command Console', UG_GEO.PLACE.label],
     incident: ['UniGuard Command Console', UG_GEO.PLACE.label],
+    command: ['UniGuard Command Console', UG_GEO.PLACE.label],
     advisories: ['UniGuard Command Console', UG_GEO.PLACE.label],
     centers: ['UniGuard Command Console', UG_GEO.PLACE.label],
     hotlines: ['UniGuard Command Console', UG_GEO.PLACE.label],
@@ -1559,6 +1652,7 @@ const UG_SCREENS = (() => {
       case 'dashboard': return dDashboard(st);
       case 'incidents': return dIncidents(st);
       case 'incident': return dIncident(st);
+      case 'command': return dCommand(st);
       case 'advisories': return dAdvisories(st);
       case 'centers': return dCenters(st);
       case 'hotlines': return dHotlines(st);

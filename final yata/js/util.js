@@ -68,18 +68,9 @@ const UG_UTIL = (function () {
     };
   }
 
-  /* CSV export used by the console analytics and the admin tables. */
-  function toCSV(rows, columns) {
-    const cols = columns || (rows[0] ? Object.keys(rows[0]) : []);
-    const cell = (v) => {
-      const s = v == null ? '' : String(v);
-      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-    };
-    return [cols.join(',')].concat(rows.map((r) => cols.map((c) => cell(r[c])).join(','))).join('\n');
-  }
-
-  function download(filename, text, mime) {
-    const blob = new Blob([text], { type: mime || 'text/csv;charset=utf-8;' });
+  /* All exports are formatted PDFs (js/pdf.js). download() now only handles
+     Blobs — the old CSV exporter and CSV branch are gone. */
+  function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -143,7 +134,7 @@ const UG_UTIL = (function () {
   }
 
   return {
-    esc, since, relTime, absTime, initials, bytes, debounce, toCSV, download,
+    esc, since, relTime, absTime, initials, bytes, debounce, downloadBlob,
     normalisePhone, formatPhone, passwordStrength, authError, syncLabel
   };
 })();

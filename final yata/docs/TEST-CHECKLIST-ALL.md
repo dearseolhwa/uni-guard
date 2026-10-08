@@ -185,3 +185,63 @@ the interface unless a step says otherwise.
 | 11.5 | Narrow to 360 px | nothing overlaps; the console uses the icon rail |
 | 11.6 | Read the app with a screen reader | the dialogs announce their title and the toasts are announced |
 | 11.7 | Turn on reduced motion | animations collapse, nothing is lost |
+
+---
+
+## 20. Status flow and labels (updated)
+
+| # | Step | Expected |
+|---|---|---|
+| 20.1 | Read any status badge, filter chip, pipeline or log | labels read Reported / Verified / Response Dispatched / Resolved / Rejected — "Pending" and "In Progress" appear nowhere |
+| 20.2 | As an official: Verify → Dispatch → Resolve an incident | each action moves exactly one step; the confirm dialog names the target step |
+| 20.3 | Try to skip a step via a direct REST call (`PATCH /rest/v1/reports`) | the database rejects it — one step at a time, for every role including LGU |
+| 20.4 | Try to reopen a resolved or rejected incident | rejected by the database; the states are final |
+| 20.5 | As LGU, try to jump a fresh report straight to Resolved | rejected: LGU follows the same strict flow |
+
+## 21. Location and barangay routing (updated)
+
+| # | Step | Expected |
+|---|---|---|
+| 21.1 | Open the report form with location denied | a plain explanation appears and the map pin is offered as the fallback |
+| 21.2 | Try to submit with no pin | blocked: "A location is required…" |
+| 21.3 | Go offline, try to queue a report without coordinates | blocked in the queue path too |
+| 21.4 | Drop a pin inside another barangay and submit | the toast and the report detail show THAT barangay received the report; the server derived it from the coordinates |
+| 21.5 | Enter coordinates from outside Lingayen via the typed fallback | rejected: outside the municipality |
+
+## 22. Citizen edit window (updated)
+
+| # | Step | Expected |
+|---|---|---|
+| 22.1 | File a report, open it, press Edit this report | the edit form loads the saved values within 15 minutes |
+| 22.2 | Change the description and severity, save | the change is saved and an audit row `report.self_edited` appears (LGU audit log) |
+| 22.3 | Wait past 15 minutes, reopen | the Edit control is replaced by an explanation; the window is enforced again by the database |
+| 22.4 | Via REST, try to change `status` inside the window | rejected by `guard_report_edit` |
+
+## 23. Scoping (official = own barangay only)
+
+| # | Step | Expected |
+|---|---|---|
+| 23.1 | Official SOS log | only SOS entries from the official's barangay; LGU sees all |
+| 23.2 | Official road status: add/edit in another barangay via REST | rejected by policy |
+| 23.3 | Official publishes an advisory | area is locked to their barangay; municipality-wide publish is rejected (REST too) |
+| 23.4 | Official analytics | numbers cover only their barangay; citizen gets zero rows everywhere |
+| 23.5 | SOS acknowledge/resolve from the detail view | the sender receives a notification; the change is audited |
+
+## 24. Exports and analytics (updated)
+
+| # | Step | Expected |
+|---|---|---|
+| 24.1 | Export hotlines / analytics / users / audit log | every export is a formatted PDF with title, date/time, generated-by, scope and page numbers |
+| 24.2 | Look for any CSV export | none remain |
+| 24.3 | Set an analytics date range, Apply range | the stat cards, trend, response times and barangay panel all reflect the range |
+| 24.4 | Export the analytics PDF | the export states the same date range and scope on its cover |
+
+## 25. Layout and dead controls (updated)
+
+| # | Step | Expected |
+|---|---|---|
+| 25.1 | Citizen portal at 1280 / 1366 / 1440 px, 100% zoom | SOS, user menu and Sign Out visible, no horizontal scroll; secondary items live in the More dropdown |
+| 25.2 | Console drawer on a short viewport (1280×640) | Sign Out, Force Refresh and Offline Sync are reachable without zooming out |
+| 25.3 | Map "My Location" control | aligned with the other map controls; works by touch; drops an accuracy circle |
+| 25.4 | Walk every citizen + console control | nothing is dead; Priority Sort toggles, Command View opens/exits, hotline Verify is gone |
+

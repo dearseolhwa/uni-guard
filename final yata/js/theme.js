@@ -87,14 +87,16 @@ const UG_THEME = (function () {
 
   /* ------------------------------------------------------------------ status */
   /* Keys are the values stored in reports.status. The stored words did not change
-     (so existing rows and the analytics views keep working); only the labels did:
-       reported  -> Pending        dispatched -> In Progress        + rejected */
+     (so existing rows and the analytics views keep working); only the labels did.
+     THE DECISIONS SPEC: Reported -> Verified -> Response Dispatched -> Resolved,
+     plus Rejected (terminal). Every screen, filter, badge, log and FAQ reads the
+     labels from HERE — never hard-code a status word anywhere else. */
   const STATUS = {
-    reported:   entry('reported',   'slate',  { label: 'Pending',     short: 'PEND', shape: 'circle', glyph: 'clock', note: 'Submitted by a resident' }),
-    verified:   entry('verified',   'blue',   { label: 'Verified',    short: 'VER',  shape: 'circle', glyph: 'eye',   note: 'Confirmed by an official or by corroboration' }),
-    dispatched: entry('dispatched', 'violet', { label: 'In Progress', short: 'PROG', shape: 'circle', glyph: 'truck', note: 'Responders are on it' }),
-    resolved:   entry('resolved',   'green',  { label: 'Resolved',    short: 'DONE', shape: 'circle', glyph: 'check', note: 'Cleared and closed' }),
-    rejected:   entry('rejected',   'stone',  { label: 'Rejected',    short: 'REJ',  shape: 'circle', glyph: 'x',     note: 'Not actionable or a duplicate' })
+    reported:   entry('reported',   'slate',  { label: 'Reported',            short: 'RPT',  shape: 'circle', glyph: 'clock', note: 'Submitted by a resident' }),
+    verified:   entry('verified',   'blue',   { label: 'Verified',            short: 'VER',  shape: 'circle', glyph: 'eye',   note: 'Confirmed by an official or by corroboration' }),
+    dispatched: entry('dispatched', 'violet', { label: 'Response Dispatched', short: 'DISP', shape: 'circle', glyph: 'truck', note: 'Responders are on it' }),
+    resolved:   entry('resolved',   'green',  { label: 'Resolved',            short: 'DONE', shape: 'circle', glyph: 'check', note: 'Cleared and closed' }),
+    rejected:   entry('rejected',   'stone',  { label: 'Rejected',            short: 'REJ',  shape: 'circle', glyph: 'x',     note: 'Not actionable or a duplicate' })
   };
   /* the four steps of the normal path, in order; rejected is a side exit */
   const STATUS_FLOW = ['reported', 'verified', 'dispatched', 'resolved'];

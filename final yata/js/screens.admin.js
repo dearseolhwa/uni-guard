@@ -79,7 +79,7 @@ const UG_ADMIN = (function () {
 
     return '<div class="ug-col" style="gap:16px">' +
       head('User Management', 'Officials and LGU staff are created and promoted here. Residents self-register.',
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="admin-export-users">' + I('download', 15) + 'Export CSV</button>' +
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="admin-export-users">' + I('download', 15) + 'Export PDF</button>' +
         '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="admin-create">' + I('plus', 15) + 'Create Official</button>') +
       table +
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
@@ -91,13 +91,15 @@ const UG_ADMIN = (function () {
 
   /* ---------------------------------------------------------- audit log */
   function audit(st) {
-    if (st.loading) return '<div class="ug-col" style="gap:16px">' + head('Audit Log', 'Every privileged action, newest first.') + statePanel('loading') + '</div>';
-    if (st.error) return '<div class="ug-col" style="gap:16px">' + head('Audit Log', 'Every privileged action, newest first.') +
+    const intro = '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">' +
+      'Who did what, when, and on which record. Every privileged action — advisory publishes, shelter occupancy changes, road status edits, hotline changes, guide and FAQ edits, role changes, SOS status changes and incident workflow moves — lands here automatically. Tap a row to see the full detail.</div></div>';
+    if (st.loading) return '<div class="ug-col" style="gap:16px">' + head('Audit Log', 'Every privileged action, newest first.') + intro + statePanel('loading') + '</div>';
+    if (st.error) return '<div class="ug-col" style="gap:16px">' + head('Audit Log', 'Every privileged action, newest first.') + intro +
       statePanel('error', 'Could not load the audit log', st.error,
         '<button class="ug-btn ug-btn--sm" data-act="admin-load" style="margin-top:10px">Try Again</button>') + '</div>';
 
     const rows = UG.DATA.audit || [];
-    const body = rows.map((a) => '<tr>' +
+    const body = rows.map((a) => '<tr data-act="open-audit" data-id="' + esc(a.id) + '" style="cursor:pointer" title="Open the full audit entry">' +
       '<td class="t-num" style="white-space:nowrap">' + esc(UG_UTIL.absTime(a.created_at) || UG_UTIL.relTime(a.created_at)) + '</td>' +
       '<td>' + esc(a.actor_name || (a.actor_id ? String(a.actor_id).slice(0, 8) : 'system')) + '</td>' +
       '<td><span class="ug-badge ug-badge--id">' + esc(a.action) + '</span></td>' +
@@ -114,8 +116,8 @@ const UG_ADMIN = (function () {
     return '<div class="ug-col" style="gap:16px">' +
       head('Audit Log', 'Every privileged action, newest first.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="admin-load">' + I('wave', 15) + 'Refresh</button>' +
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="admin-export-audit">' + I('download', 15) + 'Export CSV</button>') +
-      table + '</div>';
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="admin-export-audit">' + I('download', 15) + 'Export PDF</button>') +
+      intro + table + '</div>';
   }
 
   /* ------------------------------------------------- responder assignment */

@@ -119,6 +119,7 @@ const UG_PWA = (function () {
             hazard_type: row.hazard_type, hazard_other_text: row.hazard_other_text || '',
             barangay: row.barangay, description: row.description,
             severity: row.severity, urgency: row.urgency, lat: row.lat, lng: row.lng,
+            location_note: row.location_note || '',
             photoBlob: row.photoBlob || null, reportCodeHint: 'offline'
           });
         }
