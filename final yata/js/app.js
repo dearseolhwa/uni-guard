@@ -40,6 +40,7 @@
     roadDraft: { title: '', description: '', barangay: UG_GEO.PLACE.areaAll, road_name: '', address: '', lat: null, lng: null, expected_hours: 6, citywide: false },
     sosSending: false, lastSos: null,
     mapLayers: { hazards: true, relief: true, centers: true, roadStatus: true },
+    mapPanelOpen: false,
     draft: { title: '', sev: 'warning', type: 'Emergency', area: UG_GEO.PLACE.areaAll, msg: '' },
     lastReport: null,
     report: {
@@ -133,8 +134,7 @@
     if (!live && !detail && !report) return;
 
     const targets = [];
-    const layerSig = (S.mapLayers ? JSON.stringify(S.mapLayers) : '');
-    if (live) targets.push({ el: live, key: 'live:' + (UG.DATA.incidents || []).length + ':' + (S.offline ? 'o' : 'n') + ':' + layerSig, centers: true });
+    if (live) targets.push({ el: live, key: 'live:' + (UG.DATA.incidents || []).length + ':' + (S.offline ? 'o' : 'n'), centers: true });
     if (detail && S.openId) {
       const inc = (UG.DATA.incidents || []).find((i) => i.id === S.openId || i.uuid === S.openId);
       targets.push({ el: detail, key: 'detail:' + S.openId + ':' + (S.offline ? 'o' : 'n'), only: inc });
@@ -162,11 +162,15 @@
         centers: t.centers ? (UG.DATA.centers || []) : [],
         relief: UG.DATA.relief || [],
         roadStatus: UG.DATA.roadStatus || [],
-        layers: S.mapLayers,
+        layers: t.centers ? S.mapLayers : null,
         zoom: t.only ? 15 : 13
       });
       if (ctx && !ctx.fallback) {
-        t.el.insertAdjacentHTML('beforeend', (t.centers ? (UG.mapLegend() + layerToggleHtml()) : '') + '<div class="map-scale">1 : 25 000</div>');
+        /* data-toggles: "inline" = the screen draws its own chip row, so no
+           floating panel; "chip" = the panel opens from the header Layers chip */
+        const mode = t.el.dataset.toggles;
+        const panel = (t.centers && mode !== 'inline') ? layerToggleHtml(mode === 'chip' && !S.mapPanelOpen) : '';
+        t.el.insertAdjacentHTML('beforeend', panel + '<div class="map-scale">1 : 25 000</div>');
       }
       MapView.invalidate();
     }
@@ -174,16 +178,16 @@
 
   /* the small floating control that lets a citizen / LGU toggle the four
      overlay layers on the live map. Drawn after the map so it sits on top. */
-  function layerToggleHtml() {
+  function layerToggleHtml(hidden) {
     if (!S.mapLayers) return '';
     const items = [
       ['hazards', 'Hazards', 'octagon', 'var(--ug-emergency)'],
-      ['relief', 'Relief', 'square', 'var(--ug-prepared)'],
-      ['centers', 'Shelters', 'square', 'var(--ug-shelter)'],
+      ['relief', 'Relief', 'square', '#8B5CF6'],
+      ['centers', 'Shelters', 'square', 'var(--ug-shelter-open)'],
       ['roadStatus', 'Road status', 'diamond', 'var(--ug-warning)']
     ];
-    return '<div class="ug-layer-toggle" role="group" aria-label="Map layers">' + items.map((it) =>
-      '<button class="' + (S.mapLayers[it[0]] ? 'is-on' : '') + '" data-act="map-layer-toggle" data-layer="' + it[0] + '">' +
+    return '<div class="ug-layer-toggle" role="group" aria-label="Map layers"' + (hidden ? ' hidden' : '') + '>' + items.map((it) =>
+      '<button class="' + (S.mapLayers[it[0]] ? 'is-on' : '') + '" aria-pressed="' + !!S.mapLayers[it[0]] + '" data-act="map-layer-toggle" data-layer="' + it[0] + '">' +
       '<span class="swatch shape-' + it[2] + '" style="background:' + it[3] + '"></span>' + it[1] + '</button>').join('') + '</div>';
   }
 
@@ -1950,10 +1954,22 @@
 
     'map-layer-toggle': (d) => {
       const k = d.layer;
-      if (!k || !S.mapLayers[k]) { S.mapLayers[k] = !S.mapLayers[k]; }
-      else { S.mapLayers[k] = !S.mapLayers[k]; }
-      MapView.invalidate();
-      render();
+      if (!k || !(k in S.mapLayers)) return;
+      S.mapLayers[k] = !S.mapLayers[k];
+      /* updated in place: a full render() would rebuild the map and lose the view */
+      MapView.setLayers(S.mapLayers);
+      document.querySelectorAll('[data-act="map-layer-toggle"][data-layer="' + k + '"]').forEach((b) => {
+        b.classList.toggle('is-on', S.mapLayers[k]);
+        b.setAttribute('aria-pressed', String(S.mapLayers[k]));
+      });
+    },
+
+    'map-layers-panel': (d, el) => {
+      S.mapPanelOpen = !S.mapPanelOpen;
+      el.classList.toggle('is-on', S.mapPanelOpen);
+      el.setAttribute('aria-expanded', String(S.mapPanelOpen));
+      const panel = q('[data-map="live"] .ug-layer-toggle');
+      if (panel) panel.hidden = !S.mapPanelOpen;
     },
 
     'urgent-dismiss': (d) => { UG_URGENT.dismiss(d.id || ''); },

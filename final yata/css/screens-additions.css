@@ -150,6 +150,7 @@
   background:rgba(12,21,36,.9);border:1px solid var(--ug-line-strong);border-radius:12px;padding:6px;
   backdrop-filter:blur(8px);box-shadow:0 12px 32px -12px rgba(0,0,0,.6);
 }
+.ug-layer-toggle[hidden]{display:none}
 .ug-layer-toggle button{
   display:flex;align-items:center;gap:7px;background:none;border:0;cursor:pointer;color:var(--ug-ink-3);
   font-size:11px;padding:6px 8px;border-radius:8px;width:100%;text-align:left;
