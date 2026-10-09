@@ -930,7 +930,44 @@ const Repo = (function () {
     await loadAll();
     return data;
   }
+    /* ---------------------------------------------------------------- dispatch */
+  async function dispatchReport(reportUuid, input) {
+    const c = client();
+    if (!c) {
+      /* offline preview: move the incident locally and keep the record */
+      const row = (UG.DATA.incidents || []).find((i) => i.uuid === reportUuid || i.id === reportUuid);
+      if (row && row.status === 'verified') row.status = 'dispatched';
+      UG.DATA.dispatches = UG.DATA.dispatches || {};
+      const list = UG.DATA.dispatches[reportUuid] = UG.DATA.dispatches[reportUuid] || [];
+      list.unshift({
+        id: 'local-' + Date.now(), report_id: reportUuid, team: input.team,
+        instructions: input.instructions, eta: input.eta,
+        dispatched_by_name: (Auth.state.session && Auth.state.session.name) || '',
+        dispatched_at: new Date().toISOString()
+      });
+      recomputeKpis(); emit();
+      return { local: true };
+    }
+    const { data, error } = await c.rpc('dispatch_report', {
+      p_report_id: reportUuid, p_team: input.team,
+      p_instructions: input.instructions, p_eta: input.eta
+    });
+    if (error) fail(error);
+    await loadAll();
+    await loadDispatches(reportUuid);
+    return data;
+  }
 
+  async function loadDispatches(reportUuid) {
+    UG.DATA.dispatches = UG.DATA.dispatches || {};
+    const c = client();
+    if (!c || !reportUuid) return UG.DATA.dispatches[reportUuid] || [];
+    const { data, error } = await c.from('report_dispatches')
+      .select('*').eq('report_id', reportUuid).order('dispatched_at', { ascending: false });
+    if (!error) UG.DATA.dispatches[reportUuid] = data || [];
+    emit();
+    return UG.DATA.dispatches[reportUuid] || [];
+  }
   /* ------------------------------------------------------------- error log */
   function logClientError(message, context) {
     const c = client();
@@ -1120,6 +1157,7 @@ const Repo = (function () {
     markRead, markAllRead, listBarangays,
     declareEmergency, subscribedDeviceCount,
     analytics, analyticsFromViews, listUsers, adminUsers, listAudit, listResponders, assignResponder,
+    dispatchReport, loadDispatches,
     /* new feature data access */
     createRelief, updateRelief, createBeneficiary, deleteBeneficiary,
     createGuide, updateGuide,
