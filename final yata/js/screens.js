@@ -787,7 +787,7 @@ const UG_SCREENS = (() => {
               '<div class="ug-dim" style="font-size:11.5px;line-height:1.55">This report was closed as not actionable or a duplicate. Contact your barangay desk if you think this was a mistake.</div></div></div>'
         : '<div class="ug-card"><div class="ug-card-h"><h3>Tracking</h3><span class="ug-dimmer" style="font-size:10.5px">Processing → Deployed → Resolved</span></div>' +
             '<div class="ug-card-b">' + tracker + U.pipeline(status) + '</div></div>') +
-
+          dispatchRecords(i) +
       /* timestamped history log */
       '<div class="ug-card"><div class="ug-card-h"><h3>History</h3><span class="ug-dimmer ug-mono" style="font-size:10px">' + historyRows.length + ' entries</span></div>' +
         '<div class="ug-card-b">' + historyHtml + '</div></div>' +
@@ -805,7 +805,21 @@ const UG_SCREENS = (() => {
       '</div></div>' +
     '</div>';
   }
-
+    /* dispatch records for one incident: team, instructions, ETA, who and when */
+  function dispatchRecords(i) {
+    const list = (U.DATA.dispatches || {})[i.uuid || i.id] || [];
+    if (!list.length) return '';
+    return '<div class="ug-card"><div class="ug-card-h"><h3>Response Dispatch</h3>' +
+      '<span class="ug-dimmer ug-mono" style="font-size:10px">' + list.length + (list.length === 1 ? ' TEAM' : ' TEAMS') + '</span></div>' +
+      '<div class="ug-card-b ug-col" style="gap:12px">' + list.map((r) =>
+        '<div class="ug-col" style="gap:5px;padding-bottom:12px;border-bottom:1px solid var(--ug-line)">' +
+          '<div class="ug-rowf ug-between" style="gap:8px"><span style="font-size:13px;font-weight:700">' + I('truck', 14) + ' ' + esc(r.team) + '</span>' +
+            '<span class="ug-badge ug-badge--dispatched">ETA ' + esc(UG_UTIL.absTime(r.eta) || '—') + '</span></div>' +
+          '<div class="ug-dim" style="font-size:12px;line-height:1.5">' + esc(r.instructions) + '</div>' +
+          '<div class="ug-dimmer ug-mono" style="font-size:10.5px">Dispatched by ' + esc(r.dispatched_by_name || '—') +
+            ' · ' + esc(UG_UTIL.absTime(r.dispatched_at) || '') + '</div>' +
+        '</div>').join('') + '</div></div>';
+  }
   /* a small synthetic history when the live report_status_history is not
      available (offline, or the migration hasn't been applied). It still gives
      the citizen a coherent timeline of what happened to their report. */
@@ -1225,7 +1239,8 @@ const UG_SCREENS = (() => {
         '<div class="ug-rowf ug-gap8" style="gap:8px">' +
           '<button class="ug-btn ug-btn--sm"' + A('edit-report', attr({ id: i.id })) + '>' + I('settings', 15) + 'Edit</button>' +
           '<button class="ug-btn ug-btn--sm"' + A('load-responders') + '>' + I('truck', 15) + 'Assign Units</button>' +
-          (status !== 'resolved' && status !== 'rejected' ? '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('check', 15) + 'Advance Status</button>' +
+                    (status !== 'resolved' && status !== 'rejected' ? '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('check', 15) + (status === 'verified' ? 'Dispatch Response' : 'Advance Status') + '</button>' +
+          (status === 'dispatched' ? '<button class="ug-btn ug-btn--sm"' + A('dispatch-open', attr({ id: i.id })) + '>' + I('truck', 15) + 'Add Team</button>' : '') +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>' : '') +
         '</div>' +
       '</div>' +
@@ -1257,7 +1272,8 @@ const UG_SCREENS = (() => {
             '</div></div>' +
         '</div>' +
         '<div class="ug-col" style="gap:18px">' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Status Pipeline</h3></div><div class="ug-card-b">' + U.pipeline(status) + '</div></div>' +
+        '<div class="ug-card"><div class="ug-card-h"><h3>Status Pipeline</h3></div><div class="ug-card-b">' + U.pipeline(status) + '</div></div>' +
+          dispatchRecords(i) +
           '<div class="ug-card"><div class="ug-card-h"><h3>Crowd Corroboration</h3>' + U.badge(corr >= 3 ? 'resolved' : 'warning', corr + ' of 3') + '</div>' +
             '<div class="ug-card-b ug-col" style="gap:10px">' + U.corrMeter(corr) +
               corrRows.map((n, k) =>
