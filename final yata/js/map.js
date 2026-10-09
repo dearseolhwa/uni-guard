@@ -97,6 +97,7 @@ const MapView = (function () {
     if (opts.relief) setRelief(opts.relief);
     if (opts.roadStatus) setRoadStatus(opts.roadStatus);
     if (opts.reportPin) setReportPin(opts.reportPin, opts.onPinDrop);
+    if (opts.layers) setLayers(opts.layers);
     setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 100);
     setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 400);
     return ctx;
@@ -201,6 +202,19 @@ const MapView = (function () {
     });
   }
 
+  /* show or hide the four overlay groups in place, so switching a layer off
+     keeps the current zoom and pan instead of rebuilding the map */
+  const LAYER_GROUPS = { hazards: 'incidentLayer', centers: 'centerLayer', relief: 'reliefLayer', roadStatus: 'roadLayer' };
+  function setLayers(layers) {
+    if (!ctx || ctx.fallback || !layers) return;
+    Object.keys(LAYER_GROUPS).forEach((k) => {
+      const group = ctx[LAYER_GROUPS[k]];
+      if (!group) return;
+      if (layers[k] === false) ctx.map.removeLayer(group);
+      else if (!ctx.map.hasLayer(group)) group.addTo(ctx.map);
+    });
+  }
+
   /* the citizen report form's drag-to-adjust pin: a single draggable marker
      whose drop fires the onPinDrop callback so the parent can write the new
      lat/lng into the report state and reverse-geocode it. */
@@ -273,5 +287,5 @@ const MapView = (function () {
   function invalidate() { if (ctx && ctx.map) { try { ctx.map.invalidateSize(); } catch (e) {} } }
   const isFallback = () => !!(ctx && ctx.fallback);
 
-  return { mount, destroy, setIncidents, setCenters, setRelief, setRoadStatus, setReportPin, invalidate, isFallback, wazeButtonHtml };
+  return { mount, destroy, setIncidents, setCenters, setRelief, setRoadStatus, setLayers, setReportPin, invalidate, isFallback, wazeButtonHtml };
 })();

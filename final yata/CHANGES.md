@@ -147,7 +147,7 @@ run order and `DOC_UPDATES.md` for the paper edits.
 | Static "In your barangay: 1" stat | screens.web.js home | **Fixed** → live data |
 | "Accuracy 6 m · captured just now" (hardcoded) | screens.web.js report | **Fixed** → real accuracy |
 | Offline DATA demo set | screens.js | **Kept** — legitimate offline fallback; only shown when Supabase is not configured |
-| Map "Layers" chip (dashboard header) | screens.js dashboard | **Kept (label)** — the real layer toggle now renders on the live map beneath it (app.js mountMaps) |
+| Map "Layers" chip (dashboard header) | screens.js dashboard | **Fixed** → a button that opens/closes the layer panel on the map; the toggles now show/hide each layer in place (map.js setLayers) |
 | Enter-coordinates fallback | report form | **Kept** — secondary control behind the pin map |
 
 ## Phase I — documentation

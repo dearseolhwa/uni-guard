@@ -1109,8 +1109,8 @@ const UG_SCREENS = (() => {
           '<div><h3>Live Operations Map</h3><span class="ug-dimmer" style="font-size:10.5px">Active incident perimeters and deployed units</span></div>' +
           '<div class="ug-rowf ug-gap8" style="gap:6px">' +
             '<span class="ug-chip is-on">' + I('radar', 13) + 'Realtime</span>' +
-            '<span class="ug-chip">' + I('layers', 13) + 'Layers</span></div></div>' +
-          '<div class="ug-map" data-map="live" style="height:260px">' + U.mapSVG({ animated: true }) + U.mapLegend() +
+            '<button class="ug-chip' + (st.mapPanelOpen ? ' is-on' : '') + '" data-act="map-layers-panel" aria-expanded="' + !!st.mapPanelOpen + '">' + I('layers', 13) + 'Layers</button></div></div>' +
+          '<div class="ug-map" data-map="live" data-toggles="chip" style="height:260px">' + U.mapSVG({ animated: true }) +
             '<div class="map-scale">1 : 25 000</div></div></div>' +
         '<div class="ug-card ug-col" style="min-height:0"><div class="ug-card-h" style="padding:14px 16px">' +
           '<div><h3>Recent Incidents</h3><span class="ug-dimmer" style="font-size:10.5px">Tap a row for the full detail view</span></div>' +
@@ -1406,7 +1406,7 @@ const UG_SCREENS = (() => {
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Command View', 'Focused operational view: live map, open incidents and the pipeline. Scope: ' + esc(sess(st).scope || ''),
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('nav', attr({ route: 'incidents' })) + '>' + I('x', 15) + 'Exit Command View</button>') +
-      '<div class="ug-card" style="padding:0;overflow:hidden"><div class="ug-map" data-map="live" style="height:400px">' + U.mapSVG({ animated: true }) + U.mapLegend() + layerNote(st) + '</div></div>' +
+      '<div class="ug-card" style="padding:0;overflow:hidden"><div class="ug-map" data-map="live" style="height:400px">' + U.mapSVG({ animated: true }) + '</div></div>' +
       '<div class="ug-dgrid-main">' +
         '<div class="ug-card ug-col" style="min-height:0"><div class="ug-card-h"><div><h3>Active Incidents</h3>' +
           '<span class="ug-dimmer" style="font-size:10.5px">Reported · Verified · Response Dispatched — tap to open</span></div>' +
@@ -1441,13 +1441,6 @@ const UG_SCREENS = (() => {
     if (i.status === 'dispatched') return '<span class="ug-btn ug-btn--sm" style="pointer-events:none">Resolve</span>';
     return '';
   }
-  function layerNote(st){
-    return '<div class="ug-layer-toggle" role="group" aria-label="Map layers">' +
-      [['hazards', 'Hazards', 'octagon', 'var(--ug-emergency)'], ['relief', 'Relief', 'square', 'var(--ug-prepared)'], ['centers', 'Shelters', 'square', 'var(--ug-shelter)'], ['roadStatus', 'Road status', 'diamond', 'var(--ug-warning)']].map((it) =>
-        '<button class="' + (st.mapLayers && st.mapLayers[it[0]] ? 'is-on' : '') + '" data-act="map-layer-toggle" data-layer="' + it[0] + '">' +
-        '<span class="swatch shape-' + it[2] + '" style="background:' + it[3] + '"></span>' + it[1] + '</button>').join('') + '</div>';
-  }
-
   /* ---- hotlines management (feature 8) ---- */
   function dHotlines(st){
     return '<div class="ug-col" style="gap:18px">' +
@@ -1582,7 +1575,7 @@ const UG_SCREENS = (() => {
   function mMap(st) {
     const layers = st.mapLayers || { hazards: true, relief: true, centers: true, roadStatus: true };
     const toggle = (k, label, shape, color) =>
-      '<button class="ug-chip' + (layers[k] ? ' is-on' : '') + '" data-act="map-layer-toggle" data-layer="' + k + '">' +
+      '<button class="ug-chip' + (layers[k] ? ' is-on' : '') + '" aria-pressed="' + !!layers[k] + '" data-act="map-layer-toggle" data-layer="' + k + '">' +
         '<span class="swatch shape-' + shape + '" style="background:' + color + ';width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:middle"></span>' +
         label + '</button>';
     return '<div class="ug-col" style="gap:14px">' +
@@ -1592,11 +1585,11 @@ const UG_SCREENS = (() => {
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' +
         toggle('hazards', 'Hazards', 'octagon', 'var(--ug-emergency)') +
         toggle('relief', 'Relief', 'square', '#8B5CF6') +
-        toggle('centers', 'Shelters', 'square', 'var(--ug-shelter)') +
+        toggle('centers', 'Shelters', 'square', 'var(--ug-shelter-open)') +
         toggle('roadStatus', 'Road status', 'diamond', 'var(--ug-warning)') +
       '</div>' +
       '<div class="ug-card" style="padding:0;overflow:hidden">' +
-        '<div class="ug-map" data-map="live" style="height:380px">' + U.mapSVG({ animated: true }) + '</div>' +
+        '<div class="ug-map" data-map="live" data-toggles="inline" style="height:380px">' + U.mapSVG({ animated: true }) + '</div>' +
       '</div>' +
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
         '<span style="color:var(--ug-warning);display:flex">' + I('info', 17) + '</span>' +
