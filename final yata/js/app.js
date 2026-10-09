@@ -688,6 +688,82 @@
     toast('Editing ' + inc.id + '. Save before the 15-minute window closes.', 'info');
     render();
   }
+    /* ------------------------------------------------------------ dispatch form */
+  const DISPATCH_TEAMS = ['MDRRMO Rescue', 'BFP', 'PNP', 'Barangay Tanod', 'Ambulance'];
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const toLocalInput = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
+    'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+
+  function loadDispatchesFor(id) {
+    const inc = (UG.DATA.incidents || []).find((i) => i.id === id || i.uuid === id);
+    if (!inc || !inc.uuid) return;
+    Repo.loadDispatches(inc.uuid).then(() => { if (S.session) render(); }).catch(() => { });
+  }
+
+  function dispatchModal(inc) {
+    if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can dispatch a response', 'warning'); return; }
+    if (inc.status !== 'verified' && inc.status !== 'dispatched') {
+      toast('Verify the report before dispatching a response', 'warning'); return;
+    }
+    const me = S.session;
+    const roleLabel = (UG_WEB.ROLE_INFO[me.role] || {}).label || '';
+    const esc = UG_UTIL.esc;
+    const teamOpts = DISPATCH_TEAMS.map((t) => '<option>' + esc(t) + '</option>').join('');
+    const defaultEta = toLocalInput(new Date(Date.now() + 30 * 60000));
+    const kv = (k, v, attrs) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)">' +
+      '<span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600"' + (attrs || '') + '>' + esc(v) + '</span></div>';
+
+    UG_FEATURES.modal({
+      title: (inc.status === 'dispatched' ? 'Add another team · ' : 'Dispatch response · ') + inc.id,
+      body:
+        '<div class="ug-field"><label class="ug-lab">Responder or team</label>' +
+          '<select class="ug-sel" data-dp-team>' + teamOpts + '</select></div>' +
+        '<div class="ug-field"><label class="ug-lab">Action or instructions</label>' +
+          '<textarea class="ug-ta" rows="3" data-dp-instr placeholder="e.g. Evacuate Purok 3, bring boat"></textarea>' +
+          '<div class="ug-help">Say exactly what the team should do and what to bring.</div></div>' +
+        '<div class="ug-field"><label class="ug-lab">ETA (estimated arrival)</label>' +
+          '<input class="ug-in" type="datetime-local" data-dp-eta value="' + defaultEta + '">' +
+          '<div class="ug-rowf ug-gap8" style="gap:6px;margin-top:8px">' +
+            [15, 30, 60, 120].map((m) => '<button type="button" class="ug-chip" data-dp-quick="' + m + '">' + (m < 60 ? m + ' min' : (m / 60) + ' h') + '</button>').join('') +
+          '</div></div>' +
+        '<div style="margin-top:4px">' +
+          kv('Dispatched by', me.name + (roleLabel ? ' · ' + roleLabel : '')) +
+          kv('Dispatch time', new Date().toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), ' data-dp-now') +
+        '</div>' +
+        '<div class="ug-help">Dispatcher and time are recorded automatically by the server.</div>',
+      footer:
+        '<button class="ug-btn" data-modal-close>Cancel</button>' +
+        '<button class="ug-btn ug-btn--signal" data-dp-confirm>' + UG.icon('truck', 15) + 'Confirm Dispatch</button>',
+      onMount: (wrap, close) => {
+        const etaEl = wrap.querySelector('[data-dp-eta]');
+        wrap.querySelectorAll('[data-dp-quick]').forEach((b) => b.addEventListener('click', () => {
+          etaEl.value = toLocalInput(new Date(Date.now() + parseInt(b.getAttribute('data-dp-quick'), 10) * 60000));
+        }));
+        const btn = wrap.querySelector('[data-dp-confirm]');
+        btn.addEventListener('click', async () => {
+          const team = wrap.querySelector('[data-dp-team]').value;
+          const instructions = wrap.querySelector('[data-dp-instr]').value.trim();
+          const etaVal = etaEl.value;
+          if (!instructions) { toast('Write what the team is supposed to do', 'warning'); return; }
+          if (!etaVal) { toast('Set an estimated arrival time', 'warning'); return; }
+          const eta = new Date(etaVal);
+          if (isNaN(eta.getTime()) || eta.getTime() < Date.now() - 5 * 60000) {
+            toast('The ETA must be a time from now onward', 'warning'); return;
+          }
+          btn.disabled = true;
+          try {
+            await Repo.dispatchReport(inc.uuid || inc.id, { team: team, instructions: instructions, eta: eta.toISOString() });
+            toast(team + ' dispatched to ' + inc.id, 'prepared');
+            close();
+            render();
+          } catch (e) {
+            btn.disabled = false;
+            toast(e.message || 'Could not dispatch', 'warning');
+          }
+        });
+      }
+    });
+  }
   /* ------------------------------------------------------------- app actions */
   const APP_ACTIONS = {
     nav: (d) => {
@@ -698,8 +774,8 @@
       loadRouteData(d.route);
     },
     'open-advisory': (d) => { S.openId = d.id; S.route = 'advisory-detail'; render(); },
-    'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); },
-    'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); },
+    'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); loadDispatchesFor(d.id); },
+    'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); loadDispatchesFor(d.id); },
     'open-sos-detail': (d) => { UG_SOS.sosDetailModal(S, d.id); },
     'open-road-detail': (d) => { UG_ROADWORK.roadDetailModal(d.id); },
 
@@ -944,6 +1020,7 @@
       if (!inc) return;
       const next = order.indexOf(inc.status) + 1;
       if (next >= order.length) { toast('This incident is already resolved', 'info'); return; }
+      if (order[next] === 'dispatched') { dispatchModal(inc); return; }
       const label = UG.STAGES[next].label;
       const ok = await UG_FEATURES.confirm({
         title: 'Advance status',
@@ -971,6 +1048,11 @@
         toast(inc.id + ' marked rejected', 'warning');
       } catch (e) { toast(e.message, 'warning'); }
       render();
+    },
+
+    'dispatch-open': (d) => {
+      const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
+      if (inc) dispatchModal(inc);
     },
 
     'center-status': async (d) => {
