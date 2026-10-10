@@ -1,0 +1,302 @@
+/* UniGuard · live operations map
+ *
+ * Leaflet with OpenStreetMap tiles, centred on Lingayen, Pangasinan (js/geo.js).
+ * When Leaflet has not loaded (offline, or a blocked CDN) the screen falls back
+ * to the built-in SVG tactical map so the console never shows an empty panel.
+ *
+ * Every colour drawn here comes from js/theme.js — the map, the legend, the
+ * list cards and the LGU dashboard all read the same values, so they can never
+ * disagree. Severity markers also carry a shape and a short text label
+ * (CRIT/HIGH/MOD), so colour is never the only way to tell them apart.
+ */
+const MapView = (function () {
+  let ctx = null;                 /* { map, layers, container, fallback } */
+
+  function leafletReady(timeoutMs) {
+    return new Promise((resolve) => {
+      if (typeof window !== 'undefined' && window.L) return resolve(true);
+      const started = Date.now();
+      const t = setInterval(() => {
+        if (window.L) { clearInterval(t); resolve(true); }
+        else if (Date.now() - started > (timeoutMs || 4000)) { clearInterval(t); resolve(false); }
+      }, 120);
+    });
+  }
+
+  function destroy() {
+    if (ctx && ctx.map) { try { ctx.map.remove(); } catch (e) {} }
+    ctx = null;
+  }
+
+  /* a small divIcon: filled shape, white ring, and a 3-4 letter label so the
+     marker still reads correctly in greyscale or for a colourblind viewer */
+  function shapeIcon(entry, sizePx) {
+    const L = window.L;
+    const size = sizePx || 24;
+    const label = entry.short || '';
+    return L.divIcon({
+      className: '',
+      html: '<div class="ug-marker shape-' + entry.shape + '" style="width:' + size + 'px;height:' + size + 'px;' +
+        'background:' + entry.color + ';color:' + entry.on + '">' + UG_UTIL.esc(label) + '</div>',
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor: [0, -size / 2]
+    });
+  }
+
+  function wazeButtonHtml(lat, lng, label) {
+    const state = UG_GEO.classify(lat, lng);
+    if (state !== 'ok') {
+      return '<div class="ug-help" style="margin-top:6px">' + UG_UTIL.esc(UG_GEO.message(state) || 'Navigation is unavailable for this location.') + '</div>';
+    }
+    const href = UG_GEO.wazeUrl(lat, lng);
+    return '<a class="ug-waze-btn" href="' + href + '" target="_blank" rel="noopener noreferrer">' +
+      (UG.icon ? UG.icon('route', 13) : '') + ' Navigate with ' + UG_UTIL.esc(label || 'Waze') + '</a>';
+  }
+
+  /* container must have an explicit height */
+  async function mount(container, opts) {
+    opts = opts || {};
+    destroy();
+    if (!container) return null;
+
+    const ok = await leafletReady(opts.timeout);
+    if (!ok) {
+      container.innerHTML = '<div style="width:100%;height:100%">' + UG.mapSVG({ animated: false }) + UG.mapLegend() + '</div>';
+      ctx = { fallback: true, container: container };
+      return ctx;
+    }
+
+    const L = window.L;
+    container.innerHTML = '';
+
+    /* if a report pin is given, start the map on the pin instead of the town centre */
+    const pin = opts.reportPin;
+    const startCenter = opts.center ||
+      ((pin && typeof pin.lat === 'number' && typeof pin.lng === 'number')
+        ? [pin.lat, pin.lng]
+        : UG_GEO.CENTER);
+
+    const map = L.map(container, {
+      center: startCenter,
+      zoom: opts.zoom || UG_GEO.ZOOM,
+      minZoom: UG_GEO.MAP_MIN_ZOOM,
+      maxZoom: UG_GEO.MAP_MAX_ZOOM,
+      /* keep the operational map scoped to Lingayen and its immediate
+         neighbours (Labrador, Binmaley, Bugallon). maxBoundsViscosity=1
+         stops the user from dragging the view outside the box, so the map
+         can never zoom/pan out to a country-wide view. */
+      maxBounds: L.latLngBounds(
+        [UG_GEO.MAP_BOUNDS.minLat, UG_GEO.MAP_BOUNDS.minLng],
+        [UG_GEO.MAP_BOUNDS.maxLat, UG_GEO.MAP_BOUNDS.maxLng]
+      ),
+      maxBoundsViscosity: 1.0,
+      zoomControl: false,
+      attributionControl: true,
+      preferCanvas: true
+    });
+
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, FAO, NOAA, USGS, &copy; OpenStreetMap contributors, and the GIS User Community'
+    }).addTo(map);
+
+    ctx = { map: map, layer: L.layerGroup().addTo(map), container: container, fallback: false };
+    addLocateControl(map);
+    if (opts.incidents) setIncidents(opts.incidents);
+    if (opts.centers) setCenters(opts.centers);
+    if (opts.relief) setRelief(opts.relief);
+    if (opts.roadStatus) setRoadStatus(opts.roadStatus);
+    if (opts.reportPin) setReportPin(opts.reportPin, opts.onPinDrop);
+    if (opts.layers) setLayers(opts.layers);
+    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 100);
+    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 400);
+    return ctx;
+  }
+
+  function setIncidents(list) {
+    if (!ctx) return;
+    if (ctx.fallback) return;
+    const L = window.L;
+    if (!ctx.incidentLayer) ctx.incidentLayer = L.layerGroup().addTo(ctx.map);
+    ctx.incidentLayer.clearLayers();
+
+    (list || []).forEach((i) => {
+      if (typeof i.lat !== 'number' || typeof i.lng !== 'number') return;
+      const resolved = i.status === 'resolved';
+      const entry = resolved ? UG_THEME.STATUS.resolved : UG_THEME.sev(i.sev);
+      const open = !resolved;
+
+      if (open) {
+        L.circle([i.lat, i.lng], {
+          radius: i.sev === 'emergency' ? 480 : i.sev === 'warning' ? 340 : 220,
+          color: entry.color, weight: 1, opacity: 0.65, fillColor: entry.color, fillOpacity: 0.13
+        }).addTo(ctx.incidentLayer);
+      }
+
+      const marker = L.marker([i.lat, i.lng], { icon: shapeIcon(entry, i.sev === 'emergency' ? 26 : 22) }).addTo(ctx.incidentLayer);
+
+      marker.bindPopup(
+        '<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(i.hazard) + '</div>' +
+        '<div class="p-m">' + UG_UTIL.esc(i.id) + ' &middot; ' + UG_UTIL.esc(i.brgy) + '</div>' +
+        '<div class="p-m" style="margin-top:4px">' + UG_UTIL.esc(entry.label) + ' &middot; ' +
+        UG_UTIL.esc((UG_THEME.status(i.status) || {}).label || i.status.replace(/_/g, ' ')) + ' &middot; ' +
+        UG_UTIL.esc(i.corr || 0) + ' corroborations</div>' +
+        '</div>'
+      );
+      marker.on('click', () => {
+        document.dispatchEvent(new CustomEvent('ug:open-incident', { detail: { id: i.uuid || i.id } }));
+      });
+    });
+  }
+
+  function setCenters(list) {
+    if (!ctx || ctx.fallback) return;
+    const L = window.L;
+    if (!ctx.centerLayer) ctx.centerLayer = L.layerGroup().addTo(ctx.map);
+    ctx.centerLayer.clearLayers();
+    (list || []).forEach((c) => {
+      if (typeof c.lat !== 'number' || typeof c.lng !== 'number') return;
+      const avail = UG_THEME.SHELTER[c.status] || UG_THEME.SHELTER.closed;
+      const entry = Object.assign({}, UG_THEME.SHELTER.marker, { color: avail.color, on: avail.on, short: 'EVAC' });
+      L.marker([c.lat, c.lng], { icon: shapeIcon(entry, 22) })
+        .bindPopup('<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(c.name) + '</div>' +
+          '<div class="p-m">' + UG_UTIL.esc(avail.label) + ' &middot; ' + c.occ + ' of ' + c.cap + '</div>' +
+          '<div class="p-act">' + wazeButtonHtml(c.lat, c.lng, 'Waze') + '</div></div>')
+        .addTo(ctx.centerLayer);
+    });
+  }
+
+  /* relief distribution markers — violet square with "REL" label */
+  function setRelief(list) {
+    if (!ctx || ctx.fallback) return;
+    const L = window.L;
+    if (!ctx.reliefLayer) ctx.reliefLayer = L.layerGroup().addTo(ctx.map);
+    ctx.reliefLayer.clearLayers();
+    (list || []).forEach((r) => {
+      if (typeof r.lat !== 'number' || typeof r.lng !== 'number') return;
+      if (!r.active && r.active !== undefined) return;
+      const entry = { color: '#8B5CF6', on: '#FFFFFF', short: 'REL', shape: 'square' };
+      L.marker([r.lat, r.lng], { icon: shapeIcon(entry, 22) })
+        .bindPopup('<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(r.title || r.location_name || 'Relief') + '</div>' +
+          '<div class="p-m">' + UG_UTIL.esc(r.barangay || '') + '</div>' +
+          '<div class="p-act">' + wazeButtonHtml(r.lat, r.lng, 'Waze') + '</div></div>')
+        .addTo(ctx.reliefLayer);
+    });
+  }
+
+  /* road-status markers: passable (green dot), caution (amber square),
+     blocked (red square). Shows the LGU-updated road state so citizens can
+     route around a closure manually if full routing is not available. */
+  function setRoadStatus(list) {
+    if (!ctx || ctx.fallback) return;
+    const L = window.L;
+    if (!ctx.roadLayer) ctx.roadLayer = L.layerGroup().addTo(ctx.map);
+    ctx.roadLayer.clearLayers();
+    (list || []).forEach((r) => {
+      if (typeof r.lat !== 'number' || typeof r.lng !== 'number') return;
+      const tone = r.status === 'blocked' ? 'road-blocked'
+                 : r.status === 'caution'  ? 'road-caution'
+                 : 'road-passable';
+      const label = r.status === 'blocked' ? 'X' : r.status === 'caution' ? '!' : '';
+      const icon = L.divIcon({
+        className: '',
+        html: '<div class="ug-marker ' + tone + '" style="width:22px;height:22px">' + UG_UTIL.esc(label) + '</div>',
+        iconSize: [22, 22], iconAnchor: [11, 11], popupAnchor: [0, -11]
+      });
+      L.marker([r.lat, r.lng], { icon: icon })
+        .bindPopup('<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(r.road_name) + '</div>' +
+          '<div class="p-m">' + UG_UTIL.esc(r.status.toUpperCase()) + ' &middot; ' + UG_UTIL.esc(r.barangay) + '</div>' +
+          (r.note ? '<div class="p-m">' + UG_UTIL.esc(r.note) + '</div>' : '') +
+          '</div>')
+        .addTo(ctx.roadLayer);
+    });
+  }
+
+  /* show or hide the four overlay groups in place, so switching a layer off
+     keeps the current zoom and pan instead of rebuilding the map */
+  const LAYER_GROUPS = { hazards: 'incidentLayer', centers: 'centerLayer', relief: 'reliefLayer', roadStatus: 'roadLayer' };
+  function setLayers(layers) {
+    if (!ctx || ctx.fallback || !layers) return;
+    Object.keys(LAYER_GROUPS).forEach((k) => {
+      const group = ctx[LAYER_GROUPS[k]];
+      if (!group) return;
+      if (layers[k] === false) ctx.map.removeLayer(group);
+      else if (!ctx.map.hasLayer(group)) group.addTo(ctx.map);
+    });
+  }
+
+  /* the citizen report form's drag-to-adjust pin: a single draggable marker
+     whose drop fires the onPinDrop callback so the parent can write the new
+     lat/lng into the report state and reverse-geocode it. */
+  function setReportPin(initial, onDrop) {
+    if (!ctx || ctx.fallback) return;
+    const L = window.L;
+    if (ctx.reportMarker) { try { ctx.reportMarker.remove(); } catch (e) {} }
+    const center = (initial && typeof initial.lat === 'number') ? [initial.lat, initial.lng] : UG_GEO.CENTER;
+    const entry = { color: '#34D6F0', on: '#062B36', short: 'PIN', shape: 'diamond' };
+    const marker = L.marker(center, {
+      icon: shapeIcon(entry, 26),
+      draggable: true,
+      autoPan: true
+    }).addTo(ctx.map);
+    marker.on('dragend', () => {
+      const ll = marker.getLatLng();
+      if (onDrop) onDrop(ll.lat, ll.lng);
+    });
+    ctx.reportMarker = marker;
+  }
+
+  /* ---------------------------------------------------- "My Location" control
+   * A single Leaflet control, shared by every map: same corner, same size and
+   * spacing as the other map controls, and it works with touch (a plain button
+   * with a pointerdown handler, no hover dependency). On success it drops a
+   * temporary accuracy circle + marker and re-centres the map; on failure it
+   * raises a toast via the normal toast host. */
+  function addLocateControl(map) {
+    const L = window.L;
+    const Locate = L.Control.extend({
+      options: { position: 'bottomright' },
+      onAdd: function () {
+        const div = L.DomUtil.create('div', 'ug-locate-wrap');
+        div.innerHTML = '<button type="button" class="ug-locate-btn" aria-label="Show my location" title="Show my location">' +
+          '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>';
+        const btn = div.querySelector('button');
+        L.DomEvent.disableClickPropagation(div);
+        L.DomEvent.on(btn, 'click', async (e) => {
+          L.DomEvent.preventDefault(e);
+          btn.classList.add('is-busy');
+          try {
+            const pos = await (typeof UG_FEATURES !== 'undefined' ? UG_FEATURES.locate() : Promise.reject(new Error('unavailable')));
+            if (ctx && ctx.locateLayer) { try { ctx.locateLayer.remove(); } catch (er) {} }
+            ctx.locateLayer = L.layerGroup([
+              L.circle([pos.lat, pos.lng], { radius: Math.max(30, pos.accuracy || 60), color: '#34D6F0', weight: 1, fillOpacity: 0.12 }),
+              L.marker([pos.lat, pos.lng], { icon: shapeIcon({ color: '#34D6F0', on: '#062B36', short: 'YOU', shape: 'circle' }, 22) })
+            ]).addTo(map);
+            map.setView([pos.lat, pos.lng], Math.max(map.getZoom(), 15));
+          } catch (err) {
+            try {
+              const host = document.getElementById('ug-toasts');
+              if (host) {
+                const t = document.createElement('div');
+                t.className = 'ug-toast ug-toast--warning';
+                t.innerHTML = UG.icon('info', 16) + '<span>' + UG_UTIL.esc(err.message || 'Could not read your location.') + '</span>';
+                host.appendChild(t);
+                setTimeout(() => t.remove(), 3200);
+              }
+            } catch (er) {}
+          }
+          btn.classList.remove('is-busy');
+        });
+        return div;
+      }
+    });
+    try { Locate.prototype.options.position = 'bottomright'; new Locate().addTo(map); } catch (e) {}
+  }
+
+  function invalidate() { if (ctx && ctx.map) { try { ctx.map.invalidateSize(); } catch (e) {} } }
+  const isFallback = () => !!(ctx && ctx.fallback);
+
+  return { mount, destroy, setIncidents, setCenters, setRelief, setRoadStatus, setLayers, setReportPin, invalidate, isFallback, wazeButtonHtml };
+})();
