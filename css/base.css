@@ -1,0 +1,65 @@
+/* UniGuard · base reset and page shell
+ *
+ * Loaded first, before the design system. This is what makes the application fit
+ * the device: the body is a fixed-height column, the connectivity strip takes
+ * its natural height, and the stage fills whatever is left, so nothing is ever
+ * pushed past the bottom of the screen or left with a margin around it.
+ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  height: 100%;
+  background: #050910;
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 100%;
+  background: #050910;
+  color: #E8EFFA;
+  font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* the connectivity strip sits above the app and takes only its own height */
+#ug-conn {
+  flex: none;
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* the application fills the remaining space and owns its own scrolling */
+#ug-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* keep media inside its container on every viewport */
+img, svg, video, canvas { max-width: 100%; }
+img { height: auto; }
+
+button, input, select, textarea { font-family: inherit; font-size: inherit; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
