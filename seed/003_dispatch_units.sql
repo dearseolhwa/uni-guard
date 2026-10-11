@@ -13,6 +13,24 @@
 -- ---------------------------------------------------- equipment_catalog
 -- Per unit_type, the labels and the readiness checklist items the unit
 -- admin runs through every shift. The checklist is a JSONB array of strings.
+--
+-- The unique index on (unit_type, label) is created FIRST so the INSERT's
+-- ON CONFLICT clause has an arbiter to match against. (A previous version of
+-- this file ran the INSERT before the index existed, which broke both
+-- first-run and re-run with "there is no unique or exclusion constraint
+-- matching the ON CONFLICT specification".)
+do $$
+begin
+  if not exists (
+    select 1 from pg_indexes
+     where schemaname = 'public' and tablename = 'equipment_catalog'
+       and indexname = 'equipment_catalog_type_label_key'
+  ) then
+    create unique index equipment_catalog_type_label_key
+      on public.equipment_catalog (unit_type, label);
+  end if;
+end $$;
+
 insert into public.equipment_catalog (unit_type, label, checklist)
 select v.unit_type, v.label, v.checklist::jsonb
   from (values
@@ -47,70 +65,17 @@ select v.unit_type, v.label, v.checklist::jsonb
     ('Barangay', 'Radio',           '["Battery","Channel","Speaker","Antenna"]'::text),
     ('Barangay', 'First-Aid Kit',   '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text)
   ) as v(unit_type, label, checklist)
-on conflict (id, unit_type, label) do nothing;
-
--- the unique index the conflict relies on (id is the PK so we always have
--- something; add a unit_type+label unique index if it does not exist).
-do $$
-begin
-  if not exists (
-    select 1 from pg_indexes
-     where schemaname = 'public' and tablename = 'equipment_catalog'
-       and indexname = 'equipment_catalog_type_label_key'
-  ) then
-    create unique index equipment_catalog_type_label_key
-      on public.equipment_catalog (unit_type, label);
-  end if;
-end $$;
-
--- re-run the insert so the ON CONFLICT works on the new index (the first
--- insert would have created duplicates only across separate re-runs; this
--- second pass is a no-op when the rows already exist).
-insert into public.equipment_catalog (unit_type, label, checklist)
-select v.unit_type, v.label, v.checklist::jsonb
-  from (values
-    ('BFP', 'Fire Truck',          '["Water level","Hose condition","Pump test","Fuel level","Engine start"]'::text),
-    ('BFP', 'Water Tanker',        '["Water volume","Valve operation","Hose connection","Fuel level"]'::text),
-    ('BFP', 'Aerial Ladder',       '["Hydraulic test","Ladder extension","Stabilisers","Controls"]'::text),
-    ('BFP', 'Breathing Apparatus (SCBA)', '["Cylinder pressure","Face mask seal","Regulator","Airflow"]'::text),
-    ('BFP', 'Hose Set',            '["Nozzles","Couplings","Pressure test","Length"]'::text),
-    ('PNP', 'Patrol Car',          '["Fuel level","Radio battery","Lights and siren","First-aid kit"]'::text),
-    ('PNP', 'Motorcycle',          '["Fuel level","Tyres","Lights","Radio battery"]'::text),
-    ('PNP', 'Barriers and Cones',  '["Count","Reflective condition","Stands","Bag"]'::text),
-    ('PNP', 'Radios',              '["Battery","Channel scan","Antenna","Speaker"]'::text),
-    ('PNP', 'Crowd-Control Kit',   '["Vests","Megaphone","Baton","Whistle"]'::text),
-    ('Rescue', 'Rescue Boat',      '["Engine start","Fuel level","Life vests","Paddles","Hull"]'::text),
-    ('Rescue', 'Extrication Tools', '["Hydraulic pump","Cutter","Spreader","Ram","Hoses"]'::text),
-    ('Rescue', 'Rope and Rappel Set', '["Rope integrity","Carabiners","Harnesses","Descenders","Anchors"]'::text),
-    ('Rescue', 'Stretcher',        '["Straps","Frame","Wheels","Cleanliness"]'::text),
-    ('Rescue', 'First-Aid Kit',    '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text),
-    ('Hospital', 'Ambulance',      '["Fuel level","Tyres","Stretcher","Oxygen tank","Defibrillator"]'::text),
-    ('Hospital', 'ER Beds',        '["Available count","Bedding","Monitors","Oxygen outlets"]'::text),
-    ('Hospital', 'ICU Beds',       '["Available count","Ventilators","Monitors","Power"]'::text),
-    ('Hospital', 'Oxygen',         '["Cylinder count","Pressure","Backup supply","Flow meters"]'::text),
-    ('Hospital', 'Blood Supply',   '["A+","A-","B+","B-","AB+","AB-","O+","O-","Storage temp"]'::text),
-    ('Barangay', 'Boat',           '["Hull","Paddles","Life vests","Rope"]'::text),
-    ('Barangay', 'Rope',           '["Length","Knot integrity","Cleanliness"]'::text),
-    ('Barangay', 'Stretcher',      '["Frame","Straps","Wheels"]'::text),
-    ('Barangay', 'Radio',           '["Battery","Channel","Speaker","Antenna"]'::text),
-    ('Barangay', 'First-Aid Kit',   '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text)
-  ) as v(unit_type, label, checklist)
 on conflict (unit_type, label) do nothing;
 
 -- --------------------------------------------------------------- dispatch_units
 -- SAMPLE units — one per type. Replace these with the real MDRRMO partner
 -- units, contact numbers and coordinates before going live.
-insert into public.dispatch_units (name, unit_type, contact_number, address, lat, lng, status, active)
-select v.name, v.unit_type, v.contact_number, v.address, v.lat, v.lng, 'available', true
-  from (values
-    ('Lingayen BFP',         'BFP',      '(075) 632-2333',  'Poblacion, Lingayen',                 16.0220, 120.2306),
-    ('Lingayen PNP',         'PNP',      '0998-598-5391',   'Capitol Compound, Lingayen',          16.0226, 120.2288),
-    ('Lingayen Rescue Unit', 'Rescue',   '(075) 632-2222',  'MDRRMO Office, Lingayen',             16.0220, 120.2306),
-    ('Lingayen District Hospital', 'Hospital', '(075) 632-2121', 'Maramba Boulevard, Lingayen', 16.0240, 120.2310)
-  ) as v(name, unit_type, contact_number, address, lat, lng)
-on conflict (id) do nothing;
-
--- add a unique name index so the above conflict clause works on re-run
+--
+-- The unique name index is created FIRST so the INSERT's ON CONFLICT (name)
+-- clause has an arbiter to match against. (A previous version ran the INSERT
+-- before the index existed and used ON CONFLICT (id), which never matched
+-- because id is auto-generated — so re-runs failed with a duplicate-key
+-- violation on dispatch_units_name_key.)
 do $$
 begin
   if not exists (
@@ -122,7 +87,6 @@ begin
   end if;
 end $$;
 
--- re-run the insert now that the unique name index exists
 insert into public.dispatch_units (name, unit_type, contact_number, address, lat, lng, status, active)
 select v.name, v.unit_type, v.contact_number, v.address, v.lat, v.lng, 'available', true
   from (values

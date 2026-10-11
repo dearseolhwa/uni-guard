@@ -87,6 +87,12 @@ Deno.serve(async (req: Request) => {
         const barangayId = (payload.barangayId as string) || null;
         const unitId = (payload.unitId as string) || null;
         const unitRole = (payload.unitRole as string) || '';
+        /* redirectUrl is sent by the frontend (window.location.origin) so the
+           invitation email's "Accept Invitation" button points back to the
+           site that sent the invite — localhost:5500 during dev, the Netlify
+           URL in production. Fall back to the Supabase dashboard default if
+           the frontend didn't send one. */
+        const redirectUrl = (payload.redirectUrl as string) || undefined;
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: 'A valid email is required' }, 400);
         if (!ALL_ROLES.includes(role)) return json({ error: 'Unknown role' }, 400);
         if (role !== 'dispatch_team' && !['barangay_official', 'lgu_ldrrmc'].includes(role)) {
@@ -107,7 +113,8 @@ Deno.serve(async (req: Request) => {
         }
 
         const { data: invited, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
-          data: { role: 'citizen' } // the trigger creates the profile; role is set below
+          data: { role: 'citizen' }, // the trigger creates the profile; role is set below
+          redirectTo: redirectUrl    // points the email's "Accept" button back to this site
         });
         if (inviteErr) return json({ error: inviteErr.message }, 400);
 
@@ -140,13 +147,15 @@ Deno.serve(async (req: Request) => {
         // promote a member to admin through this path (LGU only).
         const unitId = String(payload.unitId || '');
         const email = String(payload.email || '').trim().toLowerCase();
+        const redirectUrl = (payload.redirectUrl as string) || undefined;
         if (!isAdminOf(unitId)) {
           return json({ error: 'You can only invite into your own unit' }, 403);
         }
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: 'A valid email is required' }, 400);
 
         const { data: invited, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
-          data: { role: 'citizen' }
+          data: { role: 'citizen' },
+          redirectTo: redirectUrl
         });
         if (inviteErr) return json({ error: inviteErr.message }, 400);
         if (invited?.user) {

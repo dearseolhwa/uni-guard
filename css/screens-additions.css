@@ -571,3 +571,158 @@
 
 /* road work / shelter composer pin buttons align with the field row */
 .ug-rowf .ug-locate-hint{ font-size:11px; color:var(--ug-ink-3); }
+
+/* =========================================================================
+   MODULE D — Evacuation center facilities + contact chips
+   ========================================================================= */
+.ug-chip--soft{
+  background:rgba(52,214,240,.08); color:var(--ug-signal);
+  border:1px solid rgba(52,214,240,.22);
+  display:inline-flex; align-items:center; gap:4px;
+  padding:3px 8px; border-radius:99px; font-size:10.5px; font-weight:600;
+  white-space:nowrap;
+}
+.ug-chip--soft svg{ opacity:.85; }
+
+/* the call-phone button on a center card is styled as a monospace link so it
+   reads as a tap-to-call action, not a full button that competes with the
+   status buttons. */
+.ug-rowf button[class*="ug-rowf"][style*="mono"]:hover{ color:var(--ug-signal-2); }
+
+/* =========================================================================
+   MODULE E — Relief inventory table, low-stock banner, distribution records
+   ========================================================================= */
+.ug-dgrid-stats{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:12px;
+}
+@media (max-width:900px){ .ug-dgrid-stats{ grid-template-columns:1fr; } }
+.ug-stat-card{ padding:0; }
+.ug-stat-card .ug-card-b{ padding:14px 16px; }
+
+.ug-inv-table{ width:100%; border-collapse:collapse; font-size:12px; }
+.ug-inv-table th{
+  text-align:left; padding:10px 12px; font-size:10.5px; font-weight:600;
+  letter-spacing:.04em; text-transform:uppercase; color:var(--ug-ink-3);
+  border-bottom:1px solid var(--ug-line); background:var(--ug-surface-2);
+  white-space:nowrap;
+}
+.ug-inv-table td{ padding:10px 12px; border-bottom:1px solid var(--ug-line-soft); vertical-align:middle; }
+.ug-inv-table tr:last-child td{ border-bottom:0; }
+.ug-inv-table tr:hover td{ background:rgba(255,255,255,.02); }
+/* low-stock rows get a faint amber tint so they stand out in a long table */
+.ug-inv-row-low td{ background:rgba(249,115,22,.06); }
+.ug-inv-row-low:hover td{ background:rgba(249,115,22,.1); }
+.ug-inv-row-low td:first-child{ box-shadow:inset 3px 0 0 var(--ug-warning); }
+
+/* the two-column grid for distribution records (per-barangay totals + log) */
+.ug-dgrid-2{ display:grid; grid-template-columns:1fr 1.2fr; gap:14px; align-items:start; }
+@media (max-width:900px){ .ug-dgrid-2{ grid-template-columns:1fr; } }
+
+/* the low-stock banner sits above the relief tabs and stays amber regardless
+   of which tab is active — a shortfall affects distributions and records too. */
+.ug-lowstock-banner{
+  border-left:3px solid var(--ug-warning);
+  background:rgba(249,115,22,.06);
+}
+.ug-lowstock-banner .ug-card-b{ padding:12px 14px; }
+
+/* =========================================================================
+   MODULE F — Advisory alert level ladder + template picker
+   ========================================================================= */
+.ug-ladder-chip{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:5px 11px; border-radius:99px; font-size:11.5px; font-weight:600;
+  border:1px solid var(--ug-line); background:var(--ug-surface-2);
+  color:var(--ug-ink-2); cursor:pointer;
+  transition:background .12s, border-color .12s, color .12s;
+}
+.ug-ladder-chip:hover{ border-color:var(--ug-line-strong); color:var(--ug-ink); }
+.ug-ladder-dot{ width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
+
+/* template picker rows inside the modal */
+.ug-tpl-pick{ padding:10px 12px; border-bottom:1px solid var(--ug-line-soft); }
+.ug-tpl-pick:last-child{ border-bottom:0; }
+.ug-tpl-pick:hover{ background:rgba(52,214,240,.05); }
+.ug-tpl-pick .r-main{ flex:1; min-width:0; }
+.ug-clamp2{
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden; text-overflow:ellipsis;
+}
+
+/* =========================================================================
+   SETTINGS — toggle switch, template cards, dual-language editor
+   ========================================================================= */
+.ug-toggle{
+  flex:0 0 auto; width:42px; height:24px; border-radius:99px;
+  background:var(--ug-surface-3); border:1px solid var(--ug-line);
+  cursor:pointer; position:relative; padding:0; transition:background .15s, border-color .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.ug-toggle .ug-toggle-knob{
+  position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%;
+  background:var(--ug-ink-3); transition:transform .15s, background .15s;
+}
+.ug-toggle.is-on{ background:rgba(52,214,240,.2); border-color:var(--ug-signal); }
+.ug-toggle.is-on .ug-toggle-knob{ transform:translateX(18px); background:var(--ug-signal); }
+.ug-toggle:focus-visible{ outline:2px solid var(--ug-signal); outline-offset:2px; }
+
+.ug-setting-toggle{ padding:6px 0; }
+
+/* message template card grid — mirrors the .ug-dgrid-centers pattern */
+.ug-tpl-grid{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:14px;
+}
+.ug-tpl-card{ padding:0; }
+.ug-tpl-card .ug-card-h{ padding:12px 14px; border-bottom:1px solid var(--ug-line-soft); }
+.ug-tpl-card .ug-card-b{ padding:14px; }
+.ug-tpl-cat{
+  display:inline-flex; align-items:center; gap:5px;
+  padding:3px 9px; border-radius:99px; font-size:10px; font-weight:600;
+  letter-spacing:.02em; text-transform:uppercase;
+}
+.ug-tpl-ph{ display:flex; flex-wrap:wrap; gap:5px; margin-top:auto; }
+.ug-tpl-ph code{
+  font-family:var(--ug-mono); font-size:10px; padding:2px 6px;
+  background:rgba(255,255,255,.04); border:1px solid var(--ug-line-soft);
+  border-radius:4px; color:var(--ug-signal);
+}
+.ug-tpl-langs{ margin-top:4px; }
+.ug-tpl-langs .ug-badge.is-off{ opacity:.3; }
+
+/* the template editor's dual-language layout — English on the left, Filipino
+   on the right, so the translator sees them side by side. */
+.ug-tpl-edit-langs{
+  display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:4px 0 12px;
+}
+@media (max-width:760px){ .ug-tpl-edit-langs{ grid-template-columns:1fr; } }
+.ug-tpl-edit-lang .ug-ta{ width:100%; resize:vertical; }
+
+/* the badge.is-off helper (used for language availability chips) */
+.ug-badge.is-off{ opacity:.3; filter:grayscale(.6); }
+
+/* small grid utility for two-column rows used in settings forms */
+.ug-dgrid-2-form{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+@media (max-width:760px){ .ug-dgrid-2-form{ grid-template-columns:1fr; } }
+
+/* =========================================================================
+   i18n — UI language picker chip (the one that actually switches the UI)
+   ========================================================================= */
+.ug-lang-chip{
+  display:flex; align-items:center; gap:8px;
+  padding:10px 14px; border-radius:10px;
+  border:1px solid var(--ug-line); background:var(--ug-surface-2);
+  color:var(--ug-ink-2); cursor:pointer; font-size:13px; font-weight:600;
+  transition:background .12s, border-color .12s, color .12s;
+}
+.ug-lang-chip:hover{ border-color:var(--ug-line-strong); color:var(--ug-ink); }
+.ug-lang-chip.is-on{
+  background:rgba(52,214,240,.14); border-color:var(--ug-signal); color:var(--ug-signal);
+}
+.ug-lang-flag{
+  font-family:var(--ug-mono); font-size:10px; font-weight:700;
+  letter-spacing:.06em; padding:2px 6px; border-radius:4px;
+  background:rgba(255,255,255,.06); color:var(--ug-ink-3);
+}
+.ug-lang-chip.is-on .ug-lang-flag{
+  background:var(--ug-signal); color:var(--ug-signal-ink);
+}
