@@ -19,6 +19,7 @@ prototype; everything behind them is now a working system.
 | 7     | Alerts (Web Push Edge Function, SMS fallback interface)                              | done, needs a deployed project to exercise |
 | 8     | Admin and analytics (users, audit, assignment, SQL views, CSV)                       | done                                       |
 | 9     | Hardening and deploy (rate limiting, RLS test, logging, backups, privacy notice)     | done                                       |
+| 10    | Dispatch Teams (BFP, PNP, Rescue, Hospital) + Barangay Response Team feature          | done, needs the live project to exercise push / SMS |
 
 ---
 
@@ -35,7 +36,9 @@ uniguard/
 │   ├── tokens.css                 design tokens, unchanged from the prototype
 │   ├── fonts.css                  @font-face for the self-hosted fonts
 │   ├── app.css                    the approved stylesheet, classes unchanged
-│   └── screens.css                account controls, admin tables, live map
+│   ├── screens.css                account controls, admin tables, live map
+│   ├── screens-additions.css      minor refinements layered on screens.css
+│   └── dispatch.css               the dispatch_team interface badges and grid
 │
 ├── fonts/                         Archivo + IBM Plex Sans + IBM Plex Mono (latin)
 ├── vendor/                        Leaflet, supabase-js, jsPDF + autotable (no CDN)
@@ -46,7 +49,8 @@ uniguard/
 │   ├── screens.js                 render layer: icons, components, mobile and console screens
 │   ├── screens.web.js             role definitions and the citizen web shell
 │   ├── screens.auth.js            sign in, create account, confirm, forgot, set password
-│   ├── screens.admin.js           user management, audit log, responder assignment
+│   ├── screens.admin.js           user management, audit log, responder assignment, Response Team + Dispatch Units
+│   ├── dispatch.js                the dispatch_team interface (state, loaders, screens, actions)
 │   ├── repo.js                    the async repository over Supabase, with an offline fallback
 │   ├── auth.js                    sessions, sign in, sign up, reset, recovery
 │   ├── map.js                     Leaflet + OSM, with the SVG map as fallback
@@ -91,7 +95,8 @@ glance which version a device is running.
 The screens are addressable with a hash, so the home screen, the report form, the shelter list
 and the hotline list can be opened directly, and the app remembers where you were on reload:
 `#home`, `#report`, `#advisories`, `#centers`, `#hotlines`, `#notifications`, `#dashboard`,
-`#incidents`, `#analytics`, `#users`, `#audit`. The manifest shortcuts use these.
+`#incidents`, `#analytics`, `#users`, `#audit`, `#response-team` (barangay officials),
+`#dispatch-units` (LGU), `#dispatch` (dispatch_team role). The manifest shortcuts use these.
 
 Tapping the UniGuard mark returns to the home screen, or to the dashboard in the console.
 

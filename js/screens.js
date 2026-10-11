@@ -156,7 +156,11 @@ const UG = (() => {
       { title:'Coastal Advisory Updated',          body:'Storm surge watch extended until 6:00 PM for coastal barangays.',             time:'3h ago',  tone:'advisory',  icon:'wave',  unread:false },
       { title:'Preparedness Drill Reminder',       body:'Municipality-wide earthquake drill this Friday at 9:00 AM.',                  time:'1d ago',  tone:'prepared',  icon:'flag',  unread:false },
     ],
-        offlineCache: {
+    /* defaults the dispatch feature uses; Repo.loadDispatchDirectory overwrites them */
+    dispatchUnits: [],
+    dispatchEquipment: [],
+    unitRequests: [],
+    offlineCache: {
       get hotlines()   { return (DATA.hotlines || []).length; },
       get centers()    { return (DATA.centers || []).length; },
       get advisories() { return (DATA.advisories || []).filter(a => a.severity !== 'prepared').length; },
@@ -1069,6 +1073,8 @@ const UG_SCREENS = (() => {
     ['relief', 'Relief', 'relief', null],
     ['centers', 'Shelters', 'shelter', null],
     ['roadwork', 'Road Work', 'road2', null],
+    ['response-team', 'Response Team', 'shield', null, ['barangay_official']],
+    ['dispatch-units', 'Dispatch Units', 'truck', null, ['lgu_ldrrmc']],
     ['guides', 'Guides', 'guide', null, ['lgu_ldrrmc']],
     ['faqs', 'FAQs', 'faq', null, ['lgu_ldrrmc']],
     ['sos', 'SOS Log', 'sos', null, ['lgu_ldrrmc']],
@@ -1307,7 +1313,13 @@ const UG_SCREENS = (() => {
       if (f === 'escalated') return i.escalates_to_lgu === true || i.is_stale === true || i.is_severity_bypass === true;
       return i.status === f;
     };
-    const base = U.DATA.incidents.filter(baseFilter);
+    /* LDRRMO barangay filter: narrows the whole queue (list, chip counts and the
+       escalation banner) to one barangay. Barangay officials are already scoped
+       to their own barangay server side, so the dropdown is LGU-only. */
+    const isLGUq = !!(st.session && st.session.role === 'lgu_ldrrmc');
+    const bf = (isLGUq && st.incBrgyFilter && st.incBrgyFilter !== 'All') ? st.incBrgyFilter : 'All';
+    const allInc = bf === 'All' ? U.DATA.incidents : U.DATA.incidents.filter(x => x.brgy === bf);
+    const base = allInc.filter(baseFilter);
     /* escalated rows float to the top of every filter so the duty officer never
        misses a stale or life-safety report, even in the 'All' view. */
     const escalatedFirst = (a, b) => {
@@ -1345,7 +1357,19 @@ const UG_SCREENS = (() => {
       if (i.status === 'rejected') return '<span class="ug-dimmer" style="font-size:11px;display:flex;align-items:center;gap:5px">' + I('x', 13) + 'Rejected</span>';
       return '<span class="ug-dimmer" style="font-size:11px;display:flex;align-items:center;gap:5px">' + I('check', 13) + 'Closed</span>';
     };
-    const escalatedCount = U.DATA.incidents.filter((i) => i.escalates_to_lgu).length;
+    const escalatedCount = allInc.filter((i) => i.escalates_to_lgu).length;
+    /* barangay dropdown (LGU only): option text shows how many reports each
+       barangay has, so the officer can see where the load is before filtering. */
+    const brgyCounts = {};
+    U.DATA.incidents.forEach(x => { brgyCounts[x.brgy] = (brgyCounts[x.brgy] || 0) + 1; });
+    const brgyFilterUi = isLGUq
+      ? '<label class="ug-rowf" style="gap:7px;align-items:center;font-size:11px;color:var(--ug-ink-3)">' + I('pin', 13) + 'Barangay' +
+          '<select class="ug-sel" style="min-width:170px;padding:5px 8px;font-size:12px" data-field="incBrgyFilter" aria-label="Filter incidents by barangay">' +
+            '<option value="All"' + (bf === 'All' ? ' selected' : '') + '>All barangays (' + U.DATA.incidents.length + ')</option>' +
+            U.DATA.barangays.map(b => '<option value="' + esc(b) + '"' + (bf === b ? ' selected' : '') + '>' + esc(b) + ' (' + (brgyCounts[b] || 0) + ')</option>').join('') +
+          '</select></label>' +
+          (bf !== 'All' ? '<button class="ug-chip"' + A('inc-brgy-clear') + '>Clear</button>' : '')
+      : '';
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Incident Queue', 'Track every report through reported, verified, response dispatched and resolved.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm' + (priority ? ' is-active' : '') + '" style="' + (priority ? 'border-color:var(--ug-signal);color:var(--ug-signal)' : '') + '"' + A('sort-toggle') + '>' + I('sort', 15) + (priority ? 'Priority Sort: On' : 'Priority Sort') + '</button>' +
@@ -1353,8 +1377,9 @@ const UG_SCREENS = (() => {
       (escalatedCount > 0 ? '<div class="ug-card ug-card--flat" style="border-left:3px solid var(--ug-emergency)"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:center"><span style="color:var(--ug-emergency);display:flex">' + I('alert', 16) + '</span><div><div style="font-size:12.5px;font-weight:600;color:var(--ug-emergency)">' + escalatedCount + ' report' + (escalatedCount === 1 ? '' : 's') + ' escalated to LGU</div><div class="ug-dim" style="font-size:11px">Stale (>30 min unverified) or life-safety hazards (fire, power line, accident, landslide) bypass the barangay queue.</div></div></div></div>' : '') +
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + chips.map(c =>
         '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('sev-filter', attr({ v: c[0] })) + '>' + c[1] +
-        '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? U.DATA.incidents.length : c[0] === 'escalated' ? escalatedCount : U.DATA.incidents.filter(x => x.status === c[0]).length) + '</span></button>').join('') +
-        '<span class="ug-dimmer" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px">' + I('target', 13) + 'Scope: ' + esc(sess(st).scope || '') + '</span></div>' +
+        '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? allInc.length : c[0] === 'escalated' ? escalatedCount : allInc.filter(x => x.status === c[0]).length) + '</span></button>').join('') +
+        '<span class="ug-rowf" style="margin-left:auto;gap:10px;align-items:center">' + brgyFilterUi +
+        '<span class="ug-dimmer" style="font-size:11px;display:flex;align-items:center;gap:6px">' + I('target', 13) + 'Scope: ' + esc(bf !== 'All' ? 'Barangay ' + bf : (sess(st).scope || '')) + '</span></span></div>' +
       '<div class="ug-card"><div class="ug-ticks" style="grid-template-columns:1.2fr 2.4fr 1.1fr 1fr .7fr 1.1fr .9fr;padding:11px 16px;font-size:10px">' +
         '<span>Status</span><span>Hazard / description</span><span>Barangay</span><span>Corroboration</span><span>Age</span><span>Severity</span><span style="text-align:right">Action</span>' +
       '</div>' + (list.length ? list.map(i =>
@@ -1373,7 +1398,7 @@ const UG_SCREENS = (() => {
             '<button class="ug-btn ug-btn--sm ug-btn--ghost ug-btn--icon" aria-label="Open incident"' + A('open-incident', attr({ id: i.id })) + '>' + I('chevron', 15) + '</button></span>' +
         '</div>').join('') : '<div class="ug-empty"><span class="e-ico">' + I('inbox', 20) + '</span>' +
           '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No Incidents in This Stage</div>' +
-          '<div style="font-size:11px">Change the status filter to see other reports.</div></div>') + '</div>' +
+          '<div style="font-size:11px">' + (bf !== 'All' ? 'No matching reports in ' + esc(bf) + '. Change the status filter or choose another barangay.' : 'Change the status filter to see other reports.') + '</div></div>') + '</div>' +
     '</div>';
   }
 
@@ -1867,6 +1892,8 @@ const UG_SCREENS = (() => {
     offline: ['UniGuard Command Console', UG_GEO.PLACE.label],
     relief: ['UniGuard Command Console', UG_GEO.PLACE.label],
     roadwork: ['UniGuard Command Console', UG_GEO.PLACE.label],
+    'response-team': ['Barangay Response Team', 'Incoming dispatches, roster, equipment and contacts for your barangay.'],
+    'dispatch-units': ['Dispatch Units', 'BFP, PNP, Rescue and Hospital units · manage accounts, equipment and the support-request inbox.'],
     guides: ['UniGuard Command Console', UG_GEO.PLACE.label],
     faqs: ['UniGuard Command Console', UG_GEO.PLACE.label],
     sos: ['UniGuard Command Console', UG_GEO.PLACE.label],
@@ -1913,6 +1940,8 @@ const UG_SCREENS = (() => {
         return '<div class="ug-col" style="gap:18px">' + pageHead('Push notification log', 'Every alert delivered to citizen devices.') +
           '<div style="max-width:760px">' + mNotifications(st) + '</div></div>';
       })();
+      case 'response-team': return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.responseTeam) ? UG_ADMIN.responseTeam(st) : dDashboard(st);
+      case 'dispatch-units': return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.dispatchUnits) ? UG_ADMIN.dispatchUnits(st) : dDashboard(st);
       case 'offline': return '<div class="ug-col" style="gap:18px">' + pageHead('Offline sync', 'Progressive web app cache keeps essentials available when networks fail.') +
         '<div style="max-width:760px">' + mOffline(st) + '</div></div>';
       default: return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.handles(st.route)) ? UG_ADMIN.body(st) : dDashboard(st);
@@ -1941,6 +1970,11 @@ const UG_SCREENS = (() => {
     if (st.role === 'citizen') {
       if (st.view === 'desktop') return UG_WEB.frameCitizenWeb(Object.assign({}, st, { session: sess(st) }));
       return frameMobile(Object.assign({}, st, { route: MOB(st.route), session: sess(st) }));
+    }
+    if (st.role === 'dispatch_team') {
+      return (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.frame)
+        ? UG_DISPATCH.frame(Object.assign({}, st, { session: sess(st) }))
+        : frameDesktop(Object.assign({}, st, { session: sess(st) }));
     }
     return frameDesktop(Object.assign({}, st, { route: DESK(st.route), session: sess(st) }));
   }

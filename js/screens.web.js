@@ -19,8 +19,10 @@ const UG_WEB = (() => {
     barangay_official: { key:'barangay_official', label:'Barangay Official', area:'console', home:'dashboard',
   scope:(b) => b ? 'Barangay ' + b : 'No barangay assigned' },
     lgu_ldrrmc:        { key:'lgu_ldrrmc',        label:'LGU / MDRRMO',       area:'console', home:'dashboard', scope:() => UG_GEO.PLACE.scope },
+    dispatch_team:     { key:'dispatch_team',     label:'Dispatch Team',     area:'dispatch', home:'dispatch',
+  scope:(b, p) => 'Municipality-wide ' + (p && p.unit_role ? p.unit_role + ' · ' : '') + (p && p.dispatch_unit_id ? p.dispatch_unit_id.slice(0, 8) : 'unit') },
   };
-  const ROLES = ['citizen', 'barangay_official', 'lgu_ldrrmc'];
+  const ROLES = ['citizen', 'barangay_official', 'lgu_ldrrmc', 'dispatch_team'];
 
   /* ------------------------------------------------------------------ */
   /* CITIZEN DESKTOP (WEB) SHELL                                         */

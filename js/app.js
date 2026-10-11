@@ -22,7 +22,7 @@
     auth: blankAuth(),
     session: null,
     role: 'citizen', view: 'mobile', route: 'home', openId: null,
-    offline: false, sevFilter: 'all', centerFilter: 'all', readNotifs: false,
+    offline: false, sevFilter: 'all', incBrgyFilter: 'All', centerFilter: 'all', readNotifs: false,
     corr: {}, declareArmed: false, loading: false, error: null, syncNote: '',
     barangays: [], users: [], audit: [], responders: [],
     /* incident queue sort: 'default' (newest first) or 'priority' (severity,
@@ -209,6 +209,23 @@
 
   /* ------------------------------------------------------------ data loading */
   async function loadRouteData(route) {
+    /* Dispatch team: their data comes from UG_DISPATCH, not Repo. */
+    if (S.session && S.session.role === 'dispatch_team' && typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.loadRoute) {
+      await UG_DISPATCH.loadRoute(route);
+      return;
+    }
+    /* Barangay Response Team + LGU Dispatch Units: preload the dispatch
+       directory + unit list + open support requests so the screens have
+       data without a separate RPC per render. */
+    if (route === 'response-team' || route === 'dispatch-units') {
+      try {
+        if (typeof Repo !== 'undefined' && Repo.loadDispatchDirectory) {
+          await Repo.loadDispatchDirectory();
+        }
+      } catch (e) {}
+      render();
+      return;
+    }
     if (route === 'users') {
       S.loading = true; S.error = null; render();
       try {
@@ -246,6 +263,13 @@
   }
 
   async function bootstrapData() {
+    /* Dispatch team: skip Repo.loadAll (the dispatch team has its own data
+       shape and read scopes; the barangay/LGU dataset is not theirs). */
+    if (S.session && S.session.role === 'dispatch_team' && typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.loadAll) {
+      try { await UG_DISPATCH.loadAll(); } catch (e) {}
+      render();
+      return;
+    }
     await Repo.loadAll();
     UG.DATA.users = S.users;
     UG.DATA.audit = S.audit;
@@ -270,7 +294,8 @@
     'advisories', 'advisory-detail', 'centers', 'hotlines', 'notifications', 'offline',
     'dashboard', 'incidents', 'incident', 'analytics', 'users', 'audit', 'command', 'more',
     'relief', 'relief-verify', 'guides', 'faqs', 'roadwork', 'map', 'sos',
-    'others-review'];
+    'others-review', 'response-team', 'dispatch-units', 'dispatch',
+    'equipment', 'roster', 'hospital', 'requests', 'contacts', 'dispatch-detail'];
 
   function routeFromHash() {
     const h = String((window.location && window.location.hash) || '').replace(/^#\/?/, '').split('?')[0];
@@ -309,7 +334,6 @@
      route we arrived with has to be read now or it is lost. */
   const INITIAL_ROUTE = routeFromHash();
   const homeRoute = () => (S.session && UG_WEB.ROLE_INFO[S.session.role].home) || 'home';
-
   function enterApp(session, message) {
     S.session = session;
     S.screen = 'app';
@@ -719,7 +743,7 @@
   /* "Barangay Tanod" was renamed to "Barangay Response Team" per LGU request —
      the team is now an organized per-barangay response unit rather than a
      watchman. The DB constraint (migration 035) accepts the new name. */
-  const DISPATCH_TEAMS = ['MDRRMO Rescue', 'BFP', 'PNP', 'Barangay Response Team', 'Ambulance'];
+  const DISPATCH_TEAMS = ['MDRRMO Rescue', 'BFP', 'PNP', 'Barangay Response Team', 'Ambulance', 'Rescue Unit'];
   const pad2 = (n) => String(n).padStart(2, '0');
   const toLocalInput = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
     'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
@@ -751,16 +775,46 @@
     const me = S.session;
     const roleLabel = (UG_WEB.ROLE_INFO[me.role] || {}).label || '';
     const esc = UG_UTIL.esc;
-    const teamOpts = DISPATCH_TEAMS.map((t) => '<option>' + esc(t) + '</option>').join('');
+
+    /* The team list now includes municipality-wide units. The pickable
+       unit list comes from the directory loader (Repo.loadDispatchDirectory).
+       For the barangay Response Team there is no unit_id — the team IS the
+       report's barangay's own team. */
+    const units = UG.DATA.dispatchUnits || [];
+    const unitByType = (type) => units.filter((u) => u.unit_type === type && u.active);
+    const teamOpts = DISPATCH_TEAMS.map((t) => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('');
+
     const defaultEta = toLocalInput(new Date(Date.now() + 30 * 60000));
     const kv = (k, v, attrs) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)">' +
       '<span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600"' + (attrs || '') + '>' + esc(v) + '</span></div>';
+
+    /* Equipment picker: populated based on the team. For municipality-wide
+       units, the available equipment of the chosen unit. For the Response
+       Team, the available equipment of the report's barangay. */
+    const equipmentOpts = (team, unitId) => {
+      const list = (UG.DATA.dispatchEquipment || []).filter((e) => {
+        if (e.status !== 'available') return false;
+        if (e.condition && ['needs_repair', 'missing', 'out_of_service'].indexOf(e.condition) !== -1) return false;
+        if (team === 'Barangay Response Team') return e.owner_barangay_id === (inc.brgy_id || inc.barangay_id);
+        return unitId && e.owner_unit_id === unitId;
+      });
+      if (!list.length) return '<option value="">(no equipment available)</option>';
+      return '<option value="">(none)</option>' + list.map((e) =>
+        '<option value="' + esc(e.id) + '">' + esc(e.identifier || e.custom_label || 'equipment') + '</option>').join('');
+    };
 
     UG_FEATURES.modal({
       title: (inc.status === 'dispatched' ? 'Add another team · ' : 'Dispatch response · ') + inc.id,
       body:
         '<div class="ug-field"><label class="ug-lab">Responder or team</label>' +
           '<select class="ug-sel" data-dp-team>' + teamOpts + '</select></div>' +
+        '<div class="ug-field" data-dp-unit-field hidden><label class="ug-lab">Unit (municipality-wide)</label>' +
+          '<select class="ug-sel" data-dp-unit><option value="">Select a unit</option>' +
+          units.map((u) => '<option value="' + esc(u.id) + '" data-type="' + esc(u.unit_type) + '">' + esc(u.name) + ' · ' + esc(u.unit_type) + '</option>').join('') +
+          '</select></div>' +
+        '<div class="ug-field"><label class="ug-lab">Equipment to deploy (optional)</label>' +
+          '<select class="ug-sel" data-dp-equipment>' + equipmentOpts('Barangay Response Team', null) + '</select>' +
+          '<div class="ug-help">Equipment that is not Available or in a deployable condition is absent from the picker.</div></div>' +
         '<div class="ug-field"><label class="ug-lab">Action or instructions</label>' +
           '<textarea class="ug-ta" rows="3" data-dp-instr placeholder="e.g. Evacuate Purok 3, bring boat"></textarea>' +
           '<div class="ug-help">Say exactly what the team should do and what to bring.</div></div>' +
@@ -782,28 +836,62 @@
         wrap.querySelectorAll('[data-dp-quick]').forEach((b) => b.addEventListener('click', () => {
           etaEl.value = toLocalInput(new Date(Date.now() + parseInt(b.getAttribute('data-dp-quick'), 10) * 60000));
         }));
+        const teamSel = wrap.querySelector('[data-dp-team]');
+        const unitField = wrap.querySelector('[data-dp-unit-field]');
+        const unitSel = wrap.querySelector('[data-dp-unit]');
+        const eqSel = wrap.querySelector('[data-dp-equipment]');
+        const refreshEquipment = () => {
+          const team = teamSel.value;
+          const unitId = unitSel.value || null;
+          // map the team to a unit type
+          let mappedUnitId = unitId;
+          if (team === 'Barangay Response Team') mappedUnitId = null;
+          eqSel.innerHTML = equipmentOpts(team, mappedUnitId);
+        };
+        const refreshUnitField = () => {
+          const team = teamSel.value;
+          // Show the unit picker for the municipality-wide teams
+          const needsUnit = team !== 'Barangay Response Team';
+          unitField.hidden = !needsUnit;
+          if (needsUnit) {
+            // restrict the unit options to ones matching the team type
+            const type = team === 'BFP' ? 'BFP' : team === 'PNP' ? 'PNP'
+              : (team === 'Rescue Unit' || team === 'MDRRMO Rescue') ? 'Rescue'
+              : team === 'Ambulance' ? 'Hospital' : null;
+            Array.prototype.forEach.call(unitSel.options, (o) => {
+              if (!o.value) { o.hidden = false; return; }
+              o.hidden = type && o.getAttribute('data-type') !== type;
+            });
+            // default-select the first matching unit
+            const firstMatch = Array.prototype.find.call(unitSel.options, (o) => o.value && !o.hidden);
+            if (firstMatch && !unitSel.value) unitSel.value = firstMatch.value;
+          }
+          refreshEquipment();
+        };
+        teamSel.addEventListener('change', refreshUnitField);
+        unitSel.addEventListener('change', refreshEquipment);
+
         const btn = wrap.querySelector('[data-dp-confirm]');
         btn.addEventListener('click', async () => {
           const team = wrap.querySelector('[data-dp-team]').value;
           const instructions = wrap.querySelector('[data-dp-instr]').value.trim();
           const etaVal = etaEl.value;
+          const unitId = wrap.querySelector('[data-dp-unit]').value || null;
+          const eqId = wrap.querySelector('[data-dp-equipment]').value || null;
           if (!instructions) { toast('Write what the team is supposed to do', 'warning'); return; }
           if (!etaVal) { toast('Set an estimated arrival time', 'warning'); return; }
+          if (team !== 'Barangay Response Team' && !unitId) { toast('Pick a unit to dispatch', 'warning'); return; }
           const eta = new Date(etaVal);
           if (isNaN(eta.getTime()) || eta.getTime() < Date.now() - 5 * 60000) {
             toast('The ETA must be a time from now onward', 'warning'); return;
           }
           btn.disabled = true;
           try {
-            await Repo.dispatchReport(inc.uuid || inc.id, { team: team, instructions: instructions, eta: eta.toISOString() });
+            await Repo.dispatchReportV2(inc.uuid || inc.id, {
+              team: team, instructions: instructions, eta: eta.toISOString(),
+              unit_id: unitId, equipment_ids: eqId ? [eqId] : null
+            });
             toast(team + ' dispatched to ' + inc.id, 'prepared');
-            /* Per-barangay notification: when a Response Team (or any team) is
-               dispatched, the residents and officials of the report's barangay
-               get an in-app notification so they are alerted a team has been
-               pushed to them. The fan-out happens server side inside
-               dispatch_report() (migration 035); here we just confirm it to the
-               duty officer. For the offline/local preview we drop a local
-               notification into the store so the behaviour still reads. */
             try {
               if (!Repo.client || !Repo.client()) {
                 UG.DATA.notifications = UG.DATA.notifications || [];
@@ -940,6 +1028,7 @@
       });
     },
     'sev-filter': (d) => { S.sevFilter = d.v; render(); },
+    'inc-brgy-clear': () => { S.incBrgyFilter = 'All'; render(); },
     'center-filter': (d) => { S.centerFilter = d.v; render(); },
     'set-urg': (d) => { S.report.urg = d.v; render(); },
 
@@ -1689,6 +1778,188 @@
       render();
     },
 
+    /* ----------------------------------------------- dispatch unit CRUD (LGU)
+     * The "New unit" button on the Dispatch Units screen opens a modal that
+     * creates the dispatch_units row (create_dispatch_unit RPC) AND invites
+     * the first unit_admin through the admin-users edge function in one go.
+     * Without the admin email the unit exists but no one can sign in to
+     * manage it.
+     */
+    'admin-create-unit': async () => {
+      if (!requireRole(['lgu_ldrrmc'])) { toast('Only the LGU can create dispatch units', 'warning'); return; }
+      const esc = UG_UTIL.esc;
+      const typeOpts = ['BFP', 'PNP', 'Rescue', 'Hospital']
+        .map((t) => '<option value="' + t + '">' + t + '</option>').join('');
+
+      UG_FEATURES.modal({
+        title: 'Create a dispatch unit',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Unit name</label>' +
+            '<input class="ug-in" type="text" data-u-name placeholder="e.g. Lingayen BFP" autocomplete="off"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Unit type</label>' +
+            '<select class="ug-sel" data-u-type>' + typeOpts + '</select>' +
+            '<div class="ug-help">BFP = fire, PNP = police, Rescue = search and rescue, Hospital = ambulance + ER/ICU capacity.</div></div>' +
+          '<div class="ug-field"><label class="ug-lab">Contact number</label>' +
+            '<input class="ug-in" type="text" data-u-contact placeholder="(075) 632-2333"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Address</label>' +
+            '<input class="ug-in" type="text" data-u-address placeholder="Poblacion, Lingayen"></div>' +
+          '<div class="ug-field"><label class="ug-lab">First unit admin email</label>' +
+            '<input class="ug-in" type="email" data-u-email placeholder="bfp.admin@lingayen.gov.ph">' +
+            '<div class="ug-help">This person receives the invitation email, sets a password, then signs in to manage the unit. They can invite further members themselves.</div></div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-u-save>Create unit + invite admin</button>',
+        onMount: (wrap, close) => {
+          const nameEl = wrap.querySelector('[data-u-name]');
+          const typeEl = wrap.querySelector('[data-u-type]');
+          const contactEl = wrap.querySelector('[data-u-contact]');
+          const addressEl = wrap.querySelector('[data-u-address]');
+          const emailEl = wrap.querySelector('[data-u-email]');
+          const saveBtn = wrap.querySelector('[data-u-save]');
+          setTimeout(() => nameEl.focus(), 30);
+
+          saveBtn.addEventListener('click', async () => {
+            const name = nameEl.value.trim();
+            const type = typeEl.value;
+            const contact = contactEl.value.trim();
+            const address = addressEl.value.trim();
+            const email = emailEl.value.trim();
+            if (!name) { toast('Enter a unit name', 'warning'); return; }
+            if (!type) { toast('Pick a unit type', 'warning'); return; }
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email for the first unit admin', 'warning'); return; }
+
+            saveBtn.disabled = true;
+            try {
+              /* 1. create the dispatch_units row */
+              const c = Repo.client();
+              const { data: unitData, error: unitErr } = await c.rpc('create_dispatch_unit', {
+                p_name: name, p_unit_type: type, p_contact_number: contact,
+                p_address: address, p_lat: null, p_lng: null
+              });
+              if (unitErr) throw new Error(unitErr.message);
+              const unitId = (unitData && unitData.id) || unitData;
+
+              /* 2. invite the first unit_admin into the new unit */
+              await Repo.adminUsers('create', {
+                email: email, role: 'dispatch_team',
+                unitId: unitId, unitRole: 'unit_admin'
+              });
+
+              toast('Unit "' + name + '" created. Invitation sent to ' + email, 'prepared');
+              /* refresh the directory so the new unit appears in the list */
+              try { await Repo.loadDispatchDirectory(); } catch (e) {}
+              close();
+              render();
+            } catch (e) {
+              saveBtn.disabled = false;
+              toast(e.message || 'Could not create the unit', 'warning');
+            }
+          });
+        }
+      });
+    },
+
+    /* ----------------------------------------- edit a dispatch unit (LGU / unit_admin) */
+    'admin-edit-unit': async (d) => {
+      const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
+      if (!unit) { toast('That unit no longer exists', 'warning'); return; }
+      const esc = UG_UTIL.esc;
+      UG_FEATURES.modal({
+        title: 'Edit unit · ' + unit.name,
+        body:
+          '<div class="ug-field"><label class="ug-lab">Unit name</label>' +
+            '<input class="ug-in" type="text" data-eu-name value="' + esc(unit.name || '') + '"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Contact number</label>' +
+            '<input class="ug-in" type="text" data-eu-contact value="' + esc(unit.contact_number || '') + '"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Address</label>' +
+            '<input class="ug-in" type="text" data-eu-address value="' + esc(unit.address || '') + '"></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Active</label>' +
+            '<select class="ug-sel" data-eu-active><option value="true"' + (unit.active ? ' selected' : '') + '>Active</option>' +
+              '<option value="false"' + (!unit.active ? ' selected' : '') + '>Inactive</option></select>' +
+            '<div class="ug-help">An inactive unit cannot be dispatched to.</div></div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-eu-save>Save</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-eu-save]').addEventListener('click', async () => {
+            const patch = {
+              p_unit_id: unit.id,
+              p_name: wrap.querySelector('[data-eu-name]').value.trim() || null,
+              p_contact_number: wrap.querySelector('[data-eu-contact]').value.trim() || null,
+              p_address: wrap.querySelector('[data-eu-address]').value.trim() || null,
+              p_active: wrap.querySelector('[data-eu-active]').value === 'true'
+            };
+            try {
+              const c = Repo.client();
+              const { error } = await c.rpc('update_dispatch_unit', patch);
+              if (error) throw new Error(error.message);
+              toast('Unit updated', 'prepared');
+              try { await Repo.loadDispatchDirectory(); } catch (e) {}
+              close(); render();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
+    },
+
+    /* --------------------------------------- invite a member into a unit (unit_admin / LGU) */
+    'admin-invite-unit-member': async (d) => {
+      const unitId = d.unitId || (UG.DATA.dispatchUnits && UG.DATA.dispatchUnits[0] && UG.DATA.dispatchUnits[0].id);
+      if (!unitId) { toast('No unit to invite into', 'warning'); return; }
+      UG_FEATURES.modal({
+        title: 'Invite a unit member',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Email address</label>' +
+            '<input class="ug-in" type="email" data-iv-email placeholder="member@lingayen.gov.ph">' +
+            '<div class="ug-help">The new member receives an invitation email and joins this unit as a member (not admin).</div></div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-iv-send>Send invitation</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-iv-send]').addEventListener('click', async () => {
+            const email = wrap.querySelector('[data-iv-email]').value.trim();
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email', 'warning'); return; }
+            try {
+              await Repo.adminUsers('unit-invite', { unitId: unitId, email: email });
+              toast('Invitation sent to ' + email, 'prepared');
+              close();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
+    },
+
+    /* ----------------------------------------------- LGU decides a support request */
+    'admin-decide-request': async (d) => {
+      try {
+        const c = Repo.client();
+        const { error } = await c.rpc('decide_unit_request', {
+          p_request_id: d.id, p_decision: d.decision, p_note: ''
+        });
+        if (error) throw new Error(error.message);
+        toast('Request ' + d.decision, 'prepared');
+        try { await Repo.loadDispatchDirectory(); } catch (e) {}
+        render();
+      } catch (e) { toast(e.message, 'warning'); }
+    },
+
+    /* ---------------------- barangay official toggles a responder's duty status */
+    'admin-responders-toggle': async (d) => {
+      try {
+        /* Responders do not have a dedicated RPC; the official updates the row
+           directly through RLS (responders_write policy, scoped to their
+           barangay). */
+        const c = Repo.client();
+        if (!c) { toast('Connect to the server to update the roster', 'warning'); return; }
+        const { error } = await c.from('responders').update({ status: d.next })
+          .eq('id', d.id);
+        if (error) throw new Error(error.message);
+        toast('Responder status updated', 'prepared');
+        S.responders = await Repo.listResponders(); UG.DATA.responders = S.responders;
+        render();
+      } catch (e) { toast(e.message, 'warning'); }
+    },
+
     'admin-export-users': () => {
       const rows = (S.users || []).map((u) => [
         u.full_name || '', u.email || '',
@@ -2256,7 +2527,13 @@
     }
   };
 
-  const ALL = Object.assign({}, AUTH_ACTIONS, APP_ACTIONS);
+  const ALL = Object.assign({},
+    AUTH_ACTIONS,
+    APP_ACTIONS,
+    /* Dispatch team module actions. The module is loaded before app.js in
+       index.html, so UG_DISPATCH.actions is available here. */
+    (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.actions) ? UG_DISPATCH.actions : {}
+  );
 
   /* --------------------------------------------------------------- listeners */
   root.addEventListener('click', (e) => {
@@ -2318,6 +2595,7 @@
     else if (f === 'brgy') S.report.brgy = v;
     else if (f === 'rwBarangay') { S.roadDraft.barangay = v; render(); return; }
     else if (f === 'benBarangayFilter') { S.benBarangayFilter = v; render(); return; }
+    else if (f === 'incBrgyFilter') { S.incBrgyFilter = v; render(); return; }
     else if (f === 'assignResponder') return;
     else return;
     render();
@@ -2449,7 +2727,7 @@
       if (!b) return;
       if (b.dataset.off) APP_ACTIONS['toggle-offline']();
       else if (b.dataset.signout) AUTH_ACTIONS.logout();
-      else if (b.dataset.reset) { S.route = homeRoute(); S.openId = null; S.sevFilter = 'all'; S.centerFilter = 'all'; render(); }
+      else if (b.dataset.reset) { S.route = homeRoute(); S.openId = null; S.sevFilter = 'all'; S.incBrgyFilter = 'All'; S.centerFilter = 'all'; render(); }
     });
   }
 
@@ -2576,6 +2854,11 @@
   window.addEventListener('unhandledrejection', (e) => reportClientError(
     (e.reason && e.reason.message) || String(e.reason), { type: 'unhandledrejection' }));
 
-  window.UG_App = { S: S, render: render, toast: toast, actions: ALL };
+  window.UG_App = {
+    S: S, render: render, toast: toast, actions: ALL,
+    /* small handle used by the dispatch module to drive navigation and
+       re-render without reaching into app.js private state */
+    go: function (route) { try { go(route); } catch (e) {} }
+  };
   boot();
 })();

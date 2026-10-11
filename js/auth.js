@@ -28,7 +28,9 @@ const Auth = (function () {
       role: p.role || 'citizen',
       barangay_id: p.barangay_id || null,
       barangay: p.barangay || '',
-      disabled: !!p.disabled
+      disabled: !!p.disabled,
+      dispatch_unit_id: p.dispatch_unit_id || null,
+      unit_role: p.unit_role || ''
     };
   }
 
@@ -43,7 +45,9 @@ const Auth = (function () {
       title: info.label,
       barangay: profile.barangay || '',
       barangay_id: profile.barangay_id || null,
-      scope: info.scope(profile.barangay)
+      dispatch_unit_id: profile.dispatch_unit_id || null,
+      unit_role: profile.unit_role || '',
+      scope: info.scope(profile.barangay, profile)
     };
   }
 

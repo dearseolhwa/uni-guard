@@ -82,6 +82,7 @@ const Repo = (function () {
       hazard_type: r.hazard_type || '',
       hazard_other_text: r.hazard_other_text || '',
       brgy: r.barangay || '',
+      brgy_id: r.barangay_id || null,
       area: r.area || r.barangay || '',
       status: r.status || 'reported',
       sev: r.severity || 'advisory',
@@ -1075,6 +1076,44 @@ const Repo = (function () {
     emit();
     return UG.DATA.dispatches[reportUuid] || [];
   }
+
+  /* -------------------------------------------------- dispatch v2 + directory */
+  async function dispatchReportV2(reportUuid, input) {
+    const c = client();
+    if (!c) {
+      /* offline preview: behave like the old dispatchReport path */
+      return dispatchReport(reportUuid, input);
+    }
+    const { data, error } = await c.rpc('dispatch_report_v2', {
+      p_report_id: reportUuid,
+      p_team: input.team,
+      p_instructions: input.instructions,
+      p_eta: input.eta,
+      p_unit_id: input.unit_id || null,
+      p_target_barangay_id: input.target_barangay_id || null,
+      p_equipment_ids: input.equipment_ids || null
+    });
+    if (error) fail(error);
+    await loadAll();
+    await loadDispatches(reportUuid);
+    return data;
+  }
+
+  async function loadDispatchDirectory() {
+    const c = client();
+    if (!c) return;
+    try {
+      const [units, equipment, requests] = await Promise.all([
+        c.from('dispatch_units').select('*').order('unit_type', { ascending: true }),
+        c.from('dispatch_equipment').select('*').order('created_at', { ascending: false }),
+        c.from('unit_requests').select('*').order('created_at', { ascending: false }).limit(50)
+      ]);
+      UG.DATA.dispatchUnits = units.data || [];
+      UG.DATA.dispatchEquipment = equipment.data || [];
+      UG.DATA.unitRequests = requests.data || [];
+      emit();
+    } catch (e) { /* directory is a read-only convenience */ }
+  }
   /* ------------------------------------------------------------- error log */
   function logClientError(message, context) {
     const c = client();
@@ -1317,7 +1356,7 @@ const Repo = (function () {
     markRead, markAllRead, listBarangays,
     declareEmergency, subscribedDeviceCount,
     analytics, analyticsFromViews, listUsers, adminUsers, listAudit, listResponders, assignResponder,
-    dispatchReport, loadDispatches,
+    dispatchReport, dispatchReportV2, loadDispatches, loadDispatchDirectory,
     /* new feature data access */
     createRelief, updateRelief, createBeneficiary, deleteBeneficiary,
     createGuide, updateGuide,

@@ -1,3 +1,28 @@
+# Changes
+
+## 2026-10-11 — Barangay Response Team + Dispatch Teams (BFP, PNP, Rescue, Hospital)
+- **4th user role `dispatch_team`** with its own interface at `#dispatch`. A dispatch user is tied to ONE unit (`profiles.dispatch_unit_id`) with role `unit_admin` or `member`. Self sign-up can never produce dispatch_team — the LGU creates units and the first unit_admin through `admin-users`; a unit_admin can then invite members into their own unit.
+- **Municipality-wide units** (`dispatch_units`) for BFP / PNP / Rescue / Hospital. There is no coverage table — these units serve every barangay.
+- **Per-barangay Response Team** feature in the existing barangay console (no new role): incoming dispatches where team = 'Barangay Response Team' and the report is in the official's barangay, Acknowledge → En route → On scene → Done actions, roster with Available / On duty / Off duty, barangay-owned equipment (boat, rope, stretcher, radio, first-aid kit) with available / deployed / maintenance, and a read-only dispatch directory + barangay captain contacts.
+- **Per-unit equipment and readiness checks** (`dispatch_equipment`, `equipment_checks`). The dispatch picker rejects equipment that is needs_repair, missing, out_of_service, or already deployed. A 24-hour-skip shows OVERDUE to the unit admin and the LGU.
+- **Hospital-specific screen**: ER / ICU / available beds, an Accepting / Divert toggle, and incoming-patient notices. Hospitals get NO field dispatch; they receive patient notices through `send_patient_notice` + `ack_patient_notice`.
+- **Critical notification rules** in `fanout_dispatch` v2: Barangay Response Team dispatch notifies the report's barangay (action alert) + reporter + LGU; municipality-wide unit dispatch notifies the unit's users + the report's barangay (info) + reporter + LGU; never another barangay or unit. Dispatch status updates (acknowledged / en route / on scene / done) notify the barangay officials of the report's barangay and the LGU; on_scene and done also notify the reporter.
+- **Support requests** (`unit_requests`): a unit asks the LGU for fuel, extra personnel, equipment or mutual aid; the LGU approves / declines / completes; the unit is notified.
+- **After-action report** attached to each completed dispatch; visible to the LGU and to the report's barangay.
+- **Unit analytics**: response time (dispatched → ack → on_scene), monthly count, equipment usage, CSV export. The LGU sees every unit.
+- **Tightened RLS**: a dispatch user reads and writes only their own unit's data; an official reads and writes only their barangay's response team data; officials may read units and equipment readiness (read-only); the LGU is the only role that creates or edits dispatch_units. The `report_dispatches` read policy was widened so a unit can read only its own dispatches.
+- **Audience filters** in `push-dispatch` and `sms-fallback`: `barangayId` (an official can target only their own; the LGU may broadcast municipality-wide) and `unitId` (LGU can target a specific unit).
+- Files: `migrations/038_dispatch_units.sql`, `migrations/039_dispatch_report_v2.sql`, `migrations/040_dispatch_rpcs.sql`, `seed/003_dispatch_units.sql`; `js/dispatch.js`, `css/dispatch.css`; `js/app.js`, `js/screens.js`, `js/screens.web.js`, `js/screens.admin.js`, `js/auth.js`, `js/repo.js`; `supabase/functions/admin-users`, `supabase/functions/push-dispatch`, `supabase/functions/sms-fallback`; `index.html`, `sw.js` (v7), `env.js` (build bump); docs/RLS-TEST.sql, docs/TEST-CHECKLIST-ALL.md, docs/MIGRATION-NOTES.md.
+- Out of scope (later phase): live unit location sharing, opt-in, visible to the LGU and the incident's barangay, stopped when the dispatch is Done.
+
+---
+
+# Changes
+
+## 2026-10-11 — LDRRMO barangay filter
+- Incident Queue (LGU / LDRRMO console): new **Barangay** dropdown beside the status chips. It narrows the list, the status chip counts and the escalation banner to one barangay; each option shows how many reports that barangay has. A **Clear** button resets it. Barangay officials are unaffected (already scoped to their barangay).
+- Files: js/screens.js (dIncidents), js/app.js (state, change handler, clear action), sw.js (cache v6), env.js (build bump).
+
 
 ---
 

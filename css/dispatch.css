@@ -1,0 +1,59 @@
+/* UniGuard · dispatch team styles
+ *
+ * Same design tokens as the rest of the app — ug-card, ug-table, ug-btn,
+ * ug-badge, ug-av, ug-chip, ug-dim. This file only adds the small bits the
+ * existing screens.css does not have, mostly the dispatch sidebar badge for
+ * on-duty headcount and the dispatch_status badges.
+ */
+
+/* dispatch_status badges map to existing tones so the screen looks
+   consistent with the rest of the app. */
+.ug-badge--sent, .ug-badge--acknowledged { background: rgba(77, 155, 255, .14); color: var(--ug-advisory); }
+.ug-badge--en_route, .ug-badge--en-route { background: rgba(255, 179, 64, .14); color: var(--ug-warning); }
+.ug-badge--on_scene, .ug-badge--on-scene { background: rgba(255, 90, 95, .14); color: var(--ug-emergency); }
+.ug-badge--done { background: rgba(47, 208, 138, .14); color: var(--ug-prepared); }
+.ug-badge--ready { background: rgba(47, 208, 138, .14); color: var(--ug-prepared); }
+.ug-badge--needs_repair { background: rgba(255, 179, 64, .14); color: var(--ug-warning); }
+.ug-badge--missing, .ug-badge--out_of_service, .ug-badge--unavailable { background: rgba(255, 90, 95, .14); color: var(--ug-emergency); }
+.ug-badge--unknown { background: rgba(255, 255, 255, .06); color: var(--ug-ink-3); }
+.ug-badge--available { background: rgba(47, 208, 138, .14); color: var(--ug-prepared); }
+.ug-badge--deployed { background: rgba(77, 155, 255, .14); color: var(--ug-advisory); }
+.ug-badge--maintenance { background: rgba(255, 179, 64, .14); color: var(--ug-warning); }
+.ug-badge--on, .ug-badge--open { background: rgba(47, 208, 138, .14); color: var(--ug-prepared); }
+.ug-badge--off, .ug-badge--closed { background: rgba(255, 255, 255, .06); color: var(--ug-ink-3); }
+.ug-badge--pending { background: rgba(255, 179, 64, .14); color: var(--ug-warning); }
+.ug-badge--approved { background: rgba(47, 208, 138, .14); color: var(--ug-prepared); }
+.ug-badge--declined { background: rgba(255, 90, 95, .14); color: var(--ug-emergency); }
+
+/* The dispatch frame reuses the desktop shell, so it inherits ug-d-shell,
+   ug-side, ug-d-main, ug-d-body, ug-nav, ug-top, ug-card, ug-table,
+   ug-badge, ug-btn, ug-av, ug-chip, ug-wgrid-2, ug-wgrid-3 already
+   declared in css/screens.css and css/app.css. */
+
+/* On-duty headcount chip on the dispatch sidebar */
+.ug-side .ug-dimmer {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The dispatch list cards keep the same ug-card look but sit in a 2-col
+   grid on wider screens so a duty officer can scan many dispatches. */
+.ug-wgrid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 14px;
+}
+@media (max-width: 720px) {
+  .ug-wgrid-2 { grid-template-columns: 1fr; }
+}
+
+/* OVERDUE row in the equipment table — the inline style adds the
+   border-left; the cell colour is the same warning tone. */
+.ug-table tr[style*="border-left"] td {
+  background: rgba(255, 179, 64, .04);
+}
+
+/* Mobile: the dispatch sidebar collapses to a top rail just like the
+   barangay/LGU console. Inherited from .ug-nav-open rules in
+   css/screens.css; no overrides needed here. */
