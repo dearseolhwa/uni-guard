@@ -126,11 +126,22 @@ const Repo = (function () {
       citywide: a.citywide !== false,
       expires_at: a.expires_at,
       created_at: a.published_at || a.created_at,
-      time: UG_UTIL.relTime(a.published_at || a.created_at)
+      time: UG_UTIL.relTime(a.published_at || a.created_at),
+      /* Module F: alert_type + language so the published list and citizen inbox
+         can render the right category icon and language label. */
+      alert_type: a.alert_type || 'general',
+      language: a.language || 'en'
     };
   }
 
   function toCenter(c) {
+    /* facilities may arrive as a Postgres text[] (already an array) or as a
+       comma-separated string; normalise to an array so the card always renders
+       the same way. contact_person + contact_phone power the new Module D
+       contact row on the center card. */
+    let facilities = c.facilities;
+    if (typeof facilities === 'string') facilities = facilities.split(',').map((s) => s.trim()).filter(Boolean);
+    else if (!Array.isArray(facilities)) facilities = facilities ? [String(facilities)] : [];
     return {
       id: c.id, uuid: c.id,
       name: c.name || '',
@@ -139,7 +150,10 @@ const Repo = (function () {
       occ: c.occupancy || 0,
       cap: c.capacity || 0,
       note: c.note || '',
-      lat: c.lat, lng: c.lng
+      lat: c.lat, lng: c.lng,
+      facilities: facilities,
+      contact_person: c.contact_person || '',
+      contact_phone: c.contact_phone || ''
     };
   }
 
@@ -694,7 +708,12 @@ const Repo = (function () {
         id: 'local-' + Date.now(), title: input.title, body: input.body, severity: input.severity,
         type: input.kind === 'preparedness' ? 'Preparedness' : 'Emergency', kind: input.kind,
         area: input.affected_area, citywide: input.citywide, created_at: new Date().toISOString(),
-        time: 'just now'
+        time: 'just now',
+        /* Module F additions: the alert category (weather advisory / evacuation
+           order / road closure / general) and the publish language, so the
+           published list + citizen inbox can show the right icon + language. */
+        alert_type: input.alert_type || 'general',
+        language: input.language || 'en'
       });
       emit();
       return { local: true };
@@ -706,7 +725,9 @@ const Repo = (function () {
       affected_area: input.affected_area || (input.citywide ? UG_GEO.PLACE.areaAll : 'Selected barangays'),
       citywide: input.citywide !== false,
       expires_at: input.expires_at || null,
-      published_at: new Date().toISOString()
+      published_at: new Date().toISOString(),
+      alert_type: input.alert_type || 'general',
+      language: input.language || 'en'
     }).select('*').single();
     if (error) fail(error);
 
@@ -758,7 +779,7 @@ const Repo = (function () {
   async function createCenter(input) {
     const c = client();
     if (!c) {
-      UG.DATA.centers.push(toCenter({ id: 'local-' + Date.now(), name: input.name, barangay: input.barangay, capacity: input.capacity, occupancy: 0, status: 'open', lat: input.lat, lng: input.lng }));
+      UG.DATA.centers.push(toCenter({ id: 'local-' + Date.now(), name: input.name, barangay: input.barangay, capacity: input.capacity, occupancy: 0, status: 'open', lat: input.lat, lng: input.lng, facilities: input.facilities, contact_person: input.contact_person, contact_phone: input.contact_phone, note: input.note }));
       emit();
       return { local: true };
     }
@@ -987,7 +1008,16 @@ const Repo = (function () {
   async function adminUsers(action, payload) {
     const c = client();
     if (!c) return { local: true };
-    const { data, error } = await c.functions.invoke('admin-users', { body: Object.assign({ action: action }, payload || {}) });
+    /* Pass the current origin as redirectUrl so the invitation email's
+       "Accept Invitation" button points back to the site that sent the
+       invite (localhost:5500 during dev, the Netlify URL in production).
+       The edge function reads this and forwards it to Supabase Auth's
+       inviteUserByEmail(). */
+    const body = Object.assign({ action: action }, payload || {});
+    if (action === 'create' || action === 'unit-invite') {
+      body.redirectUrl = (typeof window !== 'undefined' ? window.location.origin : '') || UG_CONFIG.APP_PUBLIC_URL;
+    }
+    const { data, error } = await c.functions.invoke('admin-users', { body: body });
     if (error) {
       /* an Edge Function returns its reason in the body; show that, not "non-2xx" */
       let msg = error.message;

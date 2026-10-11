@@ -79,6 +79,78 @@ const Auth = (function () {
     return state.session;
   }
 
+  /* ----------------------------------------------------- onboarding detection
+   * An invited account (barangay_official, lgu_ldrrmc, dispatch_team) lands
+   * here after accepting the email invitation. The edge function auto-set
+   * full_name to the email prefix and the account has no password yet (the
+   * invite flow creates the auth user but doesn't set a password). We detect
+   * this state so the app can show the onboarding screen instead of dropping
+   * them into the dashboard with a placeholder name. */
+  function needsOnboarding(profile, email) {
+    if (!profile) return false;
+    /* only non-citizen roles go through onboarding (citizens self-signup with
+       their full name during the signup form, so they're already complete) */
+    if (profile.role === 'citizen') return false;
+    /* if full_name is empty or matches the email prefix, the user hasn't
+       filled in their real name yet → onboarding needed */
+    const emailPrefix = (email || profile.email || '').split('@')[0].toLowerCase();
+    const fullName = (profile.full_name || '').trim().toLowerCase();
+    if (!fullName || fullName === emailPrefix) return true;
+    return false;
+  }
+
+  /* Load the dispatch unit name for a dispatch_team profile so the onboarding
+   * screen can show "You are the Unit Administrator of Lingayen BFP". */
+  async function loadUnitName(profile) {
+    if (!profile || profile.role !== 'dispatch_team' || !profile.dispatch_unit_id) return null;
+    const c = Repo.client();
+    if (!c) return null;
+    try {
+      const { data } = await c.from('dispatch_units')
+        .select('name, unit_type').eq('id', profile.dispatch_unit_id).maybeSingle();
+      return data || null;
+    } catch (e) { return null; }
+  }
+
+  /* ------------------------------------------------- complete onboarding
+   * Called when the invited user fills in the onboarding form. Sets their
+   * password via Supabase Auth (only if they entered one — if they already
+   * have a password set by the LGU in the dashboard, they can leave it
+   * blank to keep it), then updates their profile (full_name, phone,
+   * barangay_id), then reloads the profile and enters the app. */
+  async function completeOnboarding(input) {
+    const c = Repo.client();
+    if (!c) throw new Error('Connect Supabase to complete onboarding.');
+    /* 1. set the password on the auth user (only if provided). If the user
+       already has a password (set by the LGU in the Supabase dashboard),
+       they can leave the password field blank to keep their current one. */
+    if (input.password && input.password.length > 0) {
+      const { error: pwErr } = await c.auth.updateUser({ password: input.password });
+      if (pwErr) throw new Error(UG_UTIL.authError(pwErr.message, pwErr.status));
+    }
+    /* 2. update the profile (full_name + phone + barangay_id for officials).
+       We can update our own profile row directly — RLS allows it for the
+       authenticated user updating their own row. */
+    const patch = {
+      full_name: input.name,
+      phone: input.phone || '',
+      updated_at: new Date().toISOString()
+    };
+    if (input.barangay_id) {
+      patch.barangay_id = input.barangay_id;
+      /* look up the barangay name so the profile is complete */
+      try {
+        const { data: b } = await c.from('barangays').select('name').eq('id', input.barangay_id).maybeSingle();
+        if (b) patch.barangay = b.name;
+      } catch (e) {}
+    }
+    const { error: upErr } = await c.from('profiles').update(patch).eq('id', state.profile.id);
+    if (upErr) throw new Error('Could not update your profile: ' + upErr.message);
+    /* 3. reload the profile so the session reflects the new name, then apply */
+    const updated = await loadProfile(state.profile.id, state.profile.email);
+    return apply(updated);
+  }
+
   /* --------------------------------------------------------------- sign in */
   async function signIn(email, password) {
     const c = Repo.client();
@@ -145,18 +217,38 @@ const Auth = (function () {
   async function resendConfirmation(email) {
     const c = Repo.client();
     if (!c) return { local: true };
-    const { error } = await c.auth.resend({ type: 'signup', email: email, options: { emailRedirectTo: UG_CONFIG.APP_PUBLIC_URL } });
+    const redirectTo = (typeof window !== 'undefined' ? window.location.origin : '') || UG_CONFIG.APP_PUBLIC_URL;
+    const { error } = await c.auth.resend({ type: 'signup', email: email, options: { emailRedirectTo: redirectTo } });
     if (error) throw new Error(UG_UTIL.authError(error.message, error.status));
     return { sent: true };
   }
 
   /* ------------------------------------------------------ forgot / recovery */
-  /* Always resolves the same way so we never reveal which emails exist. */
+  /* Always resolves the same way so we never reveal which emails exist.
+   * The redirect URL is window.location.origin so the reset email's link
+   * points back to the site the user is currently on (localhost:5500 during
+   * dev, the production URL when deployed). Falls back to UG_CONFIG.APP_PUBLIC_URL
+   * if window is not available. */
   async function resetPassword(email) {
     const c = Repo.client();
     if (c) {
-      try { await c.auth.resetPasswordForEmail(email, { redirectTo: UG_CONFIG.APP_PUBLIC_URL }); }
-      catch (e) { /* swallow: the UI must stay neutral */ }
+      /* detect the rate limit before swallowing the error, so we can surface
+         a helpful toast instead of silently doing nothing. Supabase returns
+         a 429 with "Email rate limit exceeded" when the free-tier cap is hit. */
+      const redirectTo = (typeof window !== 'undefined' ? window.location.origin : '') || UG_CONFIG.APP_PUBLIC_URL;
+      try {
+        const { error } = await c.auth.resetPasswordForEmail(email, { redirectTo: redirectTo });
+        if (error) {
+          if (/rate limit|429|too many/i.test(error.message)) {
+            throw new Error('Supabase email rate limit reached. Wait 1 hour and try again, or set a temp password in the Supabase dashboard.');
+          }
+          /* other errors are swallowed so the UI stays neutral (never reveal
+             whether the email exists) */
+        }
+      } catch (e) {
+        if (/rate limit/i.test(e.message)) throw e;
+        /* swallow everything else */
+      }
     }
     return { sent: true };
   }
@@ -221,6 +313,7 @@ const Auth = (function () {
 
   return {
     state, onChange, restore, signIn, signUp, resetPassword, updatePassword,
-    resendConfirmation, signOut, loadProfile
+    resendConfirmation, signOut, loadProfile,
+    needsOnboarding, loadUnitName, completeOnboarding
   };
 })();

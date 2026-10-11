@@ -4,7 +4,7 @@
  * map tiles and the last synced data available, and serves a push notification
  * payload sent by the push-dispatch Edge Function.
  */
-const VERSION = 'uniguard-v8';
+const VERSION = 'uniguard-v10';
 const SHELL = 'uniguard-shell-' + VERSION;
 const TILES = 'uniguard-tiles-' + VERSION;
 const IMAGES = 'uniguard-images-' + VERSION;
@@ -41,6 +41,7 @@ const PRECACHE = [
 
   './js/config.js',
   './js/util.js',
+  './js/i18n.js',
   './js/pdf.js',
   './js/screens.js',
   './js/screens.web.js',
@@ -59,6 +60,7 @@ const PRECACHE = [
   './js/theme.js',
   './js/hazard-types.js',
   './js/relief.js',
+  './js/settings.js',
   './js/guides.js',
   './js/faqs.js',
   './js/roadwork.js',

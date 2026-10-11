@@ -41,7 +41,7 @@
     sosSending: false, lastSos: null,
     mapLayers: { hazards: true, relief: true, centers: true, roadStatus: true },
     mapPanelOpen: false,
-    draft: { title: '', sev: 'warning', type: 'Emergency', area: UG_GEO.PLACE.areaAll, msg: '' },
+    draft: { title: '', sev: 'warning', type: 'Emergency', area: UG_GEO.PLACE.areaAll, msg: '', lang: 'en', alertType: 'general' },
     lastReport: null,
     report: {
       hazard: UG_HAZARDS.LIST[0].label, hazardOther: '', brgy: UG_GEO.BARANGAYS[0], urg: 'warning', desc: '',
@@ -72,6 +72,10 @@
       setTimeout(() => el.remove(), 320);
     }, 3200);
   }
+  /* expose the controller hooks the feature modules (settings, relief) reach
+     for. These are assigned once on boot; the modules guard with typeof so a
+     missed assignment never throws. */
+  window.UG_TOAST = toast;
 
   /* Trigger a client-side file download from a string (used by the relief CSV
      export). Works without any server round-trip and is safe offline. */
@@ -140,6 +144,9 @@
     /* the stage only reserves room for the preview bar while it is on screen */
     document.body.classList.toggle('ug-dev-bar', showBar);
   }
+  /* APP_RENDER is the re-render hook the feature modules call after a local-only
+     mutation (a settings toggle, a template edit). Defined after render() exists. */
+  window.APP_RENDER = render;
 
   /* --------------------------------------------------------------- live maps */
   let mapKey = '';
@@ -295,7 +302,7 @@
     'dashboard', 'incidents', 'incident', 'analytics', 'users', 'audit', 'command', 'more',
     'relief', 'relief-verify', 'guides', 'faqs', 'roadwork', 'map', 'sos',
     'others-review', 'response-team', 'dispatch-units', 'dispatch',
-    'equipment', 'roster', 'hospital', 'requests', 'contacts', 'dispatch-detail'];
+    'equipment', 'roster', 'hospital', 'requests', 'contacts', 'dispatch-detail', 'settings'];
 
   function routeFromHash() {
     const h = String((window.location && window.location.hash) || '').replace(/^#\/?/, '').split('?')[0];
@@ -342,6 +349,18 @@
     }
     S.auth = blankAuth();
     S.declareArmed = false;
+    /* publish the current user id so the settings module can load per-user
+       preferences (language, notifications, offline) keyed by this id.
+       Different users on the same device now get their own preferences. */
+    window.__UG_CURRENT_UID = session.id || session.email || '';
+    if (typeof UG_SETTINGS !== 'undefined' && UG_SETTINGS.reloadUserPrefs) {
+      UG_SETTINGS.reloadUserPrefs();
+      /* sync the i18n layer so the very first render after login is in the
+         user's chosen language */
+      if (typeof UG_I18N !== 'undefined' && UG_SETTINGS.getUserPrefs().language) {
+        UG_I18N.setLang(UG_SETTINGS.getUserPrefs().language.ui || 'en');
+      }
+    }
     go(homeRoute());
     toast(message || ('Signed in as ' + UG_WEB.ROLE_INFO[session.role].label + ' · ' + session.scope), 'prepared');
     render();
@@ -586,9 +605,16 @@
       S.auth.error = '';
       if (!f.email.trim()) { S.auth.error = 'Enter the email address on your account.'; return render(); }
       S.auth.loading = true; render();
-      await Auth.resetPassword(f.email.trim());
-      S.auth.loading = false;
-      S.auth.screen = 'forgot-sent';
+      try {
+        await Auth.resetPassword(f.email.trim());
+        S.auth.loading = false;
+        S.auth.screen = 'forgot-sent';
+      } catch (e) {
+        /* rate-limit errors surface here so the user knows the email didn't
+           go through; other errors are swallowed inside resetPassword() */
+        S.auth.loading = false;
+        S.auth.error = UG_UTIL.authError(e.message);
+      }
       render();
     },
     'set-password': async () => {
@@ -609,6 +635,42 @@
         render();
       }
     },
+
+    /* Onboarding — the invited user fills in name/phone/barangay. The password
+       field is OPTIONAL: if they already have a password (set by the LGU in the
+       Supabase dashboard), they can leave it blank to keep it. If they don't
+       have one yet, they must set one here. Auth.completeOnboarding handles
+       both cases. */
+    'complete-onboarding': async () => {
+      const f = S.auth.form;
+      S.auth.error = '';
+      /* password is only required if they typed something in the confirm
+         field but not the password field, OR vice versa. If both are blank,
+         we skip the password update and keep their current one. */
+      if (f.password || f.confirm) {
+        if (!f.password || f.password.length < 8) { S.auth.error = 'Use at least 8 characters for the password.'; return render(); }
+        if (f.password !== f.confirm) { S.auth.error = 'The two passwords do not match.'; return render(); }
+      }
+      if (!f.name || !f.name.trim()) { S.auth.error = 'Enter your full name.'; return render(); }
+      const role = (S.auth.pendingProfile && S.auth.pendingProfile.role) || 'citizen';
+      if (role === 'barangay_official' && !f.barangay_id) { S.auth.error = 'Select your barangay.'; return render(); }
+      S.auth.loading = true; render();
+      try {
+        const session = await Auth.completeOnboarding({
+          password: f.password || '',  /* empty string = skip password update */
+          name: f.name.trim(),
+          phone: (f.phone || '').trim(),
+          barangay_id: f.barangay_id || null
+        });
+        S.auth = blankAuth();
+        enterApp(session, 'Account complete. Welcome to UniGuard.');
+      } catch (e) {
+        S.auth.loading = false;
+        S.auth.error = UG_UTIL.authError(e.message);
+        render();
+      }
+    },
+
     logout: async () => {
       const ok = await UG_FEATURES.confirm({
         title: 'Sign out',
@@ -1321,6 +1383,15 @@
       const cap = parseInt((q('[data-field="centerCapacity"]') || {}).value || '0', 10) || 0;
       const latRaw = (q('[data-field="centerLat"]') || {}).value || '';
       const lngRaw = (q('[data-field="centerLng"]') || {}).value || '';
+      /* Module D additions: facilities (comma-separated -> array), contact
+         person, contact phone and an optional note. All are passed through to
+         Repo.createCenter so the same shape lands whether the row is stored
+         locally or in Postgres. */
+      const facRaw = (q('[data-field="centerFacilities"]') || {}).value || '';
+      const facilities = facRaw ? facRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
+      const contact_person = (q('[data-field="centerContact"]') || {}).value || '';
+      const contact_phone = (q('[data-field="centerPhone"]') || {}).value || '';
+      const note = (q('[data-field="centerNote"]') || {}).value || '';
       if (!name.trim() || !cap) { toast('A name and a capacity are required', 'warning'); return; }
       let lat = null, lng = null;
       if (latRaw.trim() || lngRaw.trim()) {
@@ -1333,10 +1404,62 @@
       }
       const brgyRow = (S.barangays || []).find((b) => b.name === brgy);
       try {
-        await Repo.createCenter({ name: name.trim(), barangay: brgy, barangay_id: brgyRow ? brgyRow.id : null, capacity: cap, occupancy: 0, status: 'open', lat: lat, lng: lng });
+        await Repo.createCenter({
+          name: name.trim(), barangay: brgy, barangay_id: brgyRow ? brgyRow.id : null,
+          capacity: cap, occupancy: 0, status: 'open', lat: lat, lng: lng,
+          facilities: facilities, contact_person: contact_person.trim(),
+          contact_phone: contact_phone.trim(), note: note.trim()
+        });
         toast('Evacuation centre added to the directory' + (lat === null ? ' — add coordinates later so Waze navigation works' : ''), 'prepared');
       } catch (e) { toast(e.message, 'warning'); }
       render();
+    },
+
+    'center-edit': async (d) => {
+      const c = (UG.DATA.centers || []).find((x) => (x.uuid || x.id) === d.id || x.id === d.id);
+      if (!c) return;
+      const brgyOpts = UG.DATA.barangays.map((b) => '<option' + (b === c.brgy ? ' selected' : '') + '>' + UG_UTIL.esc(b) + '</option>').join('');
+      UG_FEATURES.modal({
+        title: 'Edit evacuation centre · ' + c.name,
+        body:
+          '<div class="ug-field"><label class="ug-lab">Center Name</label>' +
+            '<input class="ug-in" data-ce-name value="' + UG_UTIL.esc(c.name) + '"></div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Barangay</label><select class="ug-sel" data-ce-brgy>' + brgyOpts + '</select></div>' +
+            '<div class="ug-field" style="flex:0 0 130px"><label class="ug-lab">Capacity</label><input class="ug-in" data-ce-cap value="' + (c.cap || 0) + '" inputmode="numeric"></div>' +
+          '</div>' +
+          '<div class="ug-field"><label class="ug-lab">Facilities (comma-separated)</label>' +
+            '<input class="ug-in" data-ce-fac value="' + UG_UTIL.esc(Array.isArray(c.facilities) ? c.facilities.join(', ') : (c.facilities || '')) + '"></div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Contact person</label><input class="ug-in" data-ce-contact value="' + UG_UTIL.esc(c.contact_person || '') + '"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Contact phone</label><input class="ug-in" data-ce-phone value="' + UG_UTIL.esc(c.contact_phone || '') + '"></div>' +
+          '</div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Notes</label>' +
+            '<input class="ug-in" data-ce-note value="' + UG_UTIL.esc(c.note || '') + '"></div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-save>Save</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', async () => {
+            const name = wrap.querySelector('[data-ce-name]').value.trim();
+            const brgy = wrap.querySelector('[data-ce-brgy]').value;
+            const cap = parseInt(wrap.querySelector('[data-ce-cap]').value || '0', 10) || 0;
+            const fac = wrap.querySelector('[data-ce-fac]').value;
+            const facilities = fac ? fac.split(',').map((s) => s.trim()).filter(Boolean) : [];
+            if (!name || !cap) { toast('A name and a capacity are required', 'warning'); return; }
+            try {
+              await Repo.updateCenter(c.uuid || c.id, {
+                name: name, barangay: brgy, capacity: cap,
+                facilities: facilities,
+                contact_person: wrap.querySelector('[data-ce-contact]').value.trim(),
+                contact_phone: wrap.querySelector('[data-ce-phone]').value.trim(),
+                note: wrap.querySelector('[data-ce-note]').value.trim()
+              });
+              toast('Evacuation centre updated', 'prepared');
+              close();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
     },
 
     'center-locate': async () => {
@@ -1495,7 +1618,13 @@
           kind: S.draft.type === 'Preparedness' ? 'preparedness' : 'emergency',
           affected_area: S.draft.area, citywide: /citywide|municipality-wide|municipality wide/i.test(S.draft.area),
           /* a targeted advisory is fanned out to exactly the barangay it names */
-          barangayIds: (S.barangays || []).filter((b) => b.name === S.draft.area).map((b) => b.id)
+          barangayIds: (S.barangays || []).filter((b) => b.name === S.draft.area).map((b) => b.id),
+          /* Module F: the alert type (weather advisory / evacuation order /
+             road closure / general) and the language are carried through so
+             the published list and the citizen inbox can render the right
+             category icon and language label. */
+          alert_type: S.draft.alertType || 'general',
+          language: S.draft.lang || 'en'
         });
         toast('Broadcast published to ' + S.draft.area + ' residents', 'prepared');
       } catch (e) { toast(e.message, 'warning'); }
@@ -1503,9 +1632,63 @@
     },
 
     'clear-draft': () => {
-      S.draft = { title: '', sev: 'warning', type: 'Emergency', area: UG_GEO.PLACE.areaAll, msg: '' };
+      S.draft = { title: '', sev: 'warning', type: 'Emergency', area: UG_GEO.PLACE.areaAll, msg: '', lang: 'en', alertType: 'general' };
       toast('Composer cleared', 'info');
       render();
+    },
+
+    /* Module F: alert type, severity level and language are chip-driven so
+       the duty officer taps instead of typing. The template picker loads the
+       matching category from the Settings module and fills the composer in
+       the currently selected language. */
+    'adv-alert-type': (d) => { S.draft.alertType = d.v; render(); },
+    'adv-sev': (d) => { S.draft.sev = d.v; render(); },
+    'adv-lang': (d) => { S.draft.lang = d.v; render(); },
+
+    'adv-use-template': () => {
+      if (typeof UG_SETTINGS === 'undefined') { toast('Templates are not available', 'warning'); return; }
+      const cat = S.draft.alertType || 'general';
+      const lang = S.draft.lang || 'en';
+      const list = UG_SETTINGS.templatesByCategory(cat);
+      /* if the chosen alert type has no templates yet, fall back to the full
+         list so the duty officer is never stuck with an empty picker. */
+      const pool = list.length ? list : UG_SETTINGS.loadTemplates();
+      if (!pool.length) { toast('No templates yet — add some in Settings', 'warning'); return; }
+      const titleKey = lang === 'fil' ? 'title_fil' : 'title_en';
+      const bodyKey = lang === 'fil' ? 'body_fil' : 'body_en';
+      UG_FEATURES.modal({
+        title: 'Pick a template · ' + (lang === 'fil' ? 'Filipino' : 'English'),
+        body: '<div class="ug-rows">' + pool.map((t) => {
+          const title = t[titleKey] || t.title_en || t.title_fil || t.label;
+          const body = t[bodyKey] || t.body_en || t.body_fil || '';
+          const cat2 = UG_SETTINGS.CATEGORY[t.category] || { color: 'var(--ug-signal)', icon: 'megaphone' };
+          return '<button class="ug-row ug-tpl-pick" style="cursor:pointer;text-align:left;width:100%;background:none;border:0;color:inherit"' + A('adv-apply-template', attr({ id: t.id })) + '>' +
+            '<span class="r-dot" style="background:' + cat2.color + '"></span>' +
+            '<div class="r-main"><div class="r-t" style="font-size:12.5px">' + esc(title) + '</div>' +
+            '<div class="r-m ug-clamp2" style="font-size:11px;line-height:1.45">' + esc(body) + '</div></div>' +
+            UG.icon('chevron', 14) + '</button>';
+        }).join('') + '</div>',
+        footer: '<button class="ug-btn" data-modal-close>Close</button>',
+        onMount: () => {}
+      });
+    },
+
+    'adv-apply-template': (d) => {
+      if (typeof UG_SETTINGS === 'undefined') return;
+      const t = UG_SETTINGS.templateById(d.id);
+      if (!t) return;
+      const lang = S.draft.lang || 'en';
+      const titleKey = lang === 'fil' ? 'title_fil' : 'title_en';
+      const bodyKey = lang === 'fil' ? 'body_fil' : 'body_en';
+      S.draft.title = t[titleKey] || t.title_en || t.title_fil || t.label || '';
+      S.draft.msg = t[bodyKey] || t.body_en || t.body_fil || '';
+      /* if the template belongs to a category, sync the alert type too so the
+         chip row reflects the template that was applied. */
+      if (t.category) S.draft.alertType = t.category;
+      /* close any open modal (the template picker) and re-render */
+      document.querySelectorAll('.ug-modal').forEach((m) => m.remove());
+      toast('Template applied — review and publish', 'prepared');
+      render('advTitle');
     },
 
     'read-all': async () => {
@@ -1830,22 +2013,42 @@
 
             saveBtn.disabled = true;
             try {
-              /* 1. create the dispatch_units row */
+              /* 1. create the dispatch_units row (dedup: if a unit with this
+                 name already exists, the RPC returns its id + already_exists=true
+                 instead of creating a duplicate) */
               const c = Repo.client();
+              if (!c) throw new Error('Connect Supabase first — dispatch units cannot be created without a database.');
               const { data: unitData, error: unitErr } = await c.rpc('create_dispatch_unit', {
                 p_name: name, p_unit_type: type, p_contact_number: contact,
                 p_address: address, p_lat: null, p_lng: null
               });
               if (unitErr) throw new Error(unitErr.message);
               const unitId = (unitData && unitData.id) || unitData;
+              const alreadyExists = !!(unitData && unitData.already_exists);
 
-              /* 2. invite the first unit_admin into the new unit */
+              /* 2. invite the first unit_admin into the unit. This calls the
+                 admin-users edge function, which calls Supabase Auth's
+                 inviteUserByEmail. If the email doesn't arrive, the cause is
+                 almost always one of:
+                   a) the admin-users edge function isn't deployed — run
+                      `supabase functions deploy admin-users`
+                   b) the SUPABASE_SERVICE_ROLE_KEY secret isn't set on the
+                      function — check Dashboard → Edge Functions → admin-users
+                   c) Supabase Auth email sending is rate-limited or SMTP is
+                      not configured — check Dashboard → Authentication →
+                      Email Templates
+                 The edge function returns its error in the body; the catch
+                 block below surfaces it. */
               await Repo.adminUsers('create', {
                 email: email, role: 'dispatch_team',
                 unitId: unitId, unitRole: 'unit_admin'
               });
 
-              toast('Unit "' + name + '" created. Invitation sent to ' + email, 'prepared');
+              toast((alreadyExists
+                ? 'Unit "' + name + '" already exists. '
+                : 'Unit "' + name + '" created. ')
+                + 'Invitation sent to ' + email + '. '
+                + 'If the email doesn\'t arrive within a few minutes, check the Edge Function is deployed and Auth email is configured.', 'prepared');
               /* refresh the directory so the new unit appears in the list */
               try { await Repo.loadDispatchDirectory(); } catch (e) {}
               close();
@@ -2211,6 +2414,304 @@
       catch (e) { toast(e.message, 'warning'); }
       render();
     },
+
+    /* ============================================== MODULE E: inventory + records
+       All three Relief tabs share one action namespace. The inventory actions
+       mutate UG.DATA.inventory in place (offline-first); when Supabase is
+       reachable they would hit Repo methods that mirror the change server-side. */
+
+    'relief-tab': (d) => { S.reliefTab = d.v; render(); },
+    'inv-cat': (d) => { S.invCatFilter = d.v; render(); },
+
+    'inv-add': () => {
+      if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can manage inventory', 'warning'); return; }
+      const cats = UG_RELIEF.INV_CATEGORIES.map((c) => '<option>' + c + '</option>').join('');
+      UG_FEATURES.modal({
+        title: 'Add a stock item',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Item name</label><input class="ug-in" data-inv-name placeholder="e.g. Family Food Pack"></div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Category</label><select class="ug-sel" data-inv-cat>' + cats + '</select></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Unit</label><input class="ug-in" data-inv-unit placeholder="packs / bottles / kits"></div>' +
+          '</div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Stock</label><input class="ug-in" data-inv-stock placeholder="0" inputmode="numeric"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Reorder at</label><input class="ug-in" data-inv-reorder placeholder="0" inputmode="numeric"></div>' +
+          '</div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Location</label><input class="ug-in" data-inv-loc placeholder="MDRRMO Warehouse A"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Supplier</label><input class="ug-in" data-inv-sup placeholder="DSWD Field Office"></div>' +
+          '</div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Add Item</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', () => {
+            const name = wrap.querySelector('[data-inv-name]').value.trim();
+            const stock = parseInt(wrap.querySelector('[data-inv-stock]').value || '0', 10) || 0;
+            if (!name) { toast('An item name is required', 'warning'); return; }
+            const item = {
+              id: 'INV-' + String(Date.now()).slice(-6),
+              name: name,
+              category: wrap.querySelector('[data-inv-cat]').value,
+              unit: wrap.querySelector('[data-inv-unit]').value.trim() || 'units',
+              stock: stock,
+              reorder: parseInt(wrap.querySelector('[data-inv-reorder]').value || '0', 10) || 0,
+              location: wrap.querySelector('[data-inv-loc]').value.trim(),
+              supplier: wrap.querySelector('[data-inv-sup]').value.trim()
+            };
+            UG.DATA.inventory = UG.DATA.inventory || [];
+            UG.DATA.inventory.push(item);
+            /* low-stock check at add time so the duty officer is warned even
+               when they enter a starting stock that is already below reorder. */
+            if (item.stock <= item.reorder) toast('Item added — already at or below reorder point', 'warning');
+            else toast('Stock item added', 'prepared');
+            close(); render();
+          });
+        }
+      });
+    },
+
+    'inv-edit': (d) => {
+      const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
+      if (!i) return;
+      const cats = UG_RELIEF.INV_CATEGORIES.map((c) => '<option' + (i.category === c ? ' selected' : '') + '>' + c + '</option>').join('');
+      UG_FEATURES.modal({
+        title: 'Edit stock item · ' + i.name,
+        body:
+          '<div class="ug-field"><label class="ug-lab">Item name</label><input class="ug-in" data-inv-name value="' + UG_UTIL.esc(i.name) + '"></div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Category</label><select class="ug-sel" data-inv-cat>' + cats + '</select></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Unit</label><input class="ug-in" data-inv-unit value="' + UG_UTIL.esc(i.unit || '') + '"></div>' +
+          '</div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Stock</label><input class="ug-in" data-inv-stock value="' + (i.stock || 0) + '" inputmode="numeric"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Reorder at</label><input class="ug-in" data-inv-reorder value="' + (i.reorder || 0) + '" inputmode="numeric"></div>' +
+          '</div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Location</label><input class="ug-in" data-inv-loc value="' + UG_UTIL.esc(i.location || '') + '"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Supplier</label><input class="ug-in" data-inv-sup value="' + UG_UTIL.esc(i.supplier || '') + '"></div>' +
+          '</div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Save</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', () => {
+            i.name = wrap.querySelector('[data-inv-name]').value.trim() || i.name;
+            i.category = wrap.querySelector('[data-inv-cat]').value;
+            i.unit = wrap.querySelector('[data-inv-unit]').value.trim() || i.unit;
+            i.stock = parseInt(wrap.querySelector('[data-inv-stock]').value || '0', 10) || 0;
+            i.reorder = parseInt(wrap.querySelector('[data-inv-reorder]').value || '0', 10) || 0;
+            i.location = wrap.querySelector('[data-inv-loc]').value.trim();
+            i.supplier = wrap.querySelector('[data-inv-sup]').value.trim();
+            toast('Stock item updated', 'prepared');
+            close(); render();
+          });
+        }
+      });
+    },
+
+    'inv-restock': (d) => {
+      const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
+      if (!i) return;
+      UG_FEATURES.modal({
+        title: 'Restock ' + i.name,
+        body: '<div class="ug-field"><label class="ug-lab">Add to stock (' + (i.unit || 'units') + ')</label>' +
+          '<input class="ug-in" data-inv-add placeholder="e.g. 100" inputmode="numeric" autofocus>' +
+          '<div class="ug-help">Current stock: ' + i.stock + ' · Reorder at: ' + i.reorder + '</div></div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Restock</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', () => {
+            const add = parseInt(wrap.querySelector('[data-inv-add"]').value || '0', 10) || 0;
+            if (add <= 0) { toast('Enter a positive quantity', 'warning'); return; }
+            i.stock = (i.stock || 0) + add;
+            toast('+' + add + ' ' + i.unit + ' · new stock ' + i.stock + (i.stock <= i.reorder ? ' (still below reorder)' : ''), 'prepared');
+            close(); render();
+          });
+        }
+      });
+    },
+
+    'inv-adjust': (d) => {
+      const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
+      if (!i) return;
+      const delta = parseInt(d.d, 10) || 0;
+      i.stock = Math.max(0, (i.stock || 0) + delta);
+      toast(i.name + ' stock adjusted to ' + i.stock + ' ' + i.unit, i.stock <= i.reorder ? 'warning' : 'info');
+      render();
+    },
+
+    'inv-download': () => {
+      const stamp = new Date().toISOString().slice(0, 10);
+      const rows = UG.DATA.inventory || [];
+      const header = ['ID', 'Name', 'Category', 'Unit', 'Stock', 'Reorder at', 'Location', 'Supplier'];
+      const body = rows.map((r) => [r.id, r.name, r.category, r.unit, r.stock, r.reorder, r.location || '', r.supplier || ''].map(csvCell).join(','));
+      downloadText('uniguard-inventory-' + stamp + '.csv', header.map(csvCell).join(',') + '\n' + body.join('\n'));
+      toast(rows.length + ' inventory item(s) exported to CSV', 'prepared');
+    },
+
+    'rec-add': () => {
+      if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can record distributions', 'warning'); return; }
+      UG_RELIEF.ensureInventory();
+      const items = (UG.DATA.inventory || []).map((i) => '<option value="' + i.id + '">' + UG_UTIL.esc(i.name + ' (' + (i.stock || 0) + ' ' + i.unit + ' in stock)') + '</option>').join('');
+      const brgys = UG.DATA.barangays.map((b) => '<option>' + UG_UTIL.esc(b) + '</option>').join('');
+      UG_FEATURES.modal({
+        title: 'Record a distribution',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Item</label><select class="ug-sel" data-rec-item>' + items + '</select></div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Quantity</label><input class="ug-in" data-rec-qty placeholder="e.g. 50" inputmode="numeric"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Barangay</label><select class="ug-sel" data-rec-brgy>' + brgys + '</select></div>' +
+          '</div>' +
+          '<div class="ug-field"><label class="ug-lab">Family / recipient</label><input class="ug-in" data-rec-family placeholder="e.g. Aquino household"></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Distributed by</label><input class="ug-in" data-rec-by value="' + UG_UTIL.esc((S.session && S.session.name) || '') + '"></div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Record</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', () => {
+            const itemId = wrap.querySelector('[data-rec-item]').value;
+            const item = (UG.DATA.inventory || []).find((x) => x.id === itemId);
+            const qty = parseInt(wrap.querySelector('[data-rec-qty]').value || '0', 10) || 0;
+            const brgy = wrap.querySelector('[data-rec-brgy]').value;
+            const family = wrap.querySelector('[data-rec-family]').value.trim();
+            const by = wrap.querySelector('[data-rec-by]').value.trim();
+            if (!qty || !brgy) { toast('A quantity and a barangay are required', 'warning'); return; }
+            if (item && qty > (item.stock || 0)) {
+              toast('Only ' + item.stock + ' ' + item.unit + ' of ' + item.name + ' in stock', 'warning'); return;
+            }
+            const rec = {
+              id: 'DR-' + String(Date.now()).slice(-6),
+              item_id: itemId,
+              item_name: item ? item.name : 'Item',
+              qty: qty, barangay: brgy, family: family || '—',
+              distributed_by: by || '—',
+              distributed_at: new Date().toISOString()
+            };
+            UG.DATA.distributionLog = UG.DATA.distributionLog || [];
+            UG.DATA.distributionLog.push(rec);
+            /* decrement the inventory in the same action so the stock ledger
+               and the distribution log never drift apart. */
+            if (item) item.stock = Math.max(0, (item.stock || 0) - qty);
+            toast(qty + ' ' + (item ? item.unit : 'units') + ' recorded for ' + brgy, 'prepared');
+            close(); render();
+          });
+        }
+      });
+    },
+
+    'rec-del': (d) => {
+      const log = UG.DATA.distributionLog || [];
+      const idx = log.findIndex((r) => r.id === d.id);
+      if (idx === -1) return;
+      /* restock the item the record had decremented, so deleting a mistake
+         doesn't leave the inventory permanently short. */
+      const rec = log[idx];
+      const item = (UG.DATA.inventory || []).find((x) => x.id === rec.item_id);
+      if (item) item.stock = (item.stock || 0) + (rec.qty || 0);
+      log.splice(idx, 1);
+      toast('Distribution record removed · ' + (rec.qty || 0) + ' ' + (item ? item.unit : '') + ' returned to stock', 'warning');
+      render();
+    },
+
+    'rec-download': () => {
+      const stamp = new Date().toISOString().slice(0, 10);
+      const rows = UG.DATA.distributionLog || [];
+      const header = ['ID', 'Item', 'Qty', 'Barangay', 'Family', 'Distributed by', 'At'];
+      const body = rows.map((r) => [r.id, r.item_name, r.qty, r.barangay, r.family, r.distributed_by, r.distributed_at].map(csvCell).join(','));
+      downloadText('uniguard-distributions-' + stamp + '.csv', header.map(csvCell).join(',') + '\n' + body.join('\n'));
+      toast(rows.length + ' distribution record(s) exported to CSV', 'prepared');
+    },
+
+    /* ================================================================ SETTINGS
+       Settings is now per-user for preferences (language, notifications,
+       offline, display) and device-wide for system config (org profile, SMS).
+       Every role sees Settings; the tabs inside adapt to the role. */
+
+    'settings-tab': (d) => { S.settingsTab = d.v; render(); },
+    'tpl-cat': (d) => { S.tplCategoryFilter = d.v; render(); },
+    'tpl-lang': (d) => { S.settingsLang = d.v; render(); },
+
+    /* the UI language switch — actually changes the interface language.
+       Sets the i18n layer immediately, persists per-user, then re-renders
+       the whole app so every nav item, title and button updates. */
+    'lang-ui': (d) => {
+      const lang = d.v || 'en';
+      if (typeof UG_I18N !== 'undefined') UG_I18N.setLang(lang);
+      UG_SETTINGS.patchUserPrefs('language.ui', lang);
+      toast(typeof UG_I18N !== 'undefined' && UG_I18N.isFil()
+        ? (typeof UG_I18N.t('toast.languageChanged') === 'string' ? UG_I18N.t('toast.languageChanged') : 'Language changed to Filipino')
+        : (typeof UG_I18N !== 'undefined' && UG_I18N.t ? UG_I18N.t('toast.languageChangedEn') : 'Language changed to English'),
+        'prepared');
+      render();
+    },
+
+    'settings-toggle': (d) => {
+      const path = d.path;
+      const cur = UG_SETTINGS.getSettings();
+      /* walk the path to read the current value */
+      const keys = path.split('.');
+      let v = cur;
+      for (const k of keys) v = v && v[k];
+      /* for string-enum toggles (onValue set), the toggle cycles to onValue
+         when off and back to the first alternative when on. For boolean
+         toggles it just flips. */
+      const onValue = d.v && d.v !== 'true' ? d.v : null;
+      let next;
+      if (onValue) {
+        next = (v === onValue) ? null : onValue;
+      } else {
+        next = !v;
+      }
+      UG_SETTINGS.patchSettings(path, next);
+      toast((next === true || next === onValue ? 'Enabled' : 'Disabled') + ' · ' + path, 'info');
+      render();
+    },
+
+    'settings-save-general': () => {
+      const vals = {};
+      document.querySelectorAll('[data-setting]').forEach((el) => {
+        if (el.dataset.setting.indexOf('org.') === 0 || el.dataset.setting.indexOf('sms.') === 0)
+          vals[el.dataset.setting] = el.value;
+      });
+      Object.keys(vals).forEach((p) => UG_SETTINGS.patchSettings(p, vals[p]));
+      toast('Profile + SMS settings saved', 'prepared');
+      render();
+    },
+
+    'settings-save-offline': () => {
+      document.querySelectorAll('[data-setting]').forEach((el) => {
+        if (el.dataset.setting.indexOf('offline.') === 0)
+          UG_SETTINGS.patchSettings(el.dataset.setting, el.type === 'number' ? parseInt(el.value, 10) || 0 : el.value);
+      });
+      toast('Offline settings saved', 'prepared');
+      render();
+    },
+
+    'settings-save-language': () => {
+      const def = (q('[data-field="langDefault"]') || {}).value || 'en';
+      UG_SETTINGS.patchUserPrefs('language.broadcastDefault', def);
+      toast('Language settings saved', 'prepared');
+      render();
+    },
+
+    'settings-reset': () => {
+      UG_FEATURES.confirm({
+        title: 'Restore default settings',
+        message: 'This resets your preferences (language, notifications, offline, display) to their defaults. System config (org profile, SMS) and message templates are not affected.',
+        confirmLabel: 'Restore', danger: true
+      }).then((ok) => {
+        if (!ok) return;
+        /* clear per-user prefs only; leave system config + templates intact */
+        const uid = window.__UG_CURRENT_UID || '';
+        const key = uid ? 'uniguard.prefs.v1.' + uid : 'uniguard.prefs.v1';
+        try { localStorage.removeItem(key); } catch (e) {}
+        if (typeof UG_SETTINGS !== 'undefined' && UG_SETTINGS.reloadUserPrefs) UG_SETTINGS.reloadUserPrefs();
+        /* also reset the i18n layer to the (now-default) English */
+        if (typeof UG_I18N !== 'undefined') UG_I18N.setLang('en');
+        toast('Preferences restored to defaults', 'info');
+        render();
+      });
+    },
+
+    'tpl-add': () => { UG_SETTINGS.openEditor(null); },
+    'tpl-edit': (d) => { UG_SETTINGS.openEditor(d.id); },
+    'tpl-delete': (d) => { UG_SETTINGS.deleteTemplate(d.id); },
+    'tpl-export': () => { UG_SETTINGS.exportTemplates(); },
 
     'guide-hazard': (d) => { S.guideHazard = d.v; render(); },
     'guide-phase': (d) => { S.guidePhase = d.v; render(); },
@@ -2596,6 +3097,7 @@
     else if (f === 'rwBarangay') { S.roadDraft.barangay = v; render(); return; }
     else if (f === 'benBarangayFilter') { S.benBarangayFilter = v; render(); return; }
     else if (f === 'incBrgyFilter') { S.incBrgyFilter = v; render(); return; }
+    else if (f === 'recBrgyFilter') { S.recBrgyFilter = v; render(); return; }
     else if (f === 'assignResponder') return;
     else return;
     render();
@@ -2692,6 +3194,7 @@
     else if (a === 'signup') AUTH_ACTIONS.signup();
     else if (a === 'forgot') AUTH_ACTIONS.forgot();
     else if (a === 'set-password') AUTH_ACTIONS['set-password']();
+    else if (a === 'onboarding') AUTH_ACTIONS['complete-onboarding']();
   });
 
   root.addEventListener('submit', (e) => {
@@ -2703,6 +3206,7 @@
     else if (a === 'signup') AUTH_ACTIONS.signup();
     else if (a === 'forgot') AUTH_ACTIONS.forgot();
     else if (a === 'set-password') AUTH_ACTIONS['set-password']();
+    else if (a === 'onboarding') AUTH_ACTIONS['complete-onboarding']();
   });
 
   /* the live map asks the app to open an incident */
@@ -2829,6 +3333,27 @@
       S.session = null;
       S.auth = blankAuth();
       S.auth.screen = 'set-password';
+      render();
+      return;
+    }
+    /* Onboarding: if the restored session is for an invited account (official,
+       LGU or dispatch team) whose full_name is still the email prefix, show
+       the onboarding screen so they can set their password + real name. */
+    if (session && Auth.state.profile && Auth.needsOnboarding(Auth.state.profile, session.email)) {
+      S.session = null;
+      S.auth = blankAuth();
+      S.auth.screen = 'onboarding';
+      S.auth.pendingProfile = Auth.state.profile;
+      /* load the barangay list so barangay_official can pick theirs */
+      try { S.auth.barangays = await Repo.listBarangays(); } catch (e) {}
+      /* for dispatch_team, load the unit name so we can show it */
+      if (Auth.state.profile.role === 'dispatch_team') {
+        try {
+          const unit = await Auth.loadUnitName(Auth.state.profile);
+          if (unit) S.auth.pendingProfile.unit_name = unit.name;
+        } catch (e) {}
+      }
+      S.auth.form = { password: '', confirm: '', name: '', phone: '', barangay_id: Auth.state.profile.barangay_id || '' };
       render();
       return;
     }

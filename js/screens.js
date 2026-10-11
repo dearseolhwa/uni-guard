@@ -135,11 +135,11 @@ const UG = (() => {
       { id:'ADV-2026-057', title:'Go-Bag Checklist for the Wet Season',    severity:'prepared',  type:'Preparedness',  area:UG_GEO.PLACE.areaAll,               time:'4d ago',  body:'Keep a go-bag ready: three days of water and non-perishable food, flashlight, batteries, first-aid kit, whistle, copies of documents, and a power bank.' },
     ],
     centers: [
-      { id:'EC-01', name:'Pangapisan North Multi-Purpose Center', brgy:'Pangapisan North', status:'open',   occ:118, cap:250, note:'Priority for coastal households', lat:16.0555, lng:120.2245 },
-      { id:'EC-02', name:'Narciso Ramos Sports and Civic Center', brgy:'Poblacion',        status:'full',   occ:620, cap:620, note:'No remaining slots', lat:16.03192, lng:120.22529 },
-      { id:'EC-03', name:'Lingayen Central Elementary School',    brgy:'Poblacion',         status:'open',   occ:84,  cap:300, note:'Medical station on site', lat:16.0219, lng:120.2320 },
-      { id:'EC-04', name:'Domalandan West Barangay Hall',         brgy:'Domalandan West',   status:'closed', occ:0,   cap:90,  note:'Undergoing roof repair', lat:16.0418, lng:120.2065 },
-      { id:'EC-05', name:'Pangasinan National High School',       brgy:'Poblacion',         status:'open',   occ:210, cap:400, note:'Pet-friendly area available', lat:16.031292, lng:120.230322 },
+      { id:'EC-01', name:'Pangapisan North Multi-Purpose Center', brgy:'Pangapisan North', status:'open',   occ:118, cap:250, note:'Priority for coastal households', lat:16.0555, lng:120.2245, facilities:['Medical station','Kitchen','Generator','Pet-friendly area'], contact_person:'Brgy. Captain Office', contact_phone:'0917-408-2210' },
+      { id:'EC-02', name:'Narciso Ramos Sports and Civic Center', brgy:'Poblacion',        status:'full',   occ:620, cap:620, note:'No remaining slots', lat:16.03192, lng:120.22529, facilities:['Cots','Generator','Medical station','Feeding area'], contact_person:'MDRRMO Shelter Desk', contact_phone:'(075) 632-2222' },
+      { id:'EC-03', name:'Lingayen Central Elementary School',    brgy:'Poblacion',         status:'open',   occ:84,  cap:300, note:'Medical station on site', lat:16.0219, lng:120.2320, facilities:['Classrooms','Medical station','Water supply'], contact_person:'Principal\'s Office', contact_phone:'(075) 632-2333' },
+      { id:'EC-04', name:'Domalandan West Barangay Hall',         brgy:'Domalandan West',   status:'closed', occ:0,   cap:90,  note:'Undergoing roof repair', lat:16.0418, lng:120.2065, facilities:['Function hall','Water supply'], contact_person:'Brgy. Captain', contact_phone:'0917-408-2240' },
+      { id:'EC-05', name:'Pangasinan National High School',       brgy:'Poblacion',         status:'open',   occ:210, cap:400, note:'Pet-friendly area available', lat:16.031292, lng:120.230322, facilities:['Classrooms','Pet-friendly area','Cots','Generator'], contact_person:'School DRRM Coordinator', contact_phone:'(075) 632-2344' },
     ],
     hotlines: [
       { agency:'Lingayen MDRRMO',           number:'(075) 632-2222',   scope:UG_GEO.PLACE.areaAll,  type:'emergency' },
@@ -1067,22 +1067,26 @@ const UG_SCREENS = (() => {
   /* DESKTOP (barangay / LGU console)                                    */
   /* ================================================================== */
   const DNAV = [
-    ['dashboard', 'Home', 'home', null],
-    ['incidents', 'Incidents', 'alert', '6'],
-    ['advisories', 'Advisories', 'megaphone', '5'],
-    ['relief', 'Relief', 'relief', null],
-    ['centers', 'Shelters', 'shelter', null],
-    ['roadwork', 'Road Work', 'road2', null],
-    ['response-team', 'Response Team', 'shield', null, ['barangay_official']],
-    ['dispatch-units', 'Dispatch Units', 'truck', null, ['lgu_ldrrmc']],
-    ['guides', 'Guides', 'guide', null, ['lgu_ldrrmc']],
-    ['faqs', 'FAQs', 'faq', null, ['lgu_ldrrmc']],
-    ['sos', 'SOS Log', 'sos', null, ['lgu_ldrrmc']],
-    ['hotlines', 'Hotlines', 'phone', null],
-    ['analytics', 'Analytics', 'layers', null],
-    ['others-review', 'Others Review', 'help', null, ['lgu_ldrrmc']],
-    ['users', 'Users', 'users', null, ['lgu_ldrrmc']],
-    ['audit', 'Audit Log', 'doc', null, ['lgu_ldrrmc']],
+    ['dashboard', 'nav.home', 'home', null],
+    ['incidents', 'nav.incidents', 'alert', '6'],
+    ['advisories', 'nav.advisories', 'megaphone', '5'],
+    ['relief', 'nav.relief', 'relief', null],
+    ['centers', 'nav.centers', 'shelter', null],
+    ['roadwork', 'nav.roadwork', 'road2', null],
+    ['response-team', 'nav.response-team', 'shield', null, ['barangay_official']],
+    ['dispatch-units', 'nav.dispatch-units', 'truck', null, ['lgu_ldrrmc']],
+    ['guides', 'nav.guides', 'guide', null, ['lgu_ldrrmc']],
+    ['faqs', 'nav.faqs', 'faq', null, ['lgu_ldrrmc']],
+    ['sos', 'nav.sos', 'sos', null, ['lgu_ldrrmc']],
+    ['hotlines', 'nav.hotlines', 'phone', null],
+    ['analytics', 'nav.analytics', 'layers', null],
+    ['others-review', 'nav.others-review', 'help', null, ['lgu_ldrrmc']],
+    ['users', 'nav.users', 'users', null, ['lgu_ldrrmc']],
+    ['audit', 'nav.audit', 'doc', null, ['lgu_ldrrmc']],
+    /* Settings is now visible to EVERY role. The tabs inside adapt to the
+       role (citizens see language + notifications + offline; LGU sees those
+       plus org profile + templates). No role gate here. */
+    ['settings', 'nav.settings', 'settings', null],
   ];
 
   function dSidebar(st){
@@ -1093,14 +1097,15 @@ const UG_SCREENS = (() => {
       : r === 'advisories' ? nz(counts.liveAdvisories)
       : r === 'centers' ? nz(counts.openCenters) : null;
     const route = st.route === 'incident' ? 'incidents' : st.route === 'relief-verify' ? 'relief' : st.route;
+    const T = (k) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : k);
     return '<aside class="ug-side" id="ug-console-nav">' +
       '<button class="ug-brand ug-brand-btn"' + A('nav', attr({ route: 'dashboard' })) + ' aria-label="Go to the dashboard">' + U.brandMark(32) +
         '<span class="ug-col" style="gap:0"><span class="ug-wordmark" style="font-size:15.5px">Uni<em>Guard</em></span>' +
         '<span class="ug-dimmer" style="font-size:9px;letter-spacing:.1em;text-transform:uppercase">Command console</span></span></button>' +
       DNAV.filter(n => !n[4] || n[4].indexOf(role.role) !== -1).map(n => '<button class="ug-nav' + (route === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '>' +
-        I(n[2], 18) + '<span>' + n[1] + '</span>' + (navCount(n[0]) ? '<span class="n-cnt">' + navCount(n[0]) + '</span>' : '') + '</button>').join('') +
+        I(n[2], 18) + '<span>' + T(n[1]) + '</span>' + (navCount(n[0]) ? '<span class="n-cnt">' + navCount(n[0]) + '</span>' : '') + '</button>').join('') +
       '<div style="margin-top:auto" class="ug-col ug-gap6" style="gap:6px">' +
-        '<button class="ug-nav"' + A('nav', attr({ route: 'offline' })) + '>' + I(st.offline ? 'wifioff' : 'download', 18) + '<span>' + (st.offline ? 'Offline mode' : 'Offline sync') + '</span></button>' +
+        '<button class="ug-nav"' + A('nav', attr({ route: 'offline' })) + '>' + I(st.offline ? 'wifioff' : 'download', 18) + '<span>' + T('nav.offline') + '</span></button>' +
         '<div class="ug-hr" style="margin:8px 0"></div>' +
         '<div class="ug-rowf ug-gap10" style="gap:9px;padding:4px 8px">' +
           '<span class="ug-av">' + esc(role.initials) + '</span>' +
@@ -1498,28 +1503,74 @@ const UG_SCREENS = (() => {
   function dAdvisories(st){
     const d = st.draft;
     const ready = d.title.trim() && d.msg.trim();
+    /* Module F: the broadcast type now carries the four real LDRRMO alert
+       categories (weather advisory, evacuation order, road closure, plus a
+       general catch-all) alongside the Emergency / Preparedness severity
+       ladder. The color of the alert-type chip comes from UG_SETTINGS.CATEGORY
+       so it matches the message-template categories one-to-one. */
+    const ALERT_TYPES = [
+      ['general', 'General Notice', 'megaphone'],
+      ['weather_advisory', 'Weather Advisory', 'wind'],
+      ['evacuation_order', 'Evacuation Order', 'shelter'],
+      ['road_closure', 'Road Closure', 'road']
+    ];
+    const alertTypeChip = (key, label, icon) => {
+      const cat = (typeof UG_SETTINGS !== 'undefined' && UG_SETTINGS.CATEGORY[key]) || { color: 'var(--ug-signal)' };
+      return '<button class="ug-chip' + (d.alertType === key ? ' is-on' : '') + '"' + A('adv-alert-type', attr({ v: key })) +
+        ' style="' + (d.alertType === key ? 'background:' + cat.color + '22;border-color:' + cat.color + ';color:' + cat.color : '') + '">' + I(icon, 13) + label + '</button>';
+    };
+    /* the alert level ladder mirrors the severity ladder: Emergency (red),
+       Warning (orange), Advisory (yellow), Preparedness (blue). Each cell is a
+       colored chip so the duty officer can see the level at a glance. */
+    const levelChip = (key, label) => {
+      const sev = U.SEV[key] || UG_THEME.PREPARED;
+      return '<button class="ug-chip ug-ladder-chip' + (d.sev === key ? ' is-on' : '') + '"' + A('adv-sev', attr({ v: key })) +
+        ' style="' + (d.sev === key ? 'background:' + sev.soft + ';border-color:' + sev.color + ';color:' + sev.text : '') + '">' +
+        '<span class="ug-ladder-dot" style="background:' + sev.color + '"></span>' + label + '</button>';
+    };
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Advisories and Alerts', 'Publish official broadcasts and preparedness content to residents.',
+      pageHead('Early Warning & Announcements', 'Publish official broadcasts by barangay. Pick an alert type, set the alert level, apply a template, then publish.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('nav', attr({ route: 'analytics' })) + '>' + I('eye', 15) + 'Reach Report</button>') +
       '<div class="ug-dgrid-compose">' +
         '<div class="ug-card ug-tick"><div class="ug-card-h"><h3>Compose Broadcast</h3>' +
           '<span class="ug-chip">' + I(st.offline ? 'wifioff' : 'bell', 13) + (st.offline ? 'Queued offline' : (UG_CONFIG.VAPID_PUBLIC_KEY ? 'Push enabled' : 'In-app only')) + '</span></div>' +
           '<div class="ug-card-b ug-col" style="gap:0">' +
+            /* alert type selector — the four LDRRMO categories. Picks the
+               matching template category so the "Use template" button offers
+               the right shortlist. */
+            '<div class="ug-field"><label class="ug-lab">Alert type</label>' +
+              '<div class="ug-rowf ug-gap6 ug-wrap" style="gap:6px">' + ALERT_TYPES.map((t) => alertTypeChip(t[0], t[1], t[2])).join('') + '</div>' +
+              '<div class="ug-help">Determines the template shortlist and the icon on the citizen lock screen.</div></div>' +
+            /* alert level ladder — color-coded severity. Emergency always
+               triggers push immediately; Preparedness respects quiet hours. */
+            '<div class="ug-field"><label class="ug-lab">Alert level</label>' +
+              '<div class="ug-rowf ug-gap6 ug-wrap" style="gap:6px">' +
+                levelChip('emergency', 'Emergency') +
+                levelChip('warning', 'Warning') +
+                levelChip('advisory', 'Advisory') +
+                levelChip('prepared', 'Preparedness') +
+              '</div></div>' +
             '<div class="ug-field"><label class="ug-lab">Advisory title</label>' +
               '<input class="ug-in" data-field="advTitle" value="' + esc(d.title) + '" placeholder="e.g. Flood warning: Pangapisan North"></div>' +
             '<div class="ug-rowf ug-gap12" style="gap:12px">' +
-              '<div class="ug-field" style="flex:1"><label class="ug-lab">Severity</label>' +
-                '<select class="ug-sel" data-field="advSev" aria-label="Severity">' +
-                [['emergency', 'Emergency'], ['warning', 'Warning'], ['advisory', 'Advisory'], ['prepared', 'Preparedness']]
-                  .map(s => '<option value="' + s[0] + '"' + (d.sev === s[0] ? ' selected' : '') + '>' + s[1] + '</option>').join('') + '</select></div>' +
               '<div class="ug-field" style="flex:1"><label class="ug-lab">Broadcast type</label>' +
                 '<select class="ug-sel" data-field="advType" aria-label="Broadcast type">' +
                 ['Emergency', 'Preparedness'].map(s => '<option' + (d.type === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></div>' +
+              '<div class="ug-field" style="flex:1"><label class="ug-lab">Affected area</label>' +
+                '<select class="ug-sel" data-field="advArea" aria-label="Affected area">' +
+                [UG_GEO.PLACE.areaAll].concat(U.DATA.barangays)
+                  .map(s => '<option' + (d.area === s ? ' selected' : '') + '>' + esc(s) + '</option>').join('') + '</select></div>' +
             '</div>' +
-            '<div class="ug-field"><label class="ug-lab">Affected area</label>' +
-              '<select class="ug-sel" data-field="advArea" aria-label="Affected area">' +
-              [UG_GEO.PLACE.areaAll].concat(U.DATA.barangays)
-                .map(s => '<option' + (d.area === s ? ' selected' : '') + '>' + esc(s) + '</option>').join('') + '</select></div>' +
+            /* language toggle + template picker row. The language decides which
+               half of the template is loaded; English and Filipino are the only
+               two (Pangasinense was removed per build spec). */
+            '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px;margin-bottom:8px">' +
+              '<span class="ug-dimmer" style="font-size:10.5px;align-self:center">Language</span>' +
+              [['en','English'],['fil','Filipino']].map((l) =>
+                '<button class="ug-chip' + (d.lang === l[0] ? ' is-on' : '') + '"' + A('adv-lang', attr({ v: l[0] })) + '>' + l[1] + '</button>').join('') +
+              '<span style="flex:1"></span>' +
+              '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('adv-use-template') + '>' + I('megaphone', 14) + 'Use Template</button>' +
+            '</div>' +
             '<div class="ug-field"><label class="ug-lab">Message</label>' +
               '<textarea class="ug-ta" rows="4" data-field="advMsg" placeholder="Write the advisory residents will receive as a push notification.">' + esc(d.msg) + '</textarea>' +
               '<div class="ug-help">Keep it short. Residents read this on a lock screen during an emergency.</div></div>' +
@@ -1536,7 +1587,7 @@ const UG_SCREENS = (() => {
             '</div>' +
           '</div></div>' +
         '<div class="ug-col" style="gap:18px">' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Preview</h3><span class="ug-dimmer" style="font-size:10.5px">Lock Screen</span></div>' +
+          '<div class="ug-card"><div class="ug-card-h"><h3>Preview</h3><span class="ug-dimmer" style="font-size:10.5px">' + (d.lang === 'fil' ? 'Filipino' : 'English') + ' · Lock Screen</span></div>' +
             '<div class="ug-card-b ug-col" style="gap:10px">' +
               '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:flex-start;background:rgba(255,255,255,.03);border:1px solid var(--ug-line);border-radius:10px;padding:11px">' +
                 U.brandMark(26) +
@@ -1574,12 +1625,32 @@ const UG_SCREENS = (() => {
       : all;
     const list = scoped.filter(c => f === 'all' || c.status === f);
     const counts = ['open', 'full', 'closed'].map(s => [s, scoped.filter(c => c.status === s).length]);
+    const totalCap = scoped.reduce((s, c) => s + (c.cap || 0), 0);
+    const totalOcc = scoped.reduce((s, c) => s + (c.occ || 0), 0);
     /* the status chips are now clickable filters (they were display-only
        before). Each carries its count + an is-on state for the active filter. */
     const statusChip = (s, n) => '<button class="ug-chip' + (f === s ? ' is-on' : '') + '"' + A('center-filter', attr({ v: s })) + '>' + I('shelter', 13) + n + ' ' + s + '</button>';
+    /* facilities are stored as a comma-separated string or an array; normalise
+       so the card renders a tidy chip row. */
+    const facList = (c) => {
+      const arr = Array.isArray(c.facilities) ? c.facilities
+        : (c.facilities ? String(c.facilities).split(',').map((s) => s.trim()).filter(Boolean) : []);
+      return arr;
+    };
+    const facChips = (c) => facList(c).map((x) =>
+      '<span class="ug-chip ug-chip--soft">' + I('check', 11) + esc(x) + '</span>').join('');
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Evacuation Centers', 'Keep capacity and availability accurate so residents arrive at a shelter with space.',
+      pageHead('Evacuation Center Management', 'Keep capacity, facilities and contact details accurate so residents arrive at a shelter with space and the right support. (Evacuee check-in is handled separately.)',
         statusChip('open', counts[0][1]) + statusChip('full', counts[1][1]) + statusChip('closed', counts[2][1])) +
+      /* capacity summary strip — total capacity vs current occupancy across the
+         scoped list, so the duty officer can see the municipality-wide headroom. */
+      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:center">' +
+        '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:center"><span style="color:var(--ug-shelter);display:flex">' + I('shelter', 17) + '</span>' +
+          '<span class="ug-mono" style="font-size:15px;font-weight:600">' + totalOcc + ' / ' + totalCap + '</span>' +
+          '<span class="ug-dimmer" style="font-size:11px">current occupancy</span></div>' +
+        '<span style="width:1px;height:22px;background:var(--ug-line);margin:0 4px"></span>' +
+        '<span class="ug-dim" style="font-size:11.5px">' + scoped.length + ' centers · ' + counts[0][1] + ' open · ' + counts[1][1] + ' full · ' + counts[2][1] + ' closed</span>' +
+      '</div></div>' +
       /* scope toggle + status filter row, mirrors the citizen desktop screen.
          LGU sees "All Shelters" + "Municipality-wide"; an official gets a real
          "My Barangay (name)" toggle that narrows the list. */
@@ -1593,8 +1664,9 @@ const UG_SCREENS = (() => {
           .map(c => '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('center-filter', attr({ v: c[0] })) + '>' + esc(c[1]) + '</button>').join('') +
       '</div>' +
       (list.length ? '<div class="ug-dgrid-centers">' + list.map(c => {
-        const pct = Math.min(100, Math.round(c.occ / c.cap * 100));
+        const pct = c.cap ? Math.min(100, Math.round(c.occ / c.cap * 100)) : 0;
         const geoState = UG_GEO.classify(c.lat, c.lng);
+        const facs = facChips(c);
         return '<div class="ug-card"><div class="ug-card-b ug-col" style="gap:12px">' +
           '<div class="ug-rowf ug-between" style="gap:8px"><h3 style="font-size:13.5px">' + esc(c.name) + '</h3>' + U.badge(c.status, c.status.charAt(0).toUpperCase() + c.status.slice(1)) + '</div>' +
           '<div class="ug-dimmer ug-rowf ug-wrap" style="font-size:11px;gap:10px"><span class="ug-rowf" style="gap:4px">' + I('pin', 12) + esc(c.brgy) + '</span>' +
@@ -1606,10 +1678,20 @@ const UG_SCREENS = (() => {
             '<button class="ug-btn ug-btn--sm" style="flex:1.4"' + A('center-occ-set', attr({ id: c.id })) + '>Set count</button>' +
             [[1, '+1'], [10, '+10']].map(x => '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="flex:1"' + A('center-occ', attr({ id: c.id, d: x[0] })) + '>' + x[1] + '</button>').join('') +
           '</div>' +
-          '<div class="ug-dim" style="font-size:11.5px">' + esc(c.note) + '</div>' +
+          /* facilities chip row — only when the center has any on file. Renders
+             as soft chips so they read as a secondary detail under occupancy. */
+          (facs ? '<div class="ug-rowf ug-gap6 ug-wrap" style="gap:5px">' + facs + '</div>' : '') +
+          /* contact person + phone, so a duty officer can call the shelter
+             manager directly from the same card without opening the detail. */
+          ((c.contact_person || c.contact_phone) ? '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:8px;font-size:11.5px">' +
+            (c.contact_person ? '<span class="ug-rowf" style="gap:5px;color:var(--ug-ink-2)">' + I('users', 12) + esc(c.contact_person) + '</span>' : '') +
+            (c.contact_phone ? '<button class="ug-rowf" style="gap:5px;background:none;border:0;cursor:pointer;color:var(--ug-signal);font-family:var(--ug-mono);font-size:11px;padding:0"' + A('call', attr({ num: c.contact_phone, agency: c.name })) + '>' + I('phone', 12) + esc(c.contact_phone) + '</button>' : '') +
+          '</div>' : '') +
+          (c.note ? '<div class="ug-dim" style="font-size:11.5px">' + esc(c.note) + '</div>' : '') +
           '<div class="ug-rowf ug-gap8" style="gap:6px">' +
             ['open', 'full', 'closed'].map(s => '<button class="ug-btn ug-btn--sm' + (c.status === s ? ' ug-btn--signal' : '') + '" style="flex:1"' +
               A('center-status', attr({ id: c.id, s: s })) + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</button>').join('') +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="flex:0 0 auto"' + A('center-edit', attr({ id: c.id })) + '>' + I('settings', 13) + '</button>' +
           '</div>' +
           (geoState === 'ok'
             ? '<a class="ug-waze-btn" style="width:100%" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(c.lat, c.lng) + '">' + I('route', 13) + 'Navigate with Waze</a>'
@@ -1628,8 +1710,17 @@ const UG_SCREENS = (() => {
           '<div class="ug-field" style="flex:0 0 130px;margin:0"><label class="ug-lab">Latitude</label><input class="ug-in" data-field="centerLat" placeholder="16.0206" inputmode="decimal"></div>' +
           '<div class="ug-field" style="flex:0 0 130px;margin:0"><label class="ug-lab">Longitude</label><input class="ug-in" data-field="centerLng" placeholder="120.2306" inputmode="decimal"></div>' +
           '<button class="ug-btn ug-btn--ghost"' + A('center-locate') + '>' + I('pin', 15) + 'Use My Location</button>' +
+        '</div>' +
+        /* facilities + contact person + contact phone are the Module D additions.
+           Facilities are comma-separated on the form and stored as an array; the
+           contact phone becomes a clickable call button on the card. */
+        '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:flex-end;margin-top:12px">' +
+          '<div class="ug-field" style="flex:2;min-width:220px;margin:0"><label class="ug-lab">Facilities</label><input class="ug-in" data-field="centerFacilities" placeholder="e.g. Medical station, Kitchen, Pet-friendly area, Generator"></div>' +
+          '<div class="ug-field" style="flex:1;min-width:180px;margin:0"><label class="ug-lab">Contact person</label><input class="ug-in" data-field="centerContact" placeholder="e.g. Shelter Manager"></div>' +
+          '<div class="ug-field" style="flex:1;min-width:160px;margin:0"><label class="ug-lab">Contact phone</label><input class="ug-in" data-field="centerPhone" placeholder="(075) 632-2222"></div>' +
+          '<div class="ug-field" style="flex:2;min-width:220px;margin:0"><label class="ug-lab">Notes</label><input class="ug-in" data-field="centerNote" placeholder="e.g. Priority for coastal households"></div>' +
           '<button class="ug-btn ug-btn--signal"' + A('add-center') + '>' + I('plus', 15) + 'Add Center</button>' +
-        '</div><div class="ug-help">Coordinates are optional but required for the Waze navigation button to appear. Example: ' + esc(UG_GEO.EXAMPLE) + '.</div></div></div>' +
+        '</div><div class="ug-help">Coordinates are optional but required for the Waze navigation button to appear. Example: ' + esc(UG_GEO.EXAMPLE) + '. Facilities become chips on the card so residents can see what the shelter offers at a glance.</div></div></div>' +
     '</div>';
   }
 
@@ -1807,6 +1898,7 @@ const UG_SCREENS = (() => {
       case 'roadwork': return UG_ROADWORK.mRoadwork(st);
       case 'map': return mMap(st);
       case 'sos': return UG_SOS.mSos(st);
+      case 'settings': return (typeof UG_SETTINGS !== 'undefined') ? UG_SETTINGS.dSettings(st) : mHome(st);
       default: return mHome(st);
     }
   }
@@ -1859,6 +1951,7 @@ const UG_SCREENS = (() => {
     roadwork: ['Road Work', 'Active Posts & Road Status'],
     map: ['Hazard Map', 'Live Operations'],
     sos: ['SOS', 'One-Tap Emergency'],
+    settings: ['Settings', 'Your preferences'],
   };
 
   function frameMobile(st){
@@ -1899,6 +1992,7 @@ const UG_SCREENS = (() => {
     sos: ['UniGuard Command Console', UG_GEO.PLACE.label],
     map: ['UniGuard Command Console', UG_GEO.PLACE.label],
     'others-review': ['UniGuard Command Console', UG_GEO.PLACE.label],
+    settings: ['UniGuard Command Console', UG_GEO.PLACE.label],
   };
 
   function desktopBody(st){
@@ -1942,6 +2036,7 @@ const UG_SCREENS = (() => {
       })();
       case 'response-team': return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.responseTeam) ? UG_ADMIN.responseTeam(st) : dDashboard(st);
       case 'dispatch-units': return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.dispatchUnits) ? UG_ADMIN.dispatchUnits(st) : dDashboard(st);
+      case 'settings': return (typeof UG_SETTINGS !== 'undefined') ? UG_SETTINGS.dSettings(st) : dDashboard(st);
       case 'offline': return '<div class="ug-col" style="gap:18px">' + pageHead('Offline sync', 'Progressive web app cache keeps essentials available when networks fail.') +
         '<div style="max-width:760px">' + mOffline(st) + '</div></div>';
       default: return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.handles(st.route)) ? UG_ADMIN.body(st) : dDashboard(st);

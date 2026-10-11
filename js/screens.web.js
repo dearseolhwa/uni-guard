@@ -38,6 +38,7 @@ const UG_WEB = (() => {
     ['centers', 'Shelters', 'shelter'],
     ['hotlines', 'Hotlines', 'phone'],
     ['notifications', 'Notifications', 'bell'],
+    ['settings', 'Settings', 'settings'],
   ];
 
   function cwTop(st) {
@@ -53,7 +54,7 @@ const UG_WEB = (() => {
        button, user menu and Sign Out stay visible at 1280 / 1366 / 1440 px
        and on mobile at 100% zoom with no horizontal scroll. */
     const primary = [['home', 'Home', 'home'], ['report', 'Report a Hazard', 'plus'], ['relief', 'Relief', 'relief'], ['advisories', 'Advisories', 'megaphone'], ['map', 'Hazard Map', 'map'], ['centers', 'Shelters', 'shelter'], ['notifications', 'Notifications', 'bell']];
-    const secondary = [['guides', 'Guides', 'guide'], ['faqs', 'FAQs', 'faq'], ['hotlines', 'Hotlines', 'phone'], ['offline', 'Offline', 'download']];
+    const secondary = [['guides', 'Guides', 'guide'], ['faqs', 'FAQs', 'faq'], ['hotlines', 'Hotlines', 'phone'], ['offline', 'Offline', 'download'], ['settings', 'Settings', 'settings']];
     const navBtn = (n) =>
       '<button class="ug-wnav-i' + (active === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '>' +
       I(n[2], 16) + n[1] + (n[0] === 'notifications' && unread ? '<span class="ug-wdot' + (unread > 9 ? ' is-many' : '') + '">' + (unread > 9 ? '9+' : unread) + '</span>' : '') + '</button>';
@@ -475,6 +476,13 @@ const UG_WEB = (() => {
       case 'map':
         return cwWrap(st, 'Hazard Map', 'Hazards, relief, shelters and road status around you.',
           UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'map' })));
+      case 'settings':
+        /* citizens get the same Settings screen as everyone else; the tabs
+           inside adapt to the citizen role (language + notifications + offline,
+           no org profile or templates). */
+        return (typeof UG_SETTINGS !== 'undefined')
+          ? cwWrap(st, UG_I18N.t('title.settings'), UG_I18N.t('settings.subtitle'), UG_SETTINGS.dSettings(st))
+          : cwHome(st);
       default: return cwHome(st);
     }
   }

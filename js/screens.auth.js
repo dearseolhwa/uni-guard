@@ -221,6 +221,57 @@ const UG_AUTH = (function () {
     return shell(a, 'Set a New Password', 'Account recovery', 'Choose a new password for your UniGuard account.', body, '');
   }
 
+  /* ------------------------------------------------------- onboarding screen
+   * Shown the first time an invited user signs in (after accepting the email
+   * invitation). They set their password and fill in their real name, phone
+   * and barangay (for officials) — the edge function auto-set full_name to
+   * the email prefix, so this is where they replace it with their actual name.
+   *
+   * The password field is OPTIONAL: if the user already has a password (e.g.
+   * they accepted an old invitation on a previous deployment and set one),
+   * they can leave it blank to keep their current password. If they don't
+   * have one yet (the normal case for a fresh invite), they must set one. */
+  function onboarding(a) {
+    const f = a.form || {};
+    const pw = UG_UTIL.passwordStrength(f.password || '');
+    const role = (a.pendingProfile && a.pendingProfile.role) || 'citizen';
+    const isOfficial = role === 'barangay_official';
+    const isDispatch = role === 'dispatch_team';
+    const roleName = UG_WEB.ROLE_INFO[role] ? UG_WEB.ROLE_INFO[role].label : role;
+    const unitName = (a.pendingProfile && a.pendingProfile.unit_name) || '';
+
+    const body =
+      /* password — optional (leave blank to keep current password if you
+         already have one; required if this is a fresh invitation) */
+      field('password', 'Set Your Password', { type: 'password', value: f.password, ph: 'At least 8 characters (leave blank to keep current)', ac: 'new-password', reveal: true, revealed: a.showPassword }) +
+      (f.password ?
+        '<div class="ug-auth-strength"><div class="bars">' +
+          [0, 1, 2, 3, 4].map((i) => '<i class="' + (i < pw.score ? 'on' : '') + '"></i>').join('') +
+        '</div><span>' + esc(pw.label) + '</span></div>'
+        : '<div class="ug-help" style="margin-bottom:14px">Leave blank to keep your current password. If this is your first time signing in, you must set one.</div>') +
+      field('confirm', 'Confirm Password', { type: 'password', value: f.confirm, ph: 'Repeat your password (if setting a new one)', ac: 'new-password' }) +
+      /* full name (the edge function set it to the email prefix; this fixes it) */
+      field('name', 'Full Name', { value: f.name, ph: 'Juan Dela Cruz', ac: 'name' }) +
+      /* phone — optional but useful for dispatch/official accounts */
+      field('phone', 'Mobile Number', { value: f.phone, ph: '0917 123 4567', ac: 'tel', inputmode: 'tel' }) +
+      /* barangay picker — only for barangay_official (citizens pick during report, dispatch is unit-scoped) */
+      (isOfficial && a.barangays && a.barangays.length
+        ? selectField('barangay_id', 'Your Barangay', a.barangays.map((b) => ({ id: b.id, name: b.name })), f.barangay_id, 'You will only see and manage reports from this barangay.')
+        : '') +
+      /* dispatch team info — read-only context so they know which unit they're joining */
+      (isDispatch
+        ? '<div class="ug-card ug-card--flat" style="margin-bottom:14px"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
+            '<span style="color:var(--ug-signal);display:flex">' + I('truck', 17) + '</span>' +
+            '<div class="ug-note">You are the <strong>' + esc(a.pendingProfile.unit_role === 'unit_admin' ? 'Unit Administrator' : 'Unit Member') + '</strong> of <strong>' + esc(unitName) + '</strong>. You can update your name and phone here; the unit assignment is managed by your LGU.</div>' +
+          '</div></div>'
+        : '') +
+      '<button type="submit" class="ug-btn ug-btn--signal ug-btn--block' + (a.loading ? ' is-disabled' : '') + '" data-act="complete-onboarding"' +
+        (a.loading ? ' disabled' : '') + '>' + I('check', 16) + (a.loading ? 'Saving...' : 'Complete Setup & Sign In') + '</button>';
+
+    const sub = 'You\'re joining as a ' + esc(roleName) + '. Fill in your details to finish setting up your account.';
+    return shell(a, 'Complete Your Account', 'Invitation accepted', sub, body, '');
+  }
+
   function authScreen(st) {
     const a = st.auth || {};
     switch (a.screen) {
@@ -229,6 +280,7 @@ const UG_AUTH = (function () {
       case 'forgot': return forgot(a);
       case 'forgot-sent': return forgotSent(a);
       case 'set-password': return setPassword(a);
+      case 'onboarding': return onboarding(a);
       default: return signIn(a);
     }
   }
