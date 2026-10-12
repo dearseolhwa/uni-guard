@@ -1,7 +1,8 @@
 /* UniGuard · PDF exports (js/pdf.js)
  *
  * ONE shared helper that produces every export in the system. All exports are
- * formatted PDFs — there is no CSV, JSON or raw-text export anywhere.
+ * formatted PDFs. The one exception is the Reports and Documentation module
+ * (js/reporting.js), which also offers Excel through js/xlsx-lite.js.
  *
  * Uses the vendored copies of jsPDF and jspdf-autotable (vendor/, precached by
  * sw.js — no CDN at runtime). Every document carries:
@@ -93,8 +94,18 @@ const UG_PDF = (function () {
 
     let startY = head();
 
+    const orient = opts.landscape ? 'landscape' : 'portrait';
     (opts.tables || []).forEach((t, idx) => {
-      if (idx > 0) startY = head();
+      if (idx > 0) {
+        if (opts.flow) {
+          /* flow: tables follow one another down the page (situation reports
+             have many short sections; a page each would waste paper) */
+          startY = doc.lastAutoTable.finalY + 20;
+          if (startY > H - 130) { doc.addPage(orient); brand(opts); startY = 84; }
+        } else {
+          startY = head();
+        }
+      }
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.setTextColor(11, 18, 32);
@@ -114,14 +125,32 @@ const UG_PDF = (function () {
         styles: { fontSize: 8, cellPadding: 4, textColor: [30, 41, 59], lineColor: [226, 232, 240], lineWidth: 0.5 },
         headStyles: { fillColor: [12, 21, 36], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [246, 249, 253] },
-        margin: { left: M, right: M },
+        /* top margin clears the brand band on continuation pages, which is
+           drawn after the rows and would otherwise cover the first of them */
+        margin: { left: M, right: M, top: 80 },
         didDrawPage: () => { brand(opts); },
         showHead: 'everyPage'
       });
-      if (idx < opts.tables.length - 1) {
-        doc.addPage(opts.landscape ? 'landscape' : 'portrait');
+      if (!opts.flow && idx < opts.tables.length - 1) {
+        doc.addPage(orient);
       }
     });
+
+    /* signature block: [{ label: 'Prepared by', name, title }] */
+    if (opts.signoff && opts.signoff.length) {
+      let y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : startY) + 54;
+      if (y > H - 70) { doc.addPage(orient); brand(opts); y = 130; }
+      const colW = (W - M * 2) / opts.signoff.length;
+      opts.signoff.forEach((s, i) => {
+        const x = M + colW * i;
+        doc.setDrawColor(120, 134, 156);
+        doc.line(x, y, x + Math.min(colW - 30, 200), y);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(11, 18, 32);
+        doc.text(String(s.name || ''), x, y - 5);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90, 105, 130);
+        doc.text(String(s.label || '') + (s.title ? ' · ' + s.title : ''), x, y + 12);
+      });
+    }
 
     drawFooter();
     doc.save(opts.filename || 'uniguard-export.pdf');

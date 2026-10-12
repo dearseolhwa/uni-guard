@@ -1,5 +1,19 @@
 # Changes
 
+## 2026-10-12 — LDRRMO core modules G (reports) and H (admin and security)
+- **Reports and Documentation** (new console screen `#reporting`, LDRRMO and barangay officials): auto-generated Situation Report (11 sections compiled from incidents, dispatches, evacuation centers, relief, road status, advisories and damage assessments, with a numbered register), Incident Summary (details, status timeline, response, linked damage), and a Damage and Needs Assessment form and register (draft → submitted → validated; only the LGU validates).
+- **Export to PDF and Excel** for those three documents. Excel is a real `.xlsx` written by `js/xlsx-lite.js` (no library, no CDN) and exists in this module only; every other export stays PDF.
+- **Super Admin**: a flag on an LGU account (`profiles.is_super_admin`), not a new role key, so the existing `lgu_ldrrmc` checks keep working. Super Admin only: user management, role and barangay changes, disabling accounts, creating a dispatch unit (it invites an account), the activity log, and Settings → General. `lgu_ldrrmc` is now labelled "LDRRMO Staff". The last active Super Admin cannot be removed or disabled.
+- **Activity Log** (was "Audit Log"): filters for record type, person, date range and free text; a readable "what changed" column instead of raw JSON; the PDF export follows the filters. New tables are covered by the audit trigger.
+- **Fixed in `admin-users`**: the `create` action only checked the caller for `dispatch_team`, so any signed-in account could invite a barangay official or an LGU account. It now requires the Super Admin.
+- **PDF helper**: `flow` option (tables follow one another), `signoff` block, and a top margin so the brand band no longer covers the first rows of a continuation page.
+- Files: `js/reporting.js`, `js/xlsx-lite.js` (new); `js/app.js`, `js/screens.js`, `js/screens.admin.js`, `js/screens.web.js`, `js/auth.js`, `js/settings.js`, `js/pdf.js`, `js/i18n.js`, `index.html`, `sw.js` (cache v11); `migrations/043_super_admin.sql`, `migrations/044_reports_documentation.sql`; `supabase/functions/admin-users/index.ts`. `env.js` (build bump).
+- Run order: migration 043, then deploy `admin-users`, then migration 044, then the app files.
+
+---
+
+# Changes
+
 ## 2026-10-11 — Barangay Response Team + Dispatch Teams (BFP, PNP, Rescue, Hospital)
 - **4th user role `dispatch_team`** with its own interface at `#dispatch`. A dispatch user is tied to ONE unit (`profiles.dispatch_unit_id`) with role `unit_admin` or `member`. Self sign-up can never produce dispatch_team — the LGU creates units and the first unit_admin through `admin-users`; a unit_admin can then invite members into their own unit.
 - **Municipality-wide units** (`dispatch_units`) for BFP / PNP / Rescue / Hospital. There is no coverage table — these units serve every barangay.

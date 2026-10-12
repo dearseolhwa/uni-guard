@@ -1080,9 +1080,14 @@ const UG_SCREENS = (() => {
     ['sos', 'nav.sos', 'sos', null, ['lgu_ldrrmc']],
     ['hotlines', 'nav.hotlines', 'phone', null],
     ['analytics', 'nav.analytics', 'layers', null],
+    /* Module G: situation report, incident summary, damage and needs */
+    ['reporting', 'nav.reporting', 'doc', null, ['lgu_ldrrmc', 'barangay_official']],
     ['others-review', 'nav.others-review', 'help', null, ['lgu_ldrrmc']],
-    ['users', 'nav.users', 'users', null, ['lgu_ldrrmc']],
-    ['audit', 'nav.audit', 'doc', null, ['lgu_ldrrmc']],
+    /* Module H: accounts, roles and the activity log are Super Admin only.
+       A sixth slot of 'super' hides the entry from LDRRMO staff; the database
+       enforces the same rule (migration 043). */
+    ['users', 'nav.users', 'users', null, ['lgu_ldrrmc'], 'super'],
+    ['audit', 'nav.audit', 'clock', null, ['lgu_ldrrmc'], 'super'],
     /* Settings is now visible to EVERY role. The tabs inside adapt to the
        role (citizens see language + notifications + offline; LGU sees those
        plus org profile + templates). No role gate here. */
@@ -1102,7 +1107,7 @@ const UG_SCREENS = (() => {
       '<button class="ug-brand ug-brand-btn"' + A('nav', attr({ route: 'dashboard' })) + ' aria-label="Go to the dashboard">' + U.brandMark(32) +
         '<span class="ug-col" style="gap:0"><span class="ug-wordmark" style="font-size:15.5px">Uni<em>Guard</em></span>' +
         '<span class="ug-dimmer" style="font-size:9px;letter-spacing:.1em;text-transform:uppercase">Command console</span></span></button>' +
-      DNAV.filter(n => !n[4] || n[4].indexOf(role.role) !== -1).map(n => '<button class="ug-nav' + (route === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '>' +
+      DNAV.filter(n => (!n[4] || n[4].indexOf(role.role) !== -1) && (n[5] !== 'super' || role.superAdmin)).map(n => '<button class="ug-nav' + (route === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '>' +
         I(n[2], 18) + '<span>' + T(n[1]) + '</span>' + (navCount(n[0]) ? '<span class="n-cnt">' + navCount(n[0]) + '</span>' : '') + '</button>').join('') +
       '<div style="margin-top:auto" class="ug-col ug-gap6" style="gap:6px">' +
         '<button class="ug-nav"' + A('nav', attr({ route: 'offline' })) + '>' + I(st.offline ? 'wifioff' : 'download', 18) + '<span>' + T('nav.offline') + '</span></button>' +
@@ -1440,6 +1445,8 @@ const UG_SCREENS = (() => {
         '</div>' +
         '<div class="ug-rowf ug-gap8" style="gap:8px">' +
           '<button class="ug-btn ug-btn--sm"' + A('edit-report', attr({ id: i.id })) + '>' + I('settings', 15) + 'Edit</button>' +
+          /* Module G: one-document summary of this incident (PDF or Excel) */
+          (typeof UG_REPORTING !== 'undefined' ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('rp-open-incident', attr({ id: i.id })) + '>' + I('doc', 15) + 'Incident Summary</button>' : '') +
           /* "Assign Units" removed — Dispatch Response (and "Add Team" once
              dispatched) already covers assigning a response unit, so the
              separate Assign Units button was redundant clutter. */
@@ -2037,6 +2044,7 @@ const UG_SCREENS = (() => {
       case 'response-team': return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.responseTeam) ? UG_ADMIN.responseTeam(st) : dDashboard(st);
       case 'dispatch-units': return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.dispatchUnits) ? UG_ADMIN.dispatchUnits(st) : dDashboard(st);
       case 'settings': return (typeof UG_SETTINGS !== 'undefined') ? UG_SETTINGS.dSettings(st) : dDashboard(st);
+      case 'reporting': return (typeof UG_REPORTING !== 'undefined') ? UG_REPORTING.dReporting(st) : dDashboard(st);
       case 'offline': return '<div class="ug-col" style="gap:18px">' + pageHead('Offline sync', 'Progressive web app cache keeps essentials available when networks fail.') +
         '<div style="max-width:760px">' + mOffline(st) + '</div></div>';
       default: return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.handles(st.route)) ? UG_ADMIN.body(st) : dDashboard(st);

@@ -320,7 +320,8 @@ const UG_SETTINGS = (function () {
      access to templates so they can see what's available but not edit them.
      This table decides which tabs each role sees. */
   const ALL_TABS = [
-    ['general', 'settings.general', 'settings', ['lgu_ldrrmc']],
+    /* General (organisation profile) is Super Admin only: fifth slot = 'super' */
+    ['general', 'settings.general', 'settings', ['lgu_ldrrmc'], 'super'],
     ['notifications', 'settings.notifications', 'bell', ['citizen', 'barangay_official', 'lgu_ldrrmc', 'dispatch_team']],
     ['offline', 'settings.offline', 'download', ['citizen', 'barangay_official', 'lgu_ldrrmc', 'dispatch_team']],
     ['language', 'settings.language', 'globe', ['citizen', 'barangay_official', 'lgu_ldrrmc', 'dispatch_team']],
@@ -329,24 +330,25 @@ const UG_SETTINGS = (function () {
   const SETTINGS_TABS = ALL_TABS.map((t) => [t[0], t[1], t[2]]); /* backward-compat export */
 
   /* the tabs visible to a given role. Used by dSettings + the nav gate. */
-  function tabsForRole(role) {
-    return ALL_TABS.filter((t) => !t[3] || t[3].indexOf(role) !== -1);
+  function tabsForRole(role, superAdmin) {
+    return ALL_TABS.filter((t) => (!t[3] || t[3].indexOf(role) !== -1) && (t[4] !== 'super' || superAdmin));
   }
-  function firstTabForRole(role) {
-    const tabs = tabsForRole(role);
-    /* language is the most useful first tab for non-LGU roles (citizens mostly
-       come here to switch language); general is first for LGU (org profile). */
-    if (role === 'lgu_ldrrmc') return 'general';
+  function firstTabForRole(role, superAdmin) {
+    /* language is the most useful first tab for most roles (citizens mostly
+       come here to switch language); general is first for the Super Admin (org
+       profile); LDRRMO staff land on the message templates they work with. */
+    if (role === 'lgu_ldrrmc') return superAdmin ? 'general' : 'templates';
     return 'language';
   }
 
   function dSettings(st) {
     const role = (st.session && st.session.role) || 'citizen';
-    const visibleTabs = tabsForRole(role);
+    const superAdmin = !!(st.session && st.session.superAdmin);
+    const visibleTabs = tabsForRole(role, superAdmin);
     /* if the stored tab isn't visible to this role, fall back to the first
        visible one (e.g. a citizen who had 'general' bookmarked). */
-    let tab = st.settingsTab || firstTabForRole(role);
-    if (!visibleTabs.some((t) => t[0] === tab)) tab = firstTabForRole(role);
+    let tab = st.settingsTab || firstTabForRole(role, superAdmin);
+    if (!visibleTabs.some((t) => t[0] === tab)) tab = firstTabForRole(role, superAdmin);
     const T = (k) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : k);
     const tabs = visibleTabs.map((t) =>
       '<button class="ug-chip' + (tab === t[0] ? ' is-on' : '') + '"' + A('settings-tab', attr({ v: t[0] })) + '>' +

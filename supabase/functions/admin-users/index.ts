@@ -16,6 +16,13 @@
 //     (migration 006) forces role=citizen; the trigger plus the
 //     profiles_dispatch_team_unit_check constraint enforce the rest.
 //
+// Super Admin (migration 043): accounts, roles, barangay assignment and the
+// disabled flag are managed by the Super Admin only. A Super Admin is an
+// `lgu_ldrrmc` account with `profiles.is_super_admin = true`; LDRRMO staff are
+// `lgu_ldrrmc` accounts without it. The app sends role = 'super_admin' as a
+// convenience; it is stored as lgu_ldrrmc + the flag, never as a new role key.
+// Run migration 043 BEFORE deploying this version: it reads is_super_admin.
+//
 // Deploy:
 //   supabase functions deploy admin-users --no-verify-jwt=false
 //   supabase secrets set SUPABASE_SERVICE_ROLE_KEY=... (usually already present)
@@ -54,11 +61,16 @@ Deno.serve(async (req: Request) => {
   if (userErr || !userData?.user) return json({ error: 'Not signed in' }, 401);
 
   const { data: profile } = await asCaller
-    .from('profiles').select('id, role, barangay_id, dispatch_unit_id, unit_role').eq('id', userData.user.id).maybeSingle();
+    .from('profiles').select('id, role, barangay_id, dispatch_unit_id, unit_role, is_super_admin, disabled').eq('id', userData.user.id).maybeSingle();
 
   if (!profile) {
     return json({ error: 'Your account could not be loaded' }, 403);
   }
+  if (profile.disabled) return json({ error: 'This account is disabled' }, 403);
+
+  // The one check every account-management action below relies on.
+  const isSuper = profile.role === 'lgu_ldrrmc' && profile.is_super_admin === true;
+  const SUPER_ONLY = 'Only the Super Admin can manage accounts';
 
   // 2. act with the service role
   const admin = createClient(url, service, { auth: { persistSession: false } });
@@ -94,16 +106,18 @@ Deno.serve(async (req: Request) => {
            the frontend didn't send one. */
         const redirectUrl = (payload.redirectUrl as string) || undefined;
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: 'A valid email is required' }, 400);
+        // Creating ANY non-citizen account is a Super Admin action. (Before
+        // this check the function only verified the caller for dispatch_team,
+        // so any signed-in account could invite a barangay official or an LGU
+        // account.)
+        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
         if (!ALL_ROLES.includes(role)) return json({ error: 'Unknown role' }, 400);
         if (role !== 'dispatch_team' && !['barangay_official', 'lgu_ldrrmc'].includes(role)) {
           return json({ error: 'Self sign-up cannot produce dispatch_team or other restricted roles' }, 400);
         }
-        // Only the LGU may create dispatch_team accounts (the first unit_admin
-        // and any further members the LGU wants to seed directly).
+        // dispatch_team accounts (the first unit_admin and any further members
+        // the Super Admin wants to seed directly) must name their unit.
         if (role === 'dispatch_team') {
-          if (profile.role !== 'lgu_ldrrmc') {
-            return json({ error: 'Only the LGU can create a dispatch team account' }, 403);
-          }
           if (!unitId || !['unit_admin', 'member'].includes(unitRole)) {
             return json({ error: 'A unitId and a unitRole of unit_admin/member are required for dispatch_team' }, 400);
           }
@@ -201,27 +215,39 @@ Deno.serve(async (req: Request) => {
 
       case 'set-role': {
         const userId = String(payload.userId || '');
-        const role = String(payload.role || '');
+        const asked = String(payload.role || '');
+        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
+        // 'super_admin' is the app's name for lgu_ldrrmc + is_super_admin
+        const wantSuper = asked === 'super_admin';
+        const role = wantSuper ? 'lgu_ldrrmc' : asked;
         if (!ALL_ROLES.includes(role)) return json({ error: 'Unknown role' }, 400);
         if (role === 'dispatch_team') {
           return json({ error: 'Dispatch team accounts are created through the dispatch unit workflow' }, 400);
         }
-        if (profile.role !== 'lgu_ldrrmc') {
-          return json({ error: 'Only LGU / LDRRMC can change roles' }, 403);
+        const { data: target } = await admin.from('profiles')
+          .select('id, role, is_super_admin').eq('id', userId).maybeSingle();
+        if (!target) return json({ error: 'That account does not exist' }, 400);
+        const wasSuper = target.role === 'lgu_ldrrmc' && target.is_super_admin === true;
+        // never leave the system without a Super Admin
+        if (wasSuper && !wantSuper) {
+          if (userId === profile.id) return json({ error: 'You cannot remove your own Super Admin access. Ask another Super Admin to do it.' }, 400);
+          const { count } = await admin.from('profiles').select('id', { count: 'exact', head: true })
+            .eq('role', 'lgu_ldrrmc').eq('is_super_admin', true).eq('disabled', false);
+          if ((count ?? 0) <= 1) return json({ error: 'This is the last Super Admin. Grant Super Admin to another account first.' }, 400);
         }
         const { data, error } = await admin.from('profiles')
-          .update({ role, updated_at: new Date().toISOString() }).eq('id', userId).select('*').single();
+          .update({ role, is_super_admin: wantSuper, updated_at: new Date().toISOString() }).eq('id', userId).select('*').single();
         if (error) return json({ error: error.message }, 400);
-        await audit('user.role_changed', userId, { to: role });
+        await audit('user.role_changed', userId, {
+          from: wasSuper ? 'super_admin' : target.role, to: wantSuper ? 'super_admin' : role
+        });
         return json({ ok: true, profile: data });
       }
 
       case 'set-barangay': {
         const userId = String(payload.userId || '');
         const barangayId = (payload.barangayId as string) || null;
-        if (profile.role !== 'lgu_ldrrmc') {
-          return json({ error: 'Only LGU / LDRRMC can change barangay assignment' }, 403);
-        }
+        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
         let name = '';
         if (barangayId) {
           const { data: b } = await admin.from('barangays').select('name').eq('id', barangayId).maybeSingle();
@@ -239,8 +265,15 @@ Deno.serve(async (req: Request) => {
         const userId = String(payload.userId || '');
         const disabled = payload.disabled === true;
         if (userId === profile.id) return json({ error: 'You cannot disable your own account' }, 400);
-        if (profile.role !== 'lgu_ldrrmc') {
-          return json({ error: 'Only LGU / LDRRMC can disable accounts' }, 403);
+        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
+        if (disabled) {
+          const { data: target } = await admin.from('profiles')
+            .select('role, is_super_admin').eq('id', userId).maybeSingle();
+          if (target && target.role === 'lgu_ldrrmc' && target.is_super_admin === true) {
+            const { count } = await admin.from('profiles').select('id', { count: 'exact', head: true })
+              .eq('role', 'lgu_ldrrmc').eq('is_super_admin', true).eq('disabled', false);
+            if ((count ?? 0) <= 1) return json({ error: 'This is the last active Super Admin and cannot be disabled.' }, 400);
+          }
         }
         const { data, error } = await admin.from('profiles')
           .update({ disabled, updated_at: new Date().toISOString() }).eq('id', userId).select('*').single();

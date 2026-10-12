@@ -25,6 +25,8 @@
     offline: false, sevFilter: 'all', incBrgyFilter: 'All', centerFilter: 'all', readNotifs: false,
     corr: {}, declareArmed: false, loading: false, error: null, syncNote: '',
     barangays: [], users: [], audit: [], responders: [],
+    /* activity log filters (module H) */
+    auditQ: '', auditEntity: 'All', auditActor: 'All', auditFrom: '', auditTo: '',
     /* incident queue sort: 'default' (newest first) or 'priority' (severity,
        then corroboration count, then recency) */
     incidentSort: 'default',
@@ -233,6 +235,15 @@
       render();
       return;
     }
+    /* Module G: reports and documentation loads its own register */
+    if (route === 'reporting') {
+      if (typeof UG_REPORTING !== 'undefined') { try { await UG_REPORTING.loadRoute(); } catch (e) { } }
+      return;
+    }
+    /* Module H: accounts and the activity log belong to the Super Admin. The
+       database refuses the read for anyone else; skipping it here just avoids
+       showing LDRRMO staff an error for a screen they are not offered. */
+    if ((route === 'users' || route === 'audit') && !isSuperAdmin()) { render(); return; }
     if (route === 'users') {
       S.loading = true; S.error = null; render();
       try {
@@ -301,7 +312,7 @@
     'advisories', 'advisory-detail', 'centers', 'hotlines', 'notifications', 'offline',
     'dashboard', 'incidents', 'incident', 'analytics', 'users', 'audit', 'command', 'more',
     'relief', 'relief-verify', 'guides', 'faqs', 'roadwork', 'map', 'sos',
-    'others-review', 'response-team', 'dispatch-units', 'dispatch',
+    'others-review', 'response-team', 'dispatch-units', 'dispatch', 'reporting',
     'equipment', 'roster', 'hospital', 'requests', 'contacts', 'dispatch-detail', 'settings'];
 
   function routeFromHash() {
@@ -362,7 +373,7 @@
       }
     }
     go(homeRoute());
-    toast(message || ('Signed in as ' + UG_WEB.ROLE_INFO[session.role].label + ' · ' + session.scope), 'prepared');
+    toast(message || ('Signed in as ' + (session.title || UG_WEB.ROLE_INFO[session.role].label) + ' · ' + session.scope), 'prepared');
     render();
     bootstrapData();
   }
@@ -371,6 +382,7 @@
     if (!S.session) return false;
     return roles.indexOf(S.session.role) !== -1;
   }
+  const isSuperAdmin = () => !!(S.session && S.session.role === 'lgu_ldrrmc' && S.session.superAdmin);
 
   /* ------------------------------------------------------- barangay combo */
   /* Helpers for the custom Barangay picker. The DOM is recreated on every
@@ -1539,7 +1551,7 @@
           title: 'Emergency Hotline Directory',
           subtitle: 'Every agency contact cached offline on resident devices.',
           kind: 'Directory export',
-          generatedBy: (S.session ? S.session.name + ' · ' + (UG_WEB.ROLE_INFO[S.session.role] || {}).label : 'UniGuard'),
+          generatedBy: (S.session ? S.session.name + ' · ' + (S.session.title || (UG_WEB.ROLE_INFO[S.session.role] || {}).label) : 'UniGuard'),
           scope: UG_GEO.PLACE.scope,
           filename: 'uniguard-hotlines.pdf',
           tables: [{ name: 'Hotlines', note: 'Numbers are listed exactly as published by each agency.', head: ['Agency', 'Contact number', 'Scope'], rows: rows }]
@@ -1560,7 +1572,7 @@
             title: 'Analytics Report',
             subtitle: 'Incident volume, response performance and verification quality.',
             kind: 'Analytics',
-            generatedBy: (S.session ? S.session.name + ' · ' + (UG_WEB.ROLE_INFO[S.session.role] || {}).label : 'UniGuard'),
+            generatedBy: (S.session ? S.session.name + ' · ' + (S.session.title || (UG_WEB.ROLE_INFO[S.session.role] || {}).label) : 'UniGuard'),
             scope: (S.session && S.session.role === 'barangay_official') ? 'Barangay ' + (S.session.barangay || '') : UG_GEO.PLACE.scope,
             meta: 'Date range: ' + (a.from || '') + ' to ' + (a.to || ''),
             filename: 'uniguard-analytics.pdf',
@@ -1874,7 +1886,7 @@
     },
 
     'admin-create': async () => {
-      if (!requireRole(['lgu_ldrrmc'])) { toast('Only LGU can create officials', 'warning'); return; }
+      if (!isSuperAdmin()) { toast('Only the Super Admin can create accounts', 'warning'); return; }
 
       let list = S.barangays || [];
       if (!list.length) { list = await Repo.listBarangays(); S.barangays = list; }
@@ -1927,6 +1939,17 @@
     },
 
     'admin-role': async (d, el) => {
+      if (!isSuperAdmin()) { toast('Only the Super Admin can change roles', 'warning'); render(); return; }
+      /* granting full administration is deliberate: confirm it */
+      if (el.value === 'super_admin') {
+        const u = (S.users || []).find((x) => x.id === d.id) || {};
+        const ok = await UG_FEATURES.confirm({
+          title: 'Make this account a Super Admin?',
+          message: (u.full_name || u.email || 'This account') + ' will be able to create accounts, change roles, disable users and read the full activity log.',
+          confirmLabel: 'Grant Super Admin'
+        });
+        if (!ok) { render(); return; }
+      }
       try {
         await Repo.adminUsers('set-role', { userId: d.id, role: el.value });
         toast('Role updated', 'prepared');
@@ -1969,7 +1992,7 @@
      * manage it.
      */
     'admin-create-unit': async () => {
-      if (!requireRole(['lgu_ldrrmc'])) { toast('Only the LGU can create dispatch units', 'warning'); return; }
+      if (!isSuperAdmin()) { toast('Only the Super Admin can create a dispatch unit and invite its admin', 'warning'); return; }
       const esc = UG_UTIL.esc;
       const typeOpts = ['BFP', 'PNP', 'Rescue', 'Hospital']
         .map((t) => '<option value="' + t + '">' + t + '</option>').join('');
@@ -2177,7 +2200,7 @@
           title: 'User Accounts',
           subtitle: 'Every account, its role and barangay assignment.',
           kind: 'User export',
-          generatedBy: (S.session ? S.session.name + ' · ' + (UG_WEB.ROLE_INFO[S.session.role] || {}).label : 'UniGuard'),
+          generatedBy: (S.session ? S.session.name + ' · ' + (S.session.title || (UG_WEB.ROLE_INFO[S.session.role] || {}).label) : 'UniGuard'),
           scope: UG_GEO.PLACE.scope,
           filename: 'uniguard-users.pdf',
           tables: [{ name: 'Accounts', note: 'Roles are enforced by row level security; this list mirrors the console.', head: ['Name', 'Email', 'Role', 'Barangay', 'Status', 'Created'], rows: rows }]
@@ -2187,26 +2210,37 @@
     },
 
     'admin-export-audit': () => {
-      const rows = (S.audit || []).map((a) => [
+      /* exports exactly what the filters show */
+      const rows = UG_ADMIN.filterAudit(S).map((a) => [
         UG_UTIL.absTime(a.created_at) || '',
-        a.actor_name || (a.actor_id ? String(a.actor_id).slice(0, 8) : 'system'),
-        a.action || '', a.entity || '', a.entity_id || '',
-        JSON.stringify(a.meta || {}).slice(0, 160)
+        a.actor_name || (a.actor_id ? String(a.actor_id).slice(0, 8) : 'System'),
+        UG_ADMIN.entityLabel(a.entity), a.action || '',
+        UG_ADMIN.describe(a).slice(0, 400)
       ]);
       if (!rows.length) { toast('Nothing to export', 'info'); return; }
+      const filt = [S.auditEntity && S.auditEntity !== 'All' ? 'record type ' + UG_ADMIN.entityLabel(S.auditEntity) : '',
+        S.auditActor && S.auditActor !== 'All' ? 'changed by ' + S.auditActor : '',
+        (S.auditFrom || S.auditTo) ? 'dates ' + (S.auditFrom || 'start') + ' to ' + (S.auditTo || 'today') : '',
+        S.auditQ ? 'search "' + S.auditQ + '"' : ''].filter(Boolean).join(', ');
       try {
         UG_PDF.exportDoc({
-          title: 'Audit Log',
-          subtitle: 'Every privileged action, newest first.',
-          kind: 'Audit export',
+          title: 'Activity Log',
+          subtitle: 'Who changed what, newest first.',
+          kind: 'Activity log',
           landscape: true,
-          generatedBy: (S.session ? S.session.name + ' · ' + (UG_WEB.ROLE_INFO[S.session.role] || {}).label : 'UniGuard'),
+          generatedBy: (S.session ? S.session.name + ' · ' + (S.session.title || (UG_WEB.ROLE_INFO[S.session.role] || {}).label) : 'UniGuard'),
           scope: UG_GEO.PLACE.scope,
-          filename: 'uniguard-audit-log.pdf',
-          tables: [{ name: 'Audit entries', note: 'Actor, action, entity and the change details recorded at write time.', head: ['When', 'Actor', 'Action', 'Entity', 'Entity id', 'Detail'], rows: rows }]
+          meta: 'Filters: ' + (filt || 'none'),
+          filename: 'uniguard-activity-log.pdf',
+          tables: [{ name: 'Activity entries', note: 'Recorded by the database at write time.', head: ['When', 'Who', 'Record', 'Action', 'What changed'], rows: rows }]
         });
-        toast('Audit log exported as PDF', 'info');
+        toast('Activity log exported as PDF', 'info');
       } catch (e) { toast(e.message, 'warning'); }
+    },
+
+    'audit-clear': () => {
+      S.auditQ = ''; S.auditEntity = 'All'; S.auditActor = 'All'; S.auditFrom = ''; S.auditTo = '';
+      render();
     },
 
     'open-audit': (d) => {
@@ -2223,7 +2257,7 @@
         }
       } catch (e) { changed = ''; }
       UG_FEATURES.modal({
-        title: 'Audit entry',
+        title: 'Activity entry',
         body:
           kv('When', UG_UTIL.absTime(a.created_at) || '') +
           kv('Actor', a.actor_name || (a.actor_id ? String(a.actor_id).slice(0, 8) : 'system')) +
@@ -3033,7 +3067,9 @@
     APP_ACTIONS,
     /* Dispatch team module actions. The module is loaded before app.js in
        index.html, so UG_DISPATCH.actions is available here. */
-    (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.actions) ? UG_DISPATCH.actions : {}
+    (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.actions) ? UG_DISPATCH.actions : {},
+    /* Reports and Documentation module actions (module G) */
+    (typeof UG_REPORTING !== 'undefined' && UG_REPORTING.actions) ? UG_REPORTING.actions : {}
   );
 
   /* --------------------------------------------------------------- listeners */
@@ -3069,6 +3105,7 @@
     if (f === 'benSearch') { S.benSearch = v; render(f); return; }
     if (f === 'benSearchLgu') { S.benSearchLgu = v; render(f); return; }
     if (f === 'faqSearch') { S.faqSearch = v; render(f); return; }
+    if (f === 'auditQ') { S.auditQ = v; render(f); return; }
     if (f === 'reportAddress') { S.report.locationNote = v; return; }
     /* road work composer fields */
     if (f === 'rwTitle') { S.roadDraft.title = v; return; }
@@ -3098,6 +3135,9 @@
     else if (f === 'benBarangayFilter') { S.benBarangayFilter = v; render(); return; }
     else if (f === 'incBrgyFilter') { S.incBrgyFilter = v; render(); return; }
     else if (f === 'recBrgyFilter') { S.recBrgyFilter = v; render(); return; }
+    /* activity log filters */
+    else if (f === 'auditEntity' || f === 'auditActor' || f === 'auditFrom' || f === 'auditTo') { S[f] = v; render(); return; }
+    else if (f === 'auditQ') return;
     else if (f === 'assignResponder') return;
     else return;
     render();
@@ -3265,7 +3305,10 @@
       const seeded = UG.DATA.sessions[as];
       const session = {
         id: 'dev', email: seeded.email, name: seeded.name, initials: seeded.initials,
-        role: as, title: UG_WEB.ROLE_INFO[as].label, barangay: seeded.barangay, barangay_id: null,
+        /* ?super=0 previews the LDRRMO Staff tier; the default LGU preview is the Super Admin */
+        role: as, superAdmin: as === 'lgu_ldrrmc' && p.get('super') !== '0',
+        title: (as === 'lgu_ldrrmc' && p.get('super') !== '0') ? UG_WEB.SUPER_ADMIN_LABEL : UG_WEB.ROLE_INFO[as].label,
+        barangay: seeded.barangay, barangay_id: null,
         scope: seeded.scope
       };
       S.session = session;
@@ -3321,7 +3364,9 @@
 
     if (applyDevDeepLink()) {
       render();
-      bootstrapData();
+      /* a deep-linked preview route still needs its own data (reports register,
+         activity log); enterApp is skipped on this path */
+      bootstrapData().then(() => loadRouteData(S.route)).catch(() => { });
       return;
     }
 

@@ -18,11 +18,15 @@ const UG_WEB = (() => {
     citizen:           { key:'citizen',           label:'Citizen',            area:'citizen', home:'home',      scope:(b) => 'Barangay ' + (b || UG_GEO.BARANGAYS[0]) },
     barangay_official: { key:'barangay_official', label:'Barangay Official', area:'console', home:'dashboard',
   scope:(b) => b ? 'Barangay ' + b : 'No barangay assigned' },
-    lgu_ldrrmc:        { key:'lgu_ldrrmc',        label:'LGU / MDRRMO',       area:'console', home:'dashboard', scope:() => UG_GEO.PLACE.scope },
+    /* Two tiers share this role key. LDRRMO Staff run daily operations; the
+       Super Admin (profiles.is_super_admin) also manages accounts, roles and
+       the activity log. See session.superAdmin. */
+    lgu_ldrrmc:        { key:'lgu_ldrrmc',        label:'LDRRMO Staff',       area:'console', home:'dashboard', scope:() => UG_GEO.PLACE.scope },
     dispatch_team:     { key:'dispatch_team',     label:'Dispatch Team',     area:'dispatch', home:'dispatch',
   scope:(b, p) => 'Municipality-wide ' + (p && p.unit_role ? p.unit_role + ' · ' : '') + (p && p.dispatch_unit_id ? p.dispatch_unit_id.slice(0, 8) : 'unit') },
   };
   const ROLES = ['citizen', 'barangay_official', 'lgu_ldrrmc', 'dispatch_team'];
+  const SUPER_ADMIN_LABEL = 'Super Admin';
 
   /* ------------------------------------------------------------------ */
   /* CITIZEN DESKTOP (WEB) SHELL                                         */
@@ -516,5 +520,5 @@ const UG_WEB = (() => {
     '</div>';
   }
 
-  return { ROLE_INFO, ROLES, frameCitizenWeb, cwBody };
+  return { ROLE_INFO, ROLES, SUPER_ADMIN_LABEL, frameCitizenWeb, cwBody };
 })();

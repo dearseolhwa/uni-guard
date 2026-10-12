@@ -30,7 +30,13 @@ const Auth = (function () {
       barangay: p.barangay || '',
       disabled: !!p.disabled,
       dispatch_unit_id: p.dispatch_unit_id || null,
-      unit_role: p.unit_role || ''
+      unit_role: p.unit_role || '',
+      /* Super Admin is an LGU account with profiles.is_super_admin = true
+         (migration 043). Before that migration the column does not exist; every
+         LGU account then keeps the administration screens it has today, so
+         nobody is locked out between deploying the app and running the SQL. */
+      is_super_admin: (p.role === 'lgu_ldrrmc') &&
+        (p.is_super_admin === true || !Object.prototype.hasOwnProperty.call(p, 'is_super_admin'))
     };
   }
 
@@ -42,7 +48,8 @@ const Auth = (function () {
       name: profile.full_name,
       initials: UG_UTIL.initials(profile.full_name, '?'),
       role: info.key,
-      title: info.label,
+      superAdmin: profile.is_super_admin === true,
+      title: profile.is_super_admin === true ? UG_WEB.SUPER_ADMIN_LABEL : info.label,
       barangay: profile.barangay || '',
       barangay_id: profile.barangay_id || null,
       dispatch_unit_id: profile.dispatch_unit_id || null,
