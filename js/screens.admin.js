@@ -60,7 +60,16 @@ const UG_ADMIN = (function () {
       statePanel('error', 'Could not load accounts', st.error,
         '<button class="ug-btn ug-btn--sm" data-act="admin-load" style="margin-top:10px">Try Again</button>') + '</div>';
 
-    const users = UG.DATA.users || [];
+    const allUsers = UG.DATA.users || [];
+    /* user search box: filter by name, email, role or barangay */
+    const uq = (st.userSearch || '').trim().toLowerCase();
+    const users = uq
+      ? allUsers.filter((u) => (u.full_name || '').toLowerCase().indexOf(uq) >= 0 ||
+                                (u.email || '').toLowerCase().indexOf(uq) >= 0 ||
+                                (u.role || '').toLowerCase().indexOf(uq) >= 0 ||
+                                (u.barangay || '').toLowerCase().indexOf(uq) >= 0 ||
+                                (u.unit_role || '').toLowerCase().indexOf(uq) >= 0)
+      : allUsers;
     const barangays = (st.barangays || []).map((b) => ({ id: b.id, name: b.name }));
 
     const rows = users.map((u) => {
@@ -91,6 +100,12 @@ const UG_ADMIN = (function () {
       head('User Management', 'Officials and LGU staff are created and promoted here. Residents self-register.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="admin-export-users">' + I('download', 15) + 'Export PDF</button>' +
         '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="admin-create">' + I('plus', 15) + 'Create Official</button>') +
+      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap8" style="gap:8px;align-items:flex-end">' +
+        '<div class="ug-field" style="margin:0;flex:1;min-width:240px"><label class="ug-lab">Search accounts</label>' +
+          '<input class="ug-in" data-field="userSearch" value="' + esc(st.userSearch || '') + '" placeholder="Name, email, role or barangay"></div>' +
+        (st.userSearch ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="user-clear-search">Clear</button>' : '') +
+        '<span class="ug-dimmer" style="font-size:11px;margin-left:auto">' + users.length + ' of ' + allUsers.length + ' accounts</span>' +
+      '</div></div>' +
       table +
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
         '<span style="color:var(--ug-signal);display:flex">' + I('info', 17) + '</span>' +
@@ -143,6 +158,22 @@ const UG_ADMIN = (function () {
     return (UG.DATA.audit || []).filter((a) => {
       if (st.auditEntity && st.auditEntity !== 'All' && (a.entity || '') !== st.auditEntity) return false;
       if (st.auditActor && st.auditActor !== 'All' && actorOf(a) !== st.auditActor) return false;
+      if (st.auditRole && st.auditRole !== 'All') {
+        const r = (a.actor_role === 'super_admin' ? 'super_admin' : (a.actor_role || ''));
+        if (r !== st.auditRole) {
+          /* "lgu_ldrrmc" filter should also include super_admin (super_admin is
+             a tier of lgu_ldrrmc, but in this view we surface them distinctly) */
+          if (!(st.auditRole === 'lgu_ldrrmc' && r === 'lgu_ldrrmc')) return false;
+        }
+      }
+      if (st.auditAction && st.auditAction !== 'All') {
+        /* action type bucketing: group similar actions (create / edit / delete / status / role / etc) */
+        const bucket = actionBucket(a.action || '');
+        if (bucket !== st.auditAction) return false;
+      }
+      if (st.auditBarangay && st.auditBarangay !== 'All') {
+        if ((a.actor_barangay || '') !== st.auditBarangay) return false;
+      }
       const t = a.created_at ? new Date(a.created_at).getTime() : null;
       if (from !== null && t !== null && t < from) return false;
       if (to !== null && t !== null && t > to) return false;
@@ -151,8 +182,37 @@ const UG_ADMIN = (function () {
     });
   }
 
+  /* action type bucket: groups similar actions (e.g. reports.update, advisories.update → "edit") */
+  function actionBucket(action) {
+    if (!action) return 'other';
+    const a = action.toLowerCase();
+    if (/\.create|\.insert|invited|received|published|fanned_out|member_invited/.test(a)) return 'create';
+    if (/\.update|\.edit|role_changed|barangay_changed|status_changed/.test(a)) return 'edit';
+    if (/\.delete|\.deleted/.test(a)) return 'delete';
+    if (/verified|lgu-?verify|verify/.test(a)) return 'verify';
+    if (/dispatch|advance|resolved|rejected|disabled|enabled|deactivated/.test(a)) return 'status';
+    return 'other';
+  }
+
+  /* readable label for the actor's role */
+  const ROLE_LABEL_AUDIT = {
+    citizen: 'Citizen',
+    barangay_official: 'Barangay Official',
+    lgu_ldrrmc: 'LDRRMO Staff',
+    super_admin: 'Super Admin',
+    dispatch_team: 'Dispatch Team',
+    '': 'System'
+  };
+  const roleLabelAudit = (r) => ROLE_LABEL_AUDIT[r] || (r ? r.replace(/_/g, ' ') : 'System');
+
+  /* readable label for the action bucket */
+  const ACTION_LABEL_AUDIT = {
+    create: 'Create', edit: 'Edit / Update', delete: 'Delete',
+    verify: 'Verify', status: 'Status / Dispatch', other: 'Other'
+  };
+
   function audit(st) {
-    const TITLE = 'Activity Log', SUB = 'Who changed what, and when. Newest first.';
+    const TITLE = 'Activity Log', SUB = 'Who changed what, and when. Newest first. Covers Barangay Officials, LDRRMO Staff, the Super Admin and Dispatch Teams.';
     if (!isSuper(st)) return superOnly(TITLE);
     if (st.loading) return '<div class="ug-col" style="gap:16px">' + head(TITLE, SUB) + statePanel('loading') + '</div>';
     if (st.error) return '<div class="ug-col" style="gap:16px">' + head(TITLE, SUB) +
@@ -160,48 +220,82 @@ const UG_ADMIN = (function () {
         '<button class="ug-btn ug-btn--sm" data-act="admin-load" style="margin-top:10px">Try Again</button>') + '</div>';
 
     const all = UG.DATA.audit || [];
-    const rows = filterAudit(st);
+    const filtered = filterAudit(st);
+    const page = st.auditPage || 1;
+    const pageSize = st.auditPageSize || 25;
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const curPage = Math.min(page, totalPages);
+    const rows = filtered.slice((curPage - 1) * pageSize, curPage * pageSize);
     const uniq = (list) => list.filter((v, i) => v && list.indexOf(v) === i).sort();
     const entities = uniq(all.map((a) => a.entity || ''));
     const actors = uniq(all.map(actorOf));
+    const brgys = uniq(all.map((a) => a.actor_barangay || ''));
     const opt = (v, label, cur) => '<option value="' + esc(v) + '"' + (cur === v ? ' selected' : '') + '>' + esc(label) + '</option>';
     const fld = (label, inner, style) => '<div class="ug-field" style="margin:0;' + (style || '') + '"><label class="ug-lab">' + label + '</label>' + inner + '</div>';
 
-    const filters = '<div class="ug-card"><div class="ug-card-b ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:flex-end">' +
-      fld('Search', '<input class="ug-in" data-field="auditQ" value="' + esc(st.auditQ || '') + '" placeholder="Name, action or changed value">', 'flex:1;min-width:200px') +
-      fld('Record type', '<select class="ug-sel" data-field="auditEntity">' + opt('All', 'All records', st.auditEntity || 'All') +
-        entities.map((e) => opt(e, entityLabel(e), st.auditEntity)).join('') + '</select>', 'min-width:170px') +
-      fld('Changed by', '<select class="ug-sel" data-field="auditActor">' + opt('All', 'Everyone', st.auditActor || 'All') +
-        actors.map((n) => opt(n, n, st.auditActor)).join('') + '</select>', 'min-width:170px') +
-      fld('From', '<input class="ug-in" type="date" data-field="auditFrom" value="' + esc(st.auditFrom || '') + '">') +
-      fld('To', '<input class="ug-in" type="date" data-field="auditTo" value="' + esc(st.auditTo || '') + '">') +
-      '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="audit-clear">Clear</button>' +
+    const filters = '<div class="ug-card"><div class="ug-card-b ug-col" style="gap:12px">' +
+      '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:flex-end">' +
+        fld('Search', '<input class="ug-in" data-field="auditQ" value="' + esc(st.auditQ || '') + '" placeholder="Name, action or changed value">', 'flex:1;min-width:200px') +
+        fld('Record type', '<select class="ug-sel" data-field="auditEntity">' + opt('All', 'All records', st.auditEntity || 'All') +
+          entities.map((e) => opt(e, entityLabel(e), st.auditEntity)).join('') + '</select>', 'min-width:170px') +
+        fld('Action type', '<select class="ug-sel" data-field="auditAction">' + opt('All', 'All actions', st.auditAction || 'All') +
+          Object.keys(ACTION_LABEL_AUDIT).map((k) => opt(k, ACTION_LABEL_AUDIT[k], st.auditAction)).join('') + '</select>', 'min-width:140px') +
+        fld('Changed by', '<select class="ug-sel" data-field="auditActor">' + opt('All', 'Everyone', st.auditActor || 'All') +
+          actors.map((n) => opt(n, n, st.auditActor)).join('') + '</select>', 'min-width:170px') +
+      '</div>' +
+      '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:flex-end">' +
+        fld('Role', '<select class="ug-sel" data-field="auditRole">' + opt('All', 'All roles', st.auditRole || 'All') +
+          opt('super_admin', 'Super Admin', st.auditRole) +
+          opt('lgu_ldrrmc', 'LDRRMO Staff', st.auditRole) +
+          opt('barangay_official', 'Barangay Official', st.auditRole) +
+          opt('dispatch_team', 'Dispatch Team', st.auditRole) +
+          opt('citizen', 'Citizen', st.auditRole) +
+          opt('system', 'System', st.auditRole) +
+          '</select>', 'min-width:170px') +
+        fld('Barangay', '<select class="ug-sel" data-field="auditBarangay">' + opt('All', 'All barangays', st.auditBarangay || 'All') +
+          brgys.map((b) => opt(b, b, st.auditBarangay)).join('') + '</select>', 'min-width:170px') +
+        fld('From', '<input class="ug-in" type="date" data-field="auditFrom" value="' + esc(st.auditFrom || '') + '">') +
+        fld('To', '<input class="ug-in" type="date" data-field="auditTo" value="' + esc(st.auditTo || '') + '">') +
+        '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="audit-clear">Clear</button>' +
       '</div></div>';
 
     const body = rows.map((a) => '<tr data-act="open-audit" data-id="' + esc(a.id) + '" style="cursor:pointer" title="Open the full entry">' +
       '<td class="t-num" style="white-space:nowrap">' + esc(UG_UTIL.absTime(a.created_at) || UG_UTIL.relTime(a.created_at)) + '</td>' +
-      '<td style="font-weight:600">' + esc(actorOf(a)) + '</td>' +
+      '<td><div style="font-weight:600">' + esc(actorOf(a)) + '</div>' +
+        '<div class="ug-dimmer" style="font-size:10.5px">' + esc(roleLabelAudit(a.actor_role === 'super_admin' ? 'super_admin' : a.actor_role)) + (a.actor_barangay ? ' · ' + esc(a.actor_barangay) : '') + '</div></td>' +
       '<td>' + esc(entityLabel(a.entity)) + '</td>' +
       '<td><span class="ug-badge ug-badge--id">' + esc(a.action) + '</span></td>' +
       '<td style="font-size:11.5px;max-width:420px">' + esc(describe(a) || '—') + '</td>' +
       '</tr>').join('');
 
+    /* pagination row */
+    const pagination = totalPages > 1
+      ? '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-between" style="gap:10px;font-size:12px;align-items:center">' +
+          '<span class="ug-dim">Page ' + curPage + ' of ' + totalPages + ' · ' + filtered.length + ' entries match the filters</span>' +
+          '<div class="ug-rowf ug-gap6" style="gap:6px">' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + (curPage <= 1 ? ' disabled' : '') + ' data-act="audit-page" data-p="' + Math.max(1, curPage - 1) + '">Prev</button>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + (curPage >= totalPages ? ' disabled' : '') + ' data-act="audit-page" data-p="' + Math.min(totalPages, curPage + 1) + '">Next</button>' +
+          '</div></div></div>'
+      : (filtered.length ? '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-between" style="gap:10px;font-size:12px;align-items:center">' +
+          '<span class="ug-dim">' + filtered.length + ' entries match the filters</span>' +
+          '<span class="ug-dimmer" style="font-size:11px">All on one page</span></div></div>' : '');
+
     const table = rows.length
       ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-        '<thead><tr><th>When</th><th>Who</th><th>Record</th><th>Action</th><th>What changed</th></tr></thead>' +
+        '<thead><tr><th>When</th><th>Who · Role · Barangay</th><th>Module</th><th>Action</th><th>What changed</th></tr></thead>' +
         '<tbody>' + body + '</tbody></table></div>'
       : (all.length
           ? statePanel('empty', 'No entries match these filters', 'Clear the filters to see every entry.')
-          : statePanel('empty', 'Nothing recorded yet', 'Role changes, advisories, shelter updates and incident moves show up here.'));
+          : statePanel('empty', 'Nothing recorded yet', 'Role changes, advisories, shelter updates, road status, inventory, dispatch and incident moves show up here.'));
 
     return '<div class="ug-col" style="gap:16px">' +
       head(TITLE, SUB,
-        '<span class="ug-chip">' + rows.length + ' of ' + all.length + ' entries</span>' +
+        '<span class="ug-chip">' + filtered.length + ' of ' + all.length + ' entries</span>' +
         '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="admin-load">' + I('wave', 15) + 'Refresh</button>' +
         '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="admin-export-audit">' + I('download', 15) + 'Export PDF</button>') +
-      filters + table +
-      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">Entries are written by the database itself when a record changes, so they cannot be edited or removed from the console. ' +
-      'Covered: accounts and roles, incident status moves and edits, dispatches, advisories, evacuation centers, road status, hotlines, guides, FAQs, SOS, damage assessments and situation reports.</div></div>' +
+      filters + table + pagination +
+      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">Entries are written by the database itself when a record changes, so they cannot be edited or removed from the console — not even by the Super Admin. ' +
+      'Covered: accounts and roles, incident status moves and edits, dispatches, advisories, evacuation centers, road status, hotlines, guides, FAQs, SOS, damage assessments, situation reports and inventory. Each entry records the actor\'s identity and role from a trusted server source (auth.uid → profiles), never from user input.</div></div>' +
       '</div>';
   }
 
@@ -282,16 +376,27 @@ const UG_ADMIN = (function () {
    * accounts (via admin-users), and the support request inbox.
    */
   function dispatchUnits(st) {
-    const units = UG.DATA.dispatchUnits || [];
+    const allUnits = UG.DATA.dispatchUnits || [];
     const requests = UG.DATA.unitRequests || [];
-    const unitRow = (u) => '<tr>' +
+    /* search filter: match name, type, address or contact */
+    const q = (st.unitSearch || '').trim().toLowerCase();
+    const units = q
+      ? allUnits.filter((u) => (u.name || '').toLowerCase().indexOf(q) >= 0 ||
+                                 (u.unit_type || '').toLowerCase().indexOf(q) >= 0 ||
+                                 (u.address || '').toLowerCase().indexOf(q) >= 0 ||
+                                 (u.contact_number || '').toLowerCase().indexOf(q) >= 0)
+      : allUnits;
+    const unitRow = (u) => '<tr data-act="open-unit" data-id="' + esc(u.id) + '" style="cursor:pointer">' +
       '<td><div style="font-weight:600">' + esc(u.name) + '</div>' +
         '<div class="ug-dimmer" style="font-size:10.5px">' + esc(u.address || '') + '</div></td>' +
       '<td>' + esc(u.unit_type) + '</td>' +
       '<td>' + esc(u.contact_number || '') + '</td>' +
       '<td>' + esc(u.status) + '</td>' +
       '<td>' + (u.active ? U.badge('open', 'Active') : U.badge('closed', 'Inactive')) + '</td>' +
-      '<td class="t-right"><button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-edit-unit" data-id="' + esc(u.id) + '">' + I('settings', 14) + 'Edit</button></td>' +
+      '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end">' +
+        '<button class="ug-btn ug-btn--sm" data-act="admin-edit-unit" data-id="' + esc(u.id) + '" onclick="event.stopPropagation()">' + I('settings', 14) + 'Edit</button>' +
+        '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-unit-accounts" data-id="' + esc(u.id) + '" onclick="event.stopPropagation()">' + I('users', 14) + 'Accounts</button>' +
+      '</div></td>' +
     '</tr>';
     const requestRow = (r) => '<tr>' +
       '<td class="t-num">' + esc(UG_UTIL.absTime(r.created_at) || '') + '</td>' +
@@ -302,16 +407,22 @@ const UG_ADMIN = (function () {
       '<td class="t-right">' + (r.status === 'pending' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="admin-decide-request" data-id="' + esc(r.id) + '" data-decision="approved">Approve</button> <button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-decide-request" data-id="' + esc(r.id) + '" data-decision="declined">Decline</button>' : '') + '</td>' +
     '</tr>';
     return '<div class="ug-col" style="gap:18px">' +
-      head('Dispatch Units', 'BFP, PNP, Rescue and Hospital units · municipality-wide.',
+      head('Dispatch Units', 'BFP, PNP, Rescue and Hospital units · municipality-wide. Open a unit for full details, manage accounts or deactivate.',
         /* a new unit invites its first admin account, so it is a Super Admin action */
         isSuper(st) ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="admin-create-unit">' + I('plus', 14) + 'New unit</button>' : '') +
+      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap8" style="gap:8px;align-items:flex-end">' +
+        '<div class="ug-field" style="margin:0;flex:1;min-width:240px"><label class="ug-lab">Search units</label>' +
+          '<input class="ug-in" data-field="unitSearch" value="' + esc(st.unitSearch || '') + '" placeholder="Name, type, address or contact"></div>' +
+        (st.unitSearch ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="unit-clear-search">Clear</button>' : '') +
+      '</div></div>' +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
       '<thead><tr><th>Name / address</th><th>Type</th><th>Contact</th><th>Status</th><th>Active</th><th class="t-right">Action</th></tr></thead>' +
-      '<tbody>' + (units.length ? units.map(unitRow).join('') : '<tr><td colspan="6" style="text-align:center;padding:20px">No units yet</td></tr>') + '</tbody></table></div>' +
+      '<tbody>' + (units.length ? units.map(unitRow).join('') : '<tr><td colspan="6" style="text-align:center;padding:20px">' + (st.unitSearch ? 'No units match "' + esc(q) + '"' : 'No units yet') + '</td></tr>') + '</tbody></table></div>' +
       head('Support request inbox', 'Unit support requests, pending first.') +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
       '<thead><tr><th>When</th><th>Unit</th><th>Kind</th><th>Details</th><th>Status</th><th class="t-right">Action</th></tr></thead>' +
       '<tbody>' + (requests.length ? requests.map(requestRow).join('') : '<tr><td colspan="6" style="text-align:center;padding:20px">No support requests</td></tr>') + '</tbody></table></div>' +
+      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">Click a unit row to open its full details (team name, assigned personnel, contact, status, accounts). Manage Accounts opens the unit\'s member roster where the Super Admin can deactivate an account that should no longer have access. Deactivation preserves account history and related dispatch records — it does not permanently delete the account.</div></div>' +
     '</div>';
   }
 

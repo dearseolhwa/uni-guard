@@ -38,9 +38,15 @@ const UG_RELIEF = (function () {
     { id: 'INV-07', name: 'Banca / Boat',             category: 'Equipment',unit: 'units',    stock: 6,    reorder: 4,   location: 'Coastal Depot',        supplier: 'PCG Lingayen' },
     { id: 'INV-08', name: 'Life Jacket',              category: 'Equipment',unit: 'pieces',   stock: 38,   reorder: 30,  location: 'Coastal Depot',        supplier: 'PCG Lingayen' },
     { id: 'INV-09', name: 'Portable Radio (VHF)',     category: 'Equipment',unit: 'units',    stock: 12,   reorder: 8,   location: 'MDRRMO Warehouse C', supplier: 'OCD Region I' },
-    { id: 'INV-10', name: 'Tarpaulin / Trapal',       category: 'Shelter',  unit: 'pieces',   stock: 75,   reorder: 50,  location: 'MDRRMO Warehouse B', supplier: 'DSWD Field Office' },
-    { id: 'INV-11', name: 'Sleeping Mat',             category: 'Shelter',  unit: 'pieces',   stock: 140,  reorder: 120, location: 'MDRRMO Warehouse B', supplier: 'DSWD Field Office' },
-    { id: 'INV-12', name: 'Hygiene Kit',              category: 'Shelter',  unit: 'kits',     stock: 95,   reorder: 80,  location: 'MDRRMO Warehouse A', supplier: 'Red Cross Pangasinan' }
+    { id: 'INV-10', name: 'Tarpaulin / Trapal',       category: 'Shelter Supplies', unit: 'pieces',   stock: 75,   reorder: 50,  location: 'MDRRMO Warehouse B', supplier: 'DSWD Field Office' },
+    { id: 'INV-11', name: 'Sleeping Mat',             category: 'Shelter Supplies', unit: 'pieces',   stock: 140,  reorder: 120, location: 'MDRRMO Warehouse B', supplier: 'DSWD Field Office' },
+    { id: 'INV-12', name: 'Hygiene Kit',              category: 'Hygiene',  unit: 'kits',     stock: 95,   reorder: 80,  location: 'MDRRMO Warehouse A', supplier: 'Red Cross Pangasinan' },
+    { id: 'INV-13', name: 'Family Tent (4-person)',   category: 'Shelter Supplies', unit: 'units',    stock: 22,   reorder: 25,  location: 'MDRRMO Warehouse B', supplier: 'DSWD Field Office' },
+    { id: 'INV-14', name: 'Blanket',                  category: 'Shelter Supplies', unit: 'pieces',   stock: 200,  reorder: 150, location: 'MDRRMO Warehouse B', supplier: 'Red Cross Pangasinan' },
+    { id: 'INV-15', name: 'Mosquito Net',             category: 'Shelter Supplies', unit: 'pieces',   stock: 60,   reorder: 75,  location: 'MDRRMO Warehouse B', supplier: 'Provincial Health Office' },
+    { id: 'INV-16', name: 'Water Container (20L)',    category: 'Hygiene',  unit: 'containers', stock: 40,  reorder: 50,  location: 'MDRRMO Warehouse A', supplier: 'Lingayen Water District' },
+    { id: 'INV-17', name: 'Soap / Detergent Pack',    category: 'Hygiene',  unit: 'packs',   stock: 110,  reorder: 90,  location: 'MDRRMO Warehouse A', supplier: 'Red Cross Pangasinan' },
+    { id: 'INV-18', name: 'Sanitary Napkin Pack',     category: 'Hygiene',  unit: 'packs',   stock: 70,   reorder: 80,  location: 'MDRRMO Warehouse A', supplier: 'Provincial Health Office' }
   ];
 
   /* ----------------------------------------------------- distribution records
@@ -65,10 +71,16 @@ const UG_RELIEF = (function () {
   function lowStockItems() {
     return (UG.DATA.inventory || []).filter((i) => (i.stock || 0) <= (i.reorder || 0));
   }
-  const INV_CATEGORIES = ['Food', 'Water', 'Medical', 'Equipment', 'Shelter'];
+  /* Categories reflect the actual purpose of each item:
+     - Shelter Supplies: temporary shelter and sleeping items (tents, tarpaulins, mats, blankets)
+     - Hygiene: personal sanitation and hygiene items (kits, soap, sanitary products, water containers)
+       These were previously both lumped under "Shelter", which made the inventory table confusing.
+       The migration 044_super_admin_improvements.sql reclassifies existing rows in the database to match. */
+  const INV_CATEGORIES = ['Food', 'Water', 'Medical', 'Equipment', 'Shelter Supplies', 'Hygiene'];
   const CAT_COLOR = {
     Food: 'var(--ug-prepared)', Water: 'var(--ug-signal)', Medical: 'var(--ug-emergency)',
-    Equipment: 'var(--ug-advisory)', Shelter: 'var(--ug-warning)'
+    Equipment: 'var(--ug-advisory)', 'Shelter Supplies': 'var(--ug-warning)',
+    Hygiene: 'var(--ug-st-dispatched)'
   };
 
   /* --------------------------------------------------------------- the data */
@@ -327,9 +339,16 @@ const UG_RELIEF = (function () {
     ensureInventory();
     const all = UG.DATA.inventory || [];
     const cat = st.invCatFilter || 'all';
+    const q = (st.invSearch || '').trim().toLowerCase();
     const cats = [['all', 'All', all.length]].concat(INV_CATEGORIES.map((c) =>
       [c, c, all.filter((i) => i.category === c).length]));
-    const list = cat === 'all' ? all : all.filter((i) => i.category === cat);
+    /* combined filter: category + search text on name/id/location/supplier */
+    const list = all.filter((i) => cat === 'all' || i.category === cat)
+      .filter((i) => !q ||
+        (i.name || '').toLowerCase().indexOf(q) >= 0 ||
+        (i.id || '').toLowerCase().indexOf(q) >= 0 ||
+        (i.location || '').toLowerCase().indexOf(q) >= 0 ||
+        (i.supplier || '').toLowerCase().indexOf(q) >= 0);
     const lowN = lowStockItems().length;
     const totalUnits = all.reduce((s, i) => s + (i.stock || 0), 0);
     const summary = [
@@ -350,11 +369,16 @@ const UG_RELIEF = (function () {
         '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('inv-add') + '>' + I('plus', 14) + 'Add Stock Item</button>' +
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('inv-download') + '>' + I('download', 14) + 'Export CSV</button>' +
       '</div>' +
+      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap8 ug-wrap" style="gap:8px;align-items:flex-end">' +
+        '<div class="ug-field" style="margin:0;flex:1;min-width:240px"><label class="ug-lab">Search items</label>' +
+          '<input class="ug-in" data-field="invSearch" value="' + esc(st.invSearch || '') + '" placeholder="Name, ID, location or supplier"></div>' +
+        (q ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('inv-clear-search') + '>Clear</button>' : '') +
+      '</div></div>' +
       '<div class="ug-card" style="overflow:hidden">' +
         '<table class="ug-table ug-inv-table">' +
           '<thead><tr><th>Item</th><th>Category</th><th class="t-num">In stock</th><th class="t-num">Reorder at</th><th>Status</th><th>Location</th><th>Supplier</th><th class="t-right">Action</th></tr></thead>' +
           '<tbody>' + (list.length ? list.map(invRow).join('') :
-            '<tr><td colspan="8" style="text-align:center;padding:20px">No stock items in this category</td></tr>') + '</tbody>' +
+            '<tr><td colspan="8" style="text-align:center;padding:20px">' + (q ? 'No items match "' + esc(q) + '"' : 'No stock items in this category') + '</td></tr>') + '</tbody>' +
         '</table>' +
       '</div>' +
     '</div>';
@@ -367,7 +391,7 @@ const UG_RELIEF = (function () {
       : low ? '<span class="ug-badge ug-badge--full">Low stock</span>'
       : '<span class="ug-badge ug-badge--open">In stock</span>';
     const catColor = CAT_COLOR[i.category] || 'var(--ug-ink-2)';
-    return '<tr class="' + (low ? 'ug-inv-row-low' : '') + '">' +
+    return '<tr class="' + (low ? 'ug-inv-row-low' : '') + '" data-act="inv-detail" data-id="' + esc(i.id) + '" style="cursor:pointer">' +
       '<td><div style="font-weight:600">' + esc(i.name) + '</div>' +
         '<div class="ug-dimmer ug-mono" style="font-size:10px">' + esc(i.id) + '</div></td>' +
       '<td><span class="ug-chip" style="background:' + catColor + '22;color:' + catColor + '">' + esc(i.category) + '</span></td>' +
@@ -382,6 +406,52 @@ const UG_RELIEF = (function () {
         '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="inv-edit" data-id="' + esc(i.id) + '">' + I('settings', 12) + '</button>' +
       '</div></td>' +
     '</tr>';
+  }
+
+  /* full detail modal for an inventory item — opens when the row is clicked.
+     Shows every stored field in organized sections; Edit is offered where the
+     caller is an LGU or barangay official (RLS re-checks on the server). */
+  function invDetailModal(id) {
+    const i = (UG.DATA.inventory || []).find((x) => x.id === id);
+    if (!i) return;
+    const low = (i.stock || 0) <= (i.reorder || 0);
+    const out = (i.stock || 0) <= 0;
+    const status = out ? 'Out of stock' : low ? 'Low stock' : 'In stock';
+    const statusTone = out ? 'var(--ug-emergency)' : low ? 'var(--ug-warning)' : 'var(--ug-prepared)';
+    const catColor = CAT_COLOR[i.category] || 'var(--ug-ink-2)';
+    const pct = i.reorder > 0 ? Math.min(100, Math.round((i.stock || 0) / Math.max(i.reorder * 2, 1) * 100)) : 100;
+    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
+    UG_FEATURES.modal({
+      title: i.name || 'Stock item',
+      body:
+        '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:14px">' +
+          '<div class="ug-rowf ug-between" style="gap:10px;align-items:center">' +
+            '<span class="ug-chip" style="background:' + catColor + '22;color:' + catColor + '">' + esc(i.category) + '</span>' +
+            '<span class="ug-badge" style="background:' + statusTone + '22;color:' + statusTone + ';border-color:' + statusTone + '55">' + esc(status) + '</span>' +
+          '</div>' +
+          '<div>' +
+            '<div class="ug-rowf ug-between" style="font-size:11.5px;margin-bottom:5px"><span class="ug-dim">Stock vs reorder point</span>' +
+              '<span class="ug-mono">' + esc(i.stock || 0) + ' / ' + esc(i.reorder || 0) + ' ' + esc(i.unit || '') + '</span></div>' +
+            '<div style="height:8px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + statusTone + '"></div></div>' +
+          '</div>' +
+        '</div></div>' +
+        '<div style="margin-top:14px">' +
+          kv('Item ID', i.id) +
+          kv('Item name', i.name) +
+          kv('Category', i.category) +
+          kv('Unit of measure', i.unit) +
+          kv('In stock', (i.stock || 0) + ' ' + (i.unit || '')) +
+          kv('Reorder threshold', (i.reorder || 0) + ' ' + (i.unit || '')) +
+          kv('Warehouse location', i.location) +
+          kv('Supplier', i.supplier) +
+          (i.created_at ? kv('Created', UG_UTIL.absTime(i.created_at) || '') : '') +
+          (i.updated_at ? kv('Last updated', UG_UTIL.absTime(i.updated_at) || '') : '') +
+        '</div>',
+      footer:
+        '<button class="ug-btn" data-modal-close>Close</button>' +
+        '<button class="ug-btn ug-btn--ghost" data-act="inv-restock" data-id="' + esc(i.id) + '">' + I('plus', 13) + 'Restock</button>' +
+        '<button class="ug-btn ug-btn--signal" data-act="inv-edit" data-id="' + esc(i.id) + '">' + I('settings', 13) + 'Edit</button>'
+    });
   }
 
   /* ------------------------------------------------------- distribution records
@@ -443,5 +513,5 @@ const UG_RELIEF = (function () {
 
   return { mRelief, mReliefVerify, dRelief, fmtDate, fmtDateTime, head,
     ensureInventory, lowStockItems, DEFAULT_INVENTORY, DEFAULT_DISTRIBUTIONS_LOG,
-    INV_CATEGORIES, CAT_COLOR, RELIEF_TABS };
+    INV_CATEGORIES, CAT_COLOR, RELIEF_TABS, invDetailModal };
 })();

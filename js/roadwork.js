@@ -94,32 +94,53 @@ const UG_ROADWORK = (function () {
     '</div>';
   }
 
-  /* the road status / road work detail view (full record) */
+  /* the road status / road work detail view (full record). Reused by both the
+     citizen mRoadwork screen and the LGU dRoadwork screen so the same level of
+     detail is shown everywhere (Section 8). LGU / Super Admin get an Edit
+     button in the footer; citizens only see Close. */
   function roadDetailModal(id) {
     const r = (UG.DATA.roadStatus || []).find((x) => x.id === id);
     if (!r) return;
-    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600">' + esc(v) + '</span></div>';
+    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
+    const isStaff = !!(window.UG_SCREENS && UG_SCREENS.sess && S_session && S_session.role !== 'citizen');
     UG_FEATURES.modal({
       title: r.road_name || 'Road status',
       body:
         '<div style="margin-bottom:10px">' + statusBadge(r.status) + '</div>' +
+        kv('Road name', r.road_name) +
         kv('Barangay', r.barangay || '—') +
         kv('Segment', (r.segment_from || r.segment_to) ? (r.segment_from || '—') + '  →  ' + (r.segment_to || '—') : '—') +
-        kv('Cause', r.cause || '—') +
+        kv('Cause', r.cause) +
+        kv('Severity', r.severity) +
         kv('Started', r.started_at ? fmt(r.started_at) : '—') +
         kv('Estimated reopening', r.estimated_reopen ? fmt(r.estimated_reopen) : '—') +
         kv('Last updated', (r.updated_at ? fmt(r.updated_at) : '—') + (r.updater_name ? ' · ' + r.updater_name : '')) +
         (r.note ? kv('Notes', r.note) : '') +
+        kv('Coordinates', (typeof r.lat === 'number' && typeof r.lng === 'number') ? UG_GEO.fmt(r.lat, r.lng) : '—') +
         ((typeof r.lat === 'number' && typeof r.lng === 'number' && UG_GEO.canNavigate(r.lat, r.lng))
           ? '<a class="ug-waze-btn" style="margin-top:12px;display:inline-flex" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.lat, r.lng) + '">' + I('route', 13) + ' Open in Waze</a>' : ''),
-      footer: '<button class="ug-btn" data-modal-close>Close</button>'
+      footer:
+        '<button class="ug-btn" data-modal-close>Close</button>' +
+        '<button class="ug-btn ug-btn--signal" data-act="rs-edit" data-id="' + esc(r.id) + '">' + I('settings', 13) + 'Edit</button>'
     });
   }
+  /* tiny helper so roadDetailModal can read the signed-in session without us
+     having to thread app.js state through. Set on each render by app.js. */
+  let S_session = null;
 
   /* --------------------------------------------------------------- LGU */
   function dRoadwork(st) {
     const d = st.roadDraft || { title: '', description: '', barangay: UG_GEO.PLACE.areaAll, road_name: '', address: '', lat: '', lng: '', expected_hours: 6, citywide: false };
     const brgys = U.DATA.barangays;
+    /* road-status search filter: matches road_name, barangay, cause or note. */
+    const rsQ = (st.rsSearch || '').trim().toLowerCase();
+    const filteredStatus = (UG.DATA.roadStatus || []).filter((r) => {
+      if (!rsQ) return true;
+      return (r.road_name || '').toLowerCase().indexOf(rsQ) >= 0 ||
+             (r.barangay || '').toLowerCase().indexOf(rsQ) >= 0 ||
+             (r.cause || '').toLowerCase().indexOf(rsQ) >= 0 ||
+             (r.note || '').toLowerCase().indexOf(rsQ) >= 0;
+    });
     return '<div class="ug-col" style="gap:18px">' +
       head('Road Work Posts', 'Publish a road work notice. Residents of the affected barangay get a push notification.',
         '<span class="ug-chip is-on">' + (UG.DATA.roadWork || []).filter((r) => r.status === 'active').length + ' active</span>') +
@@ -157,15 +178,18 @@ const UG_ROADWORK = (function () {
         '</div></div>' +
 
       '<div class="ug-card"><div class="ug-card-h"><h3>Road Status Overlay</h3>' +
-        '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('rs-add') + '>' + I('plus', 14) + 'Add Road Status</button></div>' +
-        '<div class="ug-rows ug-scroll" style="max-height:280px">' + (UG.DATA.roadStatus || []).map((r) =>
-          '<div class="ug-row"><span class="r-dot" style="background:' + (r.status === 'passable' ? 'var(--ug-prepared)' : r.status === 'blocked' ? 'var(--ug-emergency)' : 'var(--ug-warning)') + '"></span>' +
+        '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+          '<input class="ug-in" data-field="rsSearch" placeholder="Search road or barangay" style="font-size:12px;padding:6px 10px;min-width:160px" value="' + esc(st.rsSearch || '') + '">' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('rs-add') + '>' + I('plus', 14) + 'Add Road Status</button>' +
+        '</div></div>' +
+        '<div class="ug-rows ug-scroll" style="max-height:380px">' + (filteredStatus.length ? filteredStatus.map((r) =>
+          '<div class="ug-row" role="button" tabindex="0" style="cursor:pointer;width:100%;text-align:left;background:none" data-act="rs-detail" data-id="' + esc(r.id) + '"><span class="r-dot" style="background:' + (r.status === 'passable' ? 'var(--ug-prepared)' : r.status === 'blocked' ? 'var(--ug-emergency)' : 'var(--ug-warning)') + '"></span>' +
             '<div class="r-main"><div class="r-t">' + esc(r.road_name) + '</div>' +
               '<div class="r-m"><span>' + I('pin', 12) + esc(r.barangay) + '</span><span>' + esc((r.cause ? r.cause + ' · ' : '') + (r.note || '')) + '</span></div></div>' +
             statusBadge(r.status) +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-edit" data-id="' + esc(r.id) + '">' + I('settings', 14) + '</button>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-del" data-id="' + esc(r.id) + '">' + I('x', 14) + '</button>' +
-          '</div>').join('') + '</div></div>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-edit" data-id="' + esc(r.id) + '" onclick="event.stopPropagation()">' + I('settings', 14) + '</button>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-del" data-id="' + esc(r.id) + '" onclick="event.stopPropagation()">' + I('x', 14) + '</button>' +
+          '</div>').join('') : '<div class="ug-empty"><span class="e-ico">' + I('road', 20) + '</span><div style="font-size:12px;color:var(--ug-ink-2)">No road status entries match.</div></div>') + '</div></div>' +
 
       '<div class="ug-card"><div class="ug-card-h"><h3>Recent Posts</h3></div>' +
         '<div class="ug-rows">' + (UG.DATA.roadWork || []).slice(0, 8).map((r) =>

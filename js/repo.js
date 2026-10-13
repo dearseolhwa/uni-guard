@@ -266,9 +266,9 @@ const Repo = (function () {
     const dispatched = (c.dispatchedTeams != null) ? c.dispatchedTeams : 0;
     const live = state.source === 'supabase';
     UG.DATA.kpis = [
-      { label: 'Active Incidents', value: String(active), delta: live ? 'Live from the incident queue' : 'From the cached queue', dir: 'flat', tone: 'emergency', icon: 'alert' },
-      { label: 'Units Deployed', value: String(units), delta: dispatched > 0 ? dispatched + ' dispatched team' + (dispatched === 1 ? '' : 's') + ' + assigned responders' : 'Assigned responders + dispatched teams', dir: 'flat', tone: 'verified', icon: 'users' },
-      { label: 'Critical Areas', value: String(critical), delta: 'Emergency severity, not resolved', dir: 'flat', tone: 'warning', icon: 'shieldx' },
+      { label: 'Active Incidents', value: String(active), delta: live ? 'Live from the incident queue' : 'From the cached queue', dir: 'flat', tone: 'emergency', icon: 'alert', nav: 'incidents' },
+      { label: 'Units Deployed', value: String(units), delta: dispatched > 0 ? dispatched + ' dispatched team' + (dispatched === 1 ? '' : 's') + ' + assigned responders' : 'Assigned responders + dispatched teams', dir: 'flat', tone: 'verified', icon: 'users', nav: 'dispatch-units' },
+      { label: 'Critical Areas', value: String(critical), delta: 'Emergency severity, not resolved', dir: 'flat', tone: 'warning', icon: 'shieldx', nav: 'incidents' },
       { label: 'System Status', value: live ? 'LIVE' : 'STABLE', delta: live ? 'Realtime connected' : 'Serving cached data', dir: 'flat', tone: 'resolved', icon: 'wave' }
     ];
   }
@@ -419,6 +419,9 @@ const Repo = (function () {
         c.from('road_work_posts').select('*').order('created_at', { ascending: false }).limit(60),
         c.from('road_status').select('*').order('updated_at', { ascending: false }).limit(120)
       ]);
+      /* load change requests in parallel — the Super Admin hotlines page and
+         the LGU/BO "your pending requests" section both read this. */
+      try { await loadChangeRequests(); } catch (e) {}
 
       if (reports.error) throw reports.error;
 
@@ -1030,21 +1033,33 @@ const Repo = (function () {
   async function listAudit(limit) {
     const c = client();
     if (!c) return [];
-    /* actor names join through the FK to profiles; if the embedded select is
-       not available for any reason, fall back to the plain rows */
+    /* actor names + role + barangay join through the FK to profiles. We embed
+       the actor's profile row so the Super Admin Activity Log can show role +
+       barangay columns and filter by them. If the embedded select is not
+       available for any reason, fall back to the plain rows. */
     let data, error;
     ({ data, error } = await c.from('audit_log')
-      .select('id, created_at, actor_id, action, entity, entity_id, meta, profiles:actor_id ( full_name )')
-      .order('created_at', { ascending: false }).limit(limit || 200));
+      .select('id, created_at, actor_id, action, entity, entity_id, meta, profiles:actor_id ( full_name, role, is_super_admin, barangay, unit_role )')
+      .order('created_at', { ascending: false }).limit(limit || 500));
     if (error || !data) {
-      ({ data, error } = await c.from('audit_log').select('*').order('created_at', { ascending: false }).limit(limit || 200));
+      ({ data, error } = await c.from('audit_log').select('*').order('created_at', { ascending: false }).limit(limit || 500));
     }
     if (error) fail(error);
-    return (data || []).map((a) => ({
-      id: a.id, created_at: a.created_at, actor_id: a.actor_id,
-      actor_name: (a.profiles && a.profiles.full_name) || a.actor_name || null,
-      action: a.action, entity: a.entity, entity_id: a.entity_id, meta: a.meta
-    }));
+    return (data || []).map((a) => {
+      const p = a.profiles || {};
+      /* Derive a human-readable role label for the actor. The Super Admin is
+         an lgu_ldrrmc account with is_super_admin = true. */
+      let actorRole = p.role || '';
+      if (p.role === 'lgu_ldrrmc' && p.is_super_admin === true) actorRole = 'super_admin';
+      return {
+        id: a.id, created_at: a.created_at, actor_id: a.actor_id,
+        actor_name: p.full_name || a.actor_name || null,
+        actor_role: actorRole,
+        actor_unit_role: p.unit_role || '',
+        actor_barangay: p.barangay || '',
+        action: a.action, entity: a.entity, entity_id: a.entity_id, meta: a.meta
+      };
+    });
   }
 
   async function listResponders() {
@@ -1143,6 +1158,55 @@ const Repo = (function () {
       UG.DATA.unitRequests = requests.data || [];
       emit();
     } catch (e) { /* directory is a read-only convenience */ }
+  }
+
+  /* ----------------------------------------------------- change requests
+   * Master prompt · Emergency Hotlines Management and Super Admin Approval.
+   * Loads pending + recent change requests so the Super Admin hotlines page
+   * can show the queue, and so LGU/BO can see their own submitted requests. */
+  async function loadChangeRequests() {
+    const c = client();
+    if (!c) return;
+    try {
+      const { data, error } = await c.from('change_requests')
+        .select('*').order('created_at', { ascending: false }).limit(100);
+      if (!error) UG.DATA.changeRequests = data || [];
+    } catch (e) { /* read-only convenience */ }
+  }
+
+  async function submitChangeRequest(payload) {
+    const c = client();
+    if (!c) return { local: true };
+    const { data, error } = await c.rpc('submit_change_request', {
+      p_target_table: payload.target_table,
+      p_action: payload.action,
+      p_target_id: payload.target_id || null,
+      p_current_data: payload.current_data || {},
+      p_proposed_data: payload.proposed_data || {},
+      p_reason: payload.reason || ''
+    });
+    if (error) fail(error);
+    return data;
+  }
+
+  async function approveChangeRequest(requestId, note) {
+    const c = client();
+    if (!c) return { local: true };
+    const { data, error } = await c.rpc('approve_change_request', {
+      p_request_id: requestId, p_decision_note: note || ''
+    });
+    if (error) fail(error);
+    return data;
+  }
+
+  async function rejectChangeRequest(requestId, note) {
+    const c = client();
+    if (!c) return { local: true };
+    const { data, error } = await c.rpc('reject_change_request', {
+      p_request_id: requestId, p_decision_note: note || ''
+    });
+    if (error) fail(error);
+    return data;
   }
   /* ------------------------------------------------------------- error log */
   function logClientError(message, context) {
@@ -1387,6 +1451,8 @@ const Repo = (function () {
     declareEmergency, subscribedDeviceCount,
     analytics, analyticsFromViews, listUsers, adminUsers, listAudit, listResponders, assignResponder,
     dispatchReport, dispatchReportV2, loadDispatches, loadDispatchDirectory,
+    /* change request workflow (master prompt · Emergency Hotlines approval) */
+    loadChangeRequests, submitChangeRequest, approveChangeRequest, rejectChangeRequest,
     /* new feature data access */
     createRelief, updateRelief, createBeneficiary, deleteBeneficiary,
     createGuide, updateGuide,

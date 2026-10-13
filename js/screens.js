@@ -160,6 +160,9 @@ const UG = (() => {
     dispatchUnits: [],
     dispatchEquipment: [],
     unitRequests: [],
+    /* change requests (master prompt · Emergency Hotlines approval).
+       Repo.loadChangeRequests overwrites this when Supabase is reachable. */
+    changeRequests: [],
     offlineCache: {
       get hotlines()   { return (DATA.hotlines || []).length; },
       get centers()    { return (DATA.centers || []).length; },
@@ -205,12 +208,16 @@ const UG = (() => {
     return '<span class="ug-badge ug-badge--' + st.cls + '">' + esc(st.label) + '</span>';
   }
   function stat(k){
-    return '<div class="ug-stat">' +
-      '<div class="s-top"><span class="ug-lab">' + esc(k.label) + '</span>' +
+    /* if k.nav is set, wrap the card in a clickable button that routes to the
+       corresponding module (Section 4: incident count cards open records). */
+    const inner = '<div class="s-top"><span class="ug-lab">' + esc(k.label) + '</span>' +
       '<span class="s-ico" style="background:rgba(255,255,255,.05);color:var(--ug-' + k.tone + ')">' + icon(k.icon, 17) + '</span></div>' +
       '<div class="s-val">' + esc(k.value) + '</div>' +
-      '<div class="s-delta ' + k.dir + '">' + (k.dir === 'up' ? '&#9650;' : k.dir === 'down' ? '&#9660;' : '&#8226;') + ' ' + esc(k.delta) + '</div>' +
-    '</div>';
+      '<div class="s-delta ' + k.dir + '">' + (k.dir === 'up' ? '&#9650;' : k.dir === 'down' ? '&#9660;' : '&#8226;') + ' ' + esc(k.delta) + '</div>';
+    if (k.nav) {
+      return '<button class="ug-stat" data-act="nav" data-route="' + esc(k.nav) + '" style="text-align:left;cursor:pointer;width:100%;background:transparent;border:0;color:inherit;padding:0;font:inherit" title="Open ' + esc(k.label) + '">' + inner + '</button>';
+    }
+    return '<div class="ug-stat">' + inner + '</div>';
   }
   function thumb(name, cls, style){
     if (!name || !IMG[name]) return '';
@@ -407,6 +414,11 @@ const UG_SCREENS = (() => {
 
   /* the signed in account decides the workspace; artboards fall back to a seeded profile */
   const sess = (st) => st.session || U.DATA.sessions[st.role] || U.DATA.sessions.citizen;
+  /* True when the signed-in account is the Super Admin (an lgu_ldrrmc account
+     with profiles.is_super_admin = true). Used to hide the Verify / LGU-Verify
+     / Advance Status actions: the Super Admin has read + edit but no verify
+     permission, by design. */
+  const isSuperAdminSession = (st) => !!(st && st.session && st.session.role === 'lgu_ldrrmc' && st.session.superAdmin);
 
   /* ================================================================== */
   /* MOBILE (citizen)                                                    */
@@ -1195,8 +1207,12 @@ const UG_SCREENS = (() => {
     const incidents = U.DATA.incidents;
     const recent = incidents.slice(0, 5);
     /* quick action shown inline on each recent incident row so the duty officer
-       can advance a report straight from the dashboard without opening it. */
+       can advance a report straight from the dashboard without opening it.
+       Super Admin has no verify permission: instead of Verify, they get an Edit
+       action that opens the existing edit-report modal. */
+    const isSuper = !!(st.session && st.session.role === 'lgu_ldrrmc' && st.session.superAdmin);
     const quickAction = (i) => {
+      if (isSuper) return '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('edit-report', attr({ id: i.id })) + '>' + I('settings', 14) + 'Edit</button>';
       if (i.status === 'verified')   return '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('truck', 14) + 'Dispatch</button>';
       if (i.status === 'dispatched') return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>' + I('check', 14) + 'Resolve</button>';
       if (i.status === 'reported')   return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Verify</button>';
@@ -1220,13 +1236,14 @@ const UG_SCREENS = (() => {
           '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:center"><span style="color:var(--ug-emergency);display:flex">' + I('alert', 16) + '</span>' +
             '<div style="font-size:13px;font-weight:700;color:var(--ug-emergency)">' + escalated.length + ' escalated to LGU</div>' +
             '<span class="ug-dim" style="font-size:11px;margin-left:auto">Stale (>30 min) or life-safety hazard</span></div>' +
+          '<div class="ug-dim" style="font-size:11px;line-height:1.55"><b>Escalated</b> is not a status — it is a separate flag for reports needing additional LGU intervention. A report is escalated when it remains unverified for more than 30 minutes (stale), or when it is a life-safety hazard (fire, power line, accident, landslide) that bypasses the barangay queue. It complements the Processing / Verified / Deployed / Resolved status pipeline; it does not replace it.</div>' +
           '<div class="ug-rows" style="max-height:200px">' + escalated.slice(0, 6).map((i) =>
             '<div class="ug-row" role="button" tabindex="0" style="width:100%;text-align:left;cursor:pointer"' + A('open-incident', attr({ id: i.id })) + '><span class="r-dot" style="background:var(--ug-emergency)"></span>' +
               '<div class="r-main"><div class="r-t">' + esc(i.hazard) + '<span class="ug-badge ug-badge--id">' + esc(i.id) + '</span>' +
                 (i.is_severity_bypass ? '<span class="ug-badge ug-badge--emergency" style="font-size:9px">Life-safety</span>' : '<span class="ug-badge ug-badge--warning" style="font-size:9px">Stale</span>') +
               '</div>' +
               '<div class="r-m"><span>' + I('pin', 12) + esc(i.brgy) + '</span><span>' + I('clock', 12) + esc(i.time) + '</span></div></div>' +
-              '<span class="ug-rowf ug-gap6" style="gap:6px">' + U.stageBadge(i.status) + (st.session && st.session.role === 'lgu_ldrrmc' ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('lgu-verify', attr({ id: i.id })) + '>' + I('shield', 13) + 'LGU-Verify</button>' : '') + '</span>' +
+              '<span class="ug-rowf ug-gap6" style="gap:6px">' + U.stageBadge(i.status) + (st.session && st.session.role === 'lgu_ldrrmc' && !st.session.superAdmin ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('lgu-verify', attr({ id: i.id })) + '>' + I('shield', 13) + 'LGU-Verify</button>' : '') + '</span>' +
             '</div>').join('') + '</div>' +
         '</div></div>'
       : '';
@@ -1282,11 +1299,11 @@ const UG_SCREENS = (() => {
               '<div class="r-m"><span>' + I('pin', 12) + esc(a.area) + '</span><span>' + esc(a.time) + '</span></div></div>' +
               U.sevBadge(a.severity) + '</button>').join('') + '</div></div>' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Readiness</h3></div><div class="ug-card-b ug-col" style="gap:11px">' +
-          [['Shelters open', (U.DATA.counts ? U.DATA.counts.openCenters : U.DATA.centers.filter(c => c.status === 'open').length) + ' of ' + U.DATA.centers.length, 'prepared'],
-           ['Units assigned', (U.DATA.counts ? U.DATA.counts.units : 0) + ' deployed', 'verified'],
-           ['Corroboration rate', ((U.DATA.analytics && U.DATA.analytics.corroborationRate) || 0) + '%', 'prepared']]
-            .map(x => '<div class="ug-rowf ug-between" style="gap:10px;font-size:12px"><span class="ug-dim">' + x[0] + '</span>' +
-              '<span class="ug-mono" style="color:var(--ug-' + x[2] + ')">' + x[1] + '</span></div>').join('') +
+          [['Shelters open', (U.DATA.counts ? U.DATA.counts.openCenters : U.DATA.centers.filter(c => c.status === 'open').length) + ' of ' + U.DATA.centers.length, 'prepared', 'centers'],
+           ['Units assigned', (U.DATA.counts ? U.DATA.counts.units : 0) + ' deployed', 'verified', 'dispatch-units'],
+           ['Corroboration rate', ((U.DATA.analytics && U.DATA.analytics.corroborationRate) || 0) + '%', 'prepared', 'analytics']]
+            .map(x => '<button class="ug-rowf ug-between" style="gap:10px;font-size:12px;background:transparent;border:0;cursor:pointer;color:inherit;padding:4px 0;width:100%;text-align:left" data-act="nav" data-route="' + esc(x[3]) + '"><span class="ug-dim">' + x[0] + '</span>' +
+              '<span class="ug-mono" style="color:var(--ug-' + x[2] + ')">' + x[1] + '</span></button>').join('') +
         '</div></div>' +
       '</div>' +
       /* staff quick-access: tiles for the new modules so the LGU dashboard
@@ -1312,6 +1329,12 @@ const UG_SCREENS = (() => {
     const f = st.sevFilter;
     const chips = [['all', 'All'], ['escalated', 'Escalated'], ['reported', UG_THEME.STATUS.reported.label], ['verified', UG_THEME.STATUS.verified.label],
       ['dispatched', UG_THEME.STATUS.dispatched.label], ['resolved', UG_THEME.STATUS.resolved.label], ['rejected', UG_THEME.STATUS.rejected.label]];
+    /* Clarify what Escalated means, so it is not confused with the standard
+       status pipeline. The chip carries a title attribute and a tiny help
+       line below the chip row. */
+    const escalatedHelp = f === 'escalated'
+      ? '<div class="ug-card ug-card--flat" style="margin-top:8px"><div class="ug-card-b ug-note"><b>Escalated</b> &mdash; reports needing additional LGU intervention. Either stale (unverified > 30 min) or life-safety hazards (fire, power line, accident, landslide) that bypass the barangay queue. This is a separate flag from severity and from the Processing / Verified / Deployed / Resolved status.</div></div>'
+      : '';
     /* Priority Sort toggle: severity first, then corroboration count, then recency.
        Default stays newest-first. */
     const priority = st.incidentSort === 'priority';
@@ -1353,9 +1376,14 @@ const UG_SCREENS = (() => {
       return '';
     };
     const action = (i) => {
+      /* Super Admin has no verify permission. They can edit a record (which is
+         itself logged) but they cannot move it through the verification step. */
+      if (st.session && st.session.role === 'lgu_ldrrmc' && st.session.superAdmin) {
+        return '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('edit-report', attr({ id: i.id })) + '>' + I('settings', 14) + 'Edit</button>';
+      }
       if (i.status === 'reported') {
         /* LGU sees both Verify (barangay-style) and LGU-Verify; barangay officials
-           only see the standard Verify. */
+           only see the standard Verify. Super Admin gets neither (handled above). */
         if (st.session && st.session.role === 'lgu_ldrrmc') {
           return '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('lgu-verify', attr({ id: i.id })) + '>' + I('shield', 14) + 'LGU-Verify</button>' +
                  '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Verify</button>';
@@ -1384,12 +1412,18 @@ const UG_SCREENS = (() => {
       pageHead('Incident Queue', 'Track every report through reported, verified, response dispatched and resolved.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm' + (priority ? ' is-active' : '') + '" style="' + (priority ? 'border-color:var(--ug-signal);color:var(--ug-signal)' : '') + '"' + A('sort-toggle') + '>' + I('sort', 15) + (priority ? 'Priority Sort: On' : 'Priority Sort') + '</button>' +
         '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('nav', attr({ route: 'command' })) + '>' + I('grid', 15) + 'Command View</button>') +
-      (escalatedCount > 0 ? '<div class="ug-card ug-card--flat" style="border-left:3px solid var(--ug-emergency)"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:center"><span style="color:var(--ug-emergency);display:flex">' + I('alert', 16) + '</span><div><div style="font-size:12.5px;font-weight:600;color:var(--ug-emergency)">' + escalatedCount + ' report' + (escalatedCount === 1 ? '' : 's') + ' escalated to LGU</div><div class="ug-dim" style="font-size:11px">Stale (>30 min unverified) or life-safety hazards (fire, power line, accident, landslide) bypass the barangay queue.</div></div></div></div>' : '') +
+      (escalatedCount > 0 ? '<div class="ug-card ug-card--flat" style="border-left:3px solid var(--ug-emergency)"><div class="ug-card-b ug-col" style="gap:8px">' +
+        '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:center"><span style="color:var(--ug-emergency);display:flex">' + I('alert', 16) + '</span>' +
+          '<div style="font-size:12.5px;font-weight:600;color:var(--ug-emergency)">' + escalatedCount + ' report' + (escalatedCount === 1 ? '' : 's') + ' escalated to LGU</div></div>' +
+        '<div class="ug-dim" style="font-size:11px;line-height:1.55"><b>Escalated</b> means a report needs additional LGU intervention — it is not the same as severity or the standard Processing / Verified / Deployed / Resolved status. A report is escalated when (a) it has remained unverified for more than 30 minutes (stale), or (b) it is a life-safety hazard (fire, power line, accident, landslide) that bypasses the barangay queue and goes straight to the LGU.</div>' +
+      '</div></div>' : '') +
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + chips.map(c =>
-        '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('sev-filter', attr({ v: c[0] })) + '>' + c[1] +
+        '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('sev-filter', attr({ v: c[0] })) +
+          (c[0] === 'escalated' ? ' title="Reports needing additional LGU intervention (stale > 30 min, or life-safety hazard). Not a status — a separate flag."' : '') + '>' + c[1] +
         '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? allInc.length : c[0] === 'escalated' ? escalatedCount : allInc.filter(x => x.status === c[0]).length) + '</span></button>').join('') +
         '<span class="ug-rowf" style="margin-left:auto;gap:10px;align-items:center">' + brgyFilterUi +
         '<span class="ug-dimmer" style="font-size:11px;display:flex;align-items:center;gap:6px">' + I('target', 13) + 'Scope: ' + esc(bf !== 'All' ? 'Barangay ' + bf : (sess(st).scope || '')) + '</span></span></div>' +
+      escalatedHelp +
       '<div class="ug-card"><div class="ug-ticks" style="grid-template-columns:1.2fr 2.4fr 1.1fr 1fr .7fr 1.1fr .9fr;padding:11px 16px;font-size:10px">' +
         '<span>Status</span><span>Hazard / description</span><span>Barangay</span><span>Corroboration</span><span>Age</span><span>Severity</span><span style="text-align:right">Action</span>' +
       '</div>' + (list.length ? list.map(i =>
@@ -1450,12 +1484,19 @@ const UG_SCREENS = (() => {
           /* "Assign Units" removed — Dispatch Response (and "Add Team" once
              dispatched) already covers assigning a response unit, so the
              separate Assign Units button was redundant clutter. */
-                    (status !== 'resolved' && status !== 'rejected' ? '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('check', 15) + (status === 'verified' ? 'Dispatch Response' : 'Advance Status') + '</button>' +
+          (isSuperAdminSession(st) ? (
+              (status !== 'resolved' && status !== 'rejected'
+                ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>'
+                : '')
+            ) :
+            (status !== 'resolved' && status !== 'rejected' ? '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('check', 15) + (status === 'verified' ? 'Dispatch Response' : 'Advance Status') + '</button>' +
           (status === 'dispatched' ? '<button class="ug-btn ug-btn--sm"' + A('dispatch-open', attr({ id: i.id })) + '>' + I('truck', 15) + 'Add Team</button>' : '') +
           /* LGU-only second verify path: only shows while the report is still
-             unverified, so an inactive barangay is not a blind spot. */
-          (isLGU && status === 'reported' ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('lgu-verify', attr({ id: i.id })) + '>' + I('shield', 15) + 'LGU-Verify</button>' : '') +
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>' : '') +
+             unverified, so an inactive barangay is not a blind spot. The Super
+             Admin never gets this button — they must not verify reports. */
+          (isLGU && status === 'reported' && !st.session.superAdmin ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('lgu-verify', attr({ id: i.id })) + '>' + I('shield', 15) + 'LGU-Verify</button>' : '') +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>' : '')
+          ) +
         '</div>' +
       '</div>' +
       '<div class="ug-dgrid-detail">' +
@@ -1630,7 +1671,15 @@ const UG_SCREENS = (() => {
     const scoped = (scope === 'mine' && isOfficial && myBrgy)
       ? all.filter(c => c.brgy === myBrgy)
       : all;
-    const list = scoped.filter(c => f === 'all' || c.status === f);
+    const list = scoped.filter(c => f === 'all' || c.status === f)
+      .filter((c) => {
+        const q = (st.shelterSearch || '').trim().toLowerCase();
+        if (!q) return true;
+        return (c.name || '').toLowerCase().indexOf(q) >= 0 ||
+               (c.brgy || '').toLowerCase().indexOf(q) >= 0 ||
+               (c.contact_person || '').toLowerCase().indexOf(q) >= 0 ||
+               (c.note || '').toLowerCase().indexOf(q) >= 0;
+      });
     const counts = ['open', 'full', 'closed'].map(s => [s, scoped.filter(c => c.status === s).length]);
     const totalCap = scoped.reduce((s, c) => s + (c.cap || 0), 0);
     const totalOcc = scoped.reduce((s, c) => s + (c.occ || 0), 0);
@@ -1670,6 +1719,11 @@ const UG_SCREENS = (() => {
         [['all','All ('+scoped.length+')']].concat([['open','Open'],['full','Full'],['closed','Closed']].map((c,i) => [c[0], c[1]+' ('+counts[i][1]+')']))
           .map(c => '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('center-filter', attr({ v: c[0] })) + '>' + esc(c[1]) + '</button>').join('') +
       '</div>' +
+      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap8 ug-wrap" style="gap:8px;align-items:flex-end">' +
+        '<div class="ug-field" style="margin:0;flex:1;min-width:240px"><label class="ug-lab">Search shelters</label>' +
+          '<input class="ug-in" data-field="shelterSearch" value="' + esc(st.shelterSearch || '') + '" placeholder="Name, barangay, contact or note"></div>' +
+        (st.shelterSearch ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('shelter-clear-search') + '>Clear</button>' : '') +
+      '</div></div>' +
       (list.length ? '<div class="ug-dgrid-centers">' + list.map(c => {
         const pct = c.cap ? Math.min(100, Math.round(c.occ / c.cap * 100)) : 0;
         const geoState = UG_GEO.classify(c.lat, c.lng);
@@ -1700,10 +1754,13 @@ const UG_SCREENS = (() => {
               A('center-status', attr({ id: c.id, s: s })) + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</button>').join('') +
             '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="flex:0 0 auto"' + A('center-edit', attr({ id: c.id })) + '>' + I('settings', 13) + '</button>' +
           '</div>' +
-          (geoState === 'ok'
-            ? '<a class="ug-waze-btn" style="width:100%" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(c.lat, c.lng) + '">' + I('route', 13) + 'Navigate with Waze</a>'
-            : '<div class="ug-help">' + esc(UG_GEO.message(geoState)) + ' — Waze navigation is hidden until it has valid coordinates.</div>') +
-          '</div></div>';
+          '<div class="ug-rowf ug-gap8" style="gap:6px">' +
+            '<button class="ug-btn ug-btn--sm" style="flex:1"' + A('center-detail', attr({ id: c.id })) + '>' + I('doc', 13) + 'Details</button>' +
+            (geoState === 'ok'
+              ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="flex:1"' + A('center-edit-location', attr({ id: c.id })) + '>' + I('pin', 13) + 'Edit Location</button>'
+              : '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="flex:1"' + A('center-edit-location', attr({ id: c.id })) + '>' + I('pin', 13) + 'Set Location</button>') +
+          '</div>' +
+        '</div></div>';
       }).join('') + '</div>'
       : '<div class="ug-card"><div class="ug-empty"><span class="e-ico">' + I('shelter', 20) + '</span>' +
         '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No shelters match this filter</div>' +
@@ -1775,40 +1832,122 @@ const UG_SCREENS = (() => {
   function actionChip(i){
     /* real clickable buttons now (the command-view rows are divs, not buttons,
        so a nested button is valid HTML). They advance the incident exactly like
-       the queue does, so the Dispatch chip is no longer just decoration. */
-    if (i.status === 'reported')   return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Verify</button>';
-    if (i.status === 'verified')   return '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('truck', 13) + 'Dispatch</button>';
-    if (i.status === 'dispatched') return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Resolve</button>';
+       the queue does, so the Dispatch chip is no longer just decoration.
+       Super Admin gets Edit instead of Verify — they have no verify permission. */
+    const isSuper = !!(U._lastSt && U._lastSt.session && U._lastSt.session.role === 'lgu_ldrrmc' && U._lastSt.session.superAdmin);
+    if (isSuper) return '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="edit-report" data-id="' + esc(i.id) + '">' + U.icon('settings', 13) + 'Edit</button>';
+    if (i.status === 'reported')   return '<button class="ug-btn ug-btn--sm" data-act="advance" data-id="' + esc(i.id) + '">Verify</button>';
+    if (i.status === 'verified')   return '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="advance" data-id="' + esc(i.id) + '">' + I('truck', 13) + 'Dispatch</button>';
+    if (i.status === 'dispatched') return '<button class="ug-btn ug-btn--sm" data-act="advance" data-id="' + esc(i.id) + '">Resolve</button>';
     return '';
   }
-  /* ---- hotlines management (feature 8) ---- */
+  /* ---- hotlines management (feature 8 + master prompt Emergency Hotlines
+     Management and Super Admin Approval) ----
+       · Super Admin: Add / Edit / Delete directly (with confirmation dialogs),
+         plus a "Pending Change Requests" queue at the top.
+       · LGU / Barangay Official: Call + "Request Change" button. No direct
+         Edit / Delete. Submitting a request opens a form modal that captures
+         the action (add / edit / delete), the current data, the proposed
+         data, and a reason. The request goes to the Super Admin for review.
+       · The Call functionality is preserved for everyone. */
   function dHotlines(st){
+    const isSuper = !!(st.session && st.session.role === 'lgu_ldrrmc' && st.session.superAdmin);
+    const isLgu = !!(st.session && st.session.role === 'lgu_ldrrmc');
+    const isOfficial = !!(st.session && st.session.role === 'barangay_official');
+    const canRequest = isLgu && !isSuper || isOfficial;
+    const pending = (UG.DATA.changeRequests || []).filter((r) => r.target_table === 'emergency_hotlines' && r.status === 'pending');
+
+    /* pending requests queue — Super Admin only sees this section */
+    const pendingSection = isSuper ? (pending.length
+      ? '<div class="ug-card" style="border-left:3px solid var(--ug-warning)"><div class="ug-card-h"><h3>Pending Change Requests</h3>' +
+          '<span class="ug-chip" style="background:rgba(255,179,64,.14);color:var(--ug-warning)">' + pending.length + ' pending</span></div>' +
+          '<div class="ug-rows ug-scroll" style="max-height:280px">' + pending.map((r) =>
+            '<div class="ug-row" role="button" tabindex="0" style="cursor:pointer;width:100%;text-align:left;background:none" data-act="open-change-request" data-id="' + esc(r.id) + '"><span class="r-dot" style="background:var(--ug-warning)"></span>' +
+              '<div class="r-main"><div class="r-t">' + esc(r.action.toUpperCase()) + ' · ' + esc(r.target_table.replace(/_/g, ' ')) + '</div>' +
+                '<div class="r-m"><span>' + I('users', 12) + esc(r.requester_name || '—') + '</span>' +
+                '<span>' + I('pin', 12) + esc(r.requester_barangay || '—') + '</span>' +
+                '<span>' + I('clock', 12) + esc(UG_UTIL.relTime(r) || '') + '</span></div></div>' +
+              '<span class="ug-badge ug-badge--warning">Pending</span></div>').join('') + '</div></div>'
+      : '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:center">' +
+          '<span style="color:var(--ug-prepared);display:flex">' + I('check', 16) + '</span>' +
+          '<div><div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No pending change requests</div>' +
+          '<div class="ug-dim" style="font-size:11px">When LGU staff or Barangay Officials submit a hotline change, it appears here for your review.</div></div></div></div>')
+      : '';
+
+    /* pending count for the LGU's own submitted requests (so they can see
+       what they're waiting on) */
+    const myPending = canRequest ? (UG.DATA.changeRequests || []).filter((r) => r.requester_id === st.session.id && r.status === 'pending') : [];
+    const myPendingSection = canRequest && myPending.length
+      ? '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:8px">' +
+          '<div class="ug-rowf ug-between"><div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">Your pending requests</div>' +
+            '<span class="ug-chip">' + myPending.length + '</span></div>' +
+          myPending.slice(0, 5).map((r) => '<div class="ug-rowf ug-between" style="gap:8px;font-size:11.5px">' +
+            '<span>' + esc(r.action) + ' · ' + esc((r.proposed_data && r.proposed_data.agency_name) || (r.current_data && r.current_data.agency_name) || '—') + '</span>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="open-change-request" data-id="' + esc(r.id) + '">View</button></div>').join('') +
+        '</div></div>'
+      : '';
+
+    /* action buttons per hotline card depend on the role */
+    const hotlineActions = (h) => {
+      const call = '<a class="ug-btn ug-btn--sm" style="flex:1;text-decoration:none" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '">' + I('phone', 14) + 'Call</a>';
+      if (isSuper) {
+        return '<div class="ug-rowf ug-gap8" style="gap:6px">' + call +
+          '<button class="ug-btn ug-btn--sm" data-act="open-hotline-detail" data-id="' + esc(h.id) + '">' + I('doc', 13) + 'Details</button>' +
+          '<button class="ug-btn ug-btn--sm" data-act="edit-hotline" data-id="' + esc(h.id) + '">' + I('settings', 13) + 'Edit</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--danger" data-act="delete-hotline" data-id="' + esc(h.id) + '">' + I('x', 13) + 'Delete</button>' +
+          '</div>';
+      }
+      if (canRequest) {
+        return '<div class="ug-rowf ug-gap8" style="gap:6px">' + call +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="request-hotline-edit" data-id="' + esc(h.id) + '">' + I('edit', 13) + 'Request Change</button>' +
+          '</div>';
+      }
+      return '<div class="ug-rowf ug-gap8" style="gap:6px">' + call + '</div>';
+    };
+
+    /* Add hotline form — Super Admin gets a direct form; LGU/BO get a "Request
+       a new hotline" button that opens the request modal */
+    const addSection = isSuper
+      ? '<div class="ug-card"><div class="ug-card-h"><h3>Add Hotline</h3></div>' +
+          '<div class="ug-card-b"><div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:flex-end">' +
+            '<div class="ug-field" style="flex:2;min-width:200px;margin:0"><label class="ug-lab">Agency</label><input class="ug-in" data-field="hotlineAgency" placeholder="e.g. Bureau of Fire Protection"></div>' +
+            '<div class="ug-field" style="flex:1;min-width:160px;margin:0"><label class="ug-lab">Contact number</label><input class="ug-in" data-field="hotlineNumber" placeholder="(075) 000-0000"></div>' +
+            '<div class="ug-field" style="flex:1;min-width:160px;margin:0"><label class="ug-lab">Scope</label><input class="ug-in" data-field="hotlineScope" placeholder="Fire and rescue"></div>' +
+            '<button class="ug-btn ug-btn--signal"' + A('add-hotline') + '>' + I('plus', 15) + 'Add</button>' +
+          '</div></div></div>'
+      : canRequest
+        ? '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-between" style="gap:12px;align-items:center">' +
+            '<div><div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">Need a new hotline added or an outdated one removed?</div>' +
+            '<div class="ug-dim" style="font-size:11px;line-height:1.5">Submit a change request. The Super Admin reviews every request before the official directory is updated.</div></div>' +
+            '<button class="ug-btn ug-btn--signal" data-act="request-hotline-add">' + I('plus', 14) + 'Request a new hotline</button>' +
+          '</div></div>'
+        : '';
+
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Emergency Hotlines', 'The official directory for barangay and municipal offices, cached offline on every device.',
+      pageHead('Emergency Hotlines', 'The official directory for barangay and municipal offices, cached offline on every device.' + (isSuper ? '' : ' Official changes require Super Admin approval.'),
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('export-hotlines') + '>' + I('download', 15) + 'Export PDF</button>') +
+      pendingSection +
+      myPendingSection +
       '<div class="ug-dgrid-hotlines">' + U.DATA.hotlines.map(h =>
         '<div class="ug-card"><div class="ug-card-b ug-col" style="gap:10px">' +
           '<div class="ug-rowf ug-between" style="gap:8px"><span class="ug-lab">' + esc(h.type) + '</span>' + I('phone', 16) + '</div>' +
           '<h3 style="font-size:13.5px">' + esc(h.agency) + '</h3>' +
           '<a class="ug-mono" style="font-size:17px;color:var(--ug-signal);text-decoration:none" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '">' + esc(h.number) + '</a>' +
           '<div class="ug-dim" style="font-size:11.5px">' + esc(h.scope) + '</div>' +
-          '<div class="ug-rowf ug-gap8" style="gap:6px">' +
-            '<a class="ug-btn ug-btn--sm" style="flex:1;text-decoration:none" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '">' + I('phone', 14) + 'Call</a>' +
-            '<button class="ug-btn ug-btn--sm"' + A('edit-hotline', attr({ id: h.id })) + '>' + I('settings', 14) + 'Edit</button>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('delete-hotline', attr({ id: h.id })) + '>' + I('x', 14) + '</button>' +
-          '</div></div></div>').join('') +
+          hotlineActions(h) +
+        '</div></div>').join('') +
       '</div>' +
-      '<div class="ug-card"><div class="ug-card-h"><h3>Add Hotline</h3></div>' +
-        '<div class="ug-card-b"><div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:flex-end">' +
-          '<div class="ug-field" style="flex:2;min-width:200px;margin:0"><label class="ug-lab">Agency</label><input class="ug-in" data-field="hotlineAgency" placeholder="e.g. Bureau of Fire Protection"></div>' +
-          '<div class="ug-field" style="flex:1;min-width:160px;margin:0"><label class="ug-lab">Contact number</label><input class="ug-in" data-field="hotlineNumber" placeholder="(075) 000-0000"></div>' +
-          '<div class="ug-field" style="flex:1;min-width:160px;margin:0"><label class="ug-lab">Scope</label><input class="ug-in" data-field="hotlineScope" placeholder="Fire and rescue"></div>' +
-          '<button class="ug-btn ug-btn--signal"' + A('add-hotline') + '>' + I('plus', 15) + 'Add</button>' +
-        '</div></div></div>' +
+      addSection +
+      (canRequest ? '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">You cannot directly edit or delete official hotlines. Use the <b>Request Change</b> button on any card or the <b>Request a new hotline</b> button above — your request goes to the Super Admin for approval. You will be notified when it is decided.</div></div>' : '') +
+      (isSuper ? '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">As the Super Admin, you can directly add, edit or delete official hotline records. Every change is recorded in the centralized Activity Log. LGU and Barangay Official submissions appear in the Pending Change Requests queue above.</div></div>' : '') +
     '</div>';
   }
 
-  /* ---- analytics (feature 2 + 5) ---- */
+  /* ---- analytics (feature 2 + 5) ----
+     Section 10: every card shows the actual numbers from the data layer, with
+     a comparison to the previous equivalent reporting period where applicable.
+     The barangay filter applies to every card so the Super Admin / LGU can
+     see one barangay across the whole page. No fake numbers anywhere. */
   function dAnalytics(st){
     const an = U.DATA.analytics || {};
     const cnt = U.DATA.counts || {};
@@ -1816,21 +1955,137 @@ const UG_SCREENS = (() => {
     const trend = (trendDaily.length) ? trendDaily : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     const fmtDur = (s) => s == null ? '—' : (s >= 3600 ? (s / 3600).toFixed(1) + ' h' : Math.round(s / 60) + ' min');
     const isLGU = st.session && st.session.role === 'lgu_ldrrmc';
+    const brgyFilter = (isLGU && st.anBrgyFilter && st.anBrgyFilter !== 'All') ? st.anBrgyFilter : 'All';
+
+    /* barangay-scoped incident list: applies the barangay filter to every
+       card below so the whole page reflects the same selection. */
+    const inc = (U.DATA.incidents || []).filter((i) => brgyFilter === 'All' || i.brgy === brgyFilter);
+    const adv = (U.DATA.advisories || []);
+    const cen = (U.DATA.centers || []);
+    const relief = (U.DATA.relief || []);
+
+    /* A. reports by hazard type — actual counts, including "Others" */
+    const byHaz = {};
+    inc.forEach((i) => { byHaz[i.hazard] = (byHaz[i.hazard] || 0) + 1; });
+    const hazRows = Object.keys(byHaz).map((k) => [k, byHaz[k], UG_HAZARDS.colorFor(k)])
+      .filter((r) => r[1] > 0).sort((x, y) => y[1] - x[1]);
+
+    /* B. reports by barangay — ranked list, with bars */
+    const byBrgy = {};
+    inc.forEach((i) => { byBrgy[i.brgy] = (byBrgy[i.brgy] || 0) + 1; });
+    const brgyRows = Object.keys(byBrgy).map((k) => ({ brgy: k, total: byBrgy[k] }))
+      .sort((a, b) => b.total - a.total);
+
+    /* C. report status breakdown */
+    const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0, rejected: 0 };
+    inc.forEach((i) => { if (stages[i.status] != null) stages[i.status]++; });
+    const openCount = inc.filter((i) => i.status !== 'resolved' && i.status !== 'rejected').length;
+    /* oldest unresolved report — measured from created_at */
+    const openIncidents = inc.filter((i) => i.status !== 'resolved' && i.status !== 'rejected' && i.created_at);
+    const oldest = openIncidents.length ? openIncidents.reduce((a, b) => (Date.parse(a.created_at) < Date.parse(b.created_at) ? a : b)) : null;
+    const oldestAgeMin = oldest ? Math.round((Date.now() - Date.parse(oldest.created_at)) / 60000) : 0;
+    const staleThreshold = 30; /* matches the escalation policy */
+    const overThresholdCount = openIncidents.filter((i) => (Date.now() - Date.parse(i.created_at)) / 60000 > staleThreshold).length;
+
+    /* D. response time by unit (BFP / PNP / Rescue / Hospital). We don't have
+       a direct join, so we estimate from the dispatches table: each dispatch
+       record ties a report to a team name. We bucket team names by unit type. */
+    const unitBuckets = { BFP: [], PNP: [], Rescue: [], Hospital: [] };
+    const dispatches = U.DATA.dispatches || {};
+    Object.keys(dispatches).forEach((rid) => {
+      const report = (U.DATA.incidents || []).find((i) => i.uuid === rid || i.id === rid);
+      if (!report || !report.created_at) return;
+      (dispatches[rid] || []).forEach((d) => {
+        const t = (d.team || '').toLowerCase();
+        let bucket = null;
+        if (/bfp|fire/.test(t)) bucket = 'BFP';
+        else if (/pnp|police/.test(t)) bucket = 'PNP';
+        else if (/rescue|sarl|sar/.test(t)) bucket = 'Rescue';
+        else if (/hospital|medic|ambulance|ems/.test(t)) bucket = 'Hospital';
+        if (!bucket) return;
+        const dispatchedAt = d.dispatched_at ? Date.parse(d.dispatched_at) : null;
+        if (!dispatchedAt) return;
+        const dt = (dispatchedAt - Date.parse(report.created_at)) / 1000;
+        if (dt >= 0) unitBuckets[bucket].push(dt);
+      });
+    });
+    const unitStats = Object.keys(unitBuckets).map((k) => {
+      const arr = unitBuckets[k];
+      if (!arr.length) return { unit: k, count: 0, avg: null, slowest: null };
+      const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+      const slowest = arr.reduce((a, b) => Math.max(a, b), 0);
+      return { unit: k, count: arr.length, avg: avg, slowest: slowest };
+    });
+
+    /* E. dispatch workload — number of dispatches per team */
+    const perTeam = {};
+    Object.keys(dispatches).forEach((rid) => {
+      (dispatches[rid] || []).forEach((d) => {
+        const team = d.team || 'Unspecified';
+        perTeam[team] = (perTeam[team] || 0) + 1;
+      });
+    });
+    const teamRows = Object.keys(perTeam).map((k) => ({ team: k, count: perTeam[k] })).sort((a, b) => b.count - a.count);
+
+    /* F. verification quality — verified, unverified, rejected, auto-verified.
+       Display only — no verify controls for the Super Admin. */
+    const verified = stages.verified + stages.dispatched + stages.resolved;
+    const unverified = stages.reported;
+    const rejected = stages.rejected;
+    const total = inc.length || 1;
+    const autoVerified = inc.filter((i) => (i.corr || 0) >= 3).length;
+
+    /* G. shelter occupancy */
+    const totalCap = cen.reduce((s, c) => s + (c.cap || 0), 0);
+    const totalOcc = cen.reduce((s, c) => s + (c.occ || 0), 0);
+    const fullShelters = cen.filter((c) => c.status === 'full' || (c.cap && c.occ >= c.cap));
+    const openShelters = cen.filter((c) => c.status === 'open');
+
+    /* H. relief goods distribution — per-barangay + distribution phase */
+    const reliefPerBrgy = {};
+    relief.forEach((r) => { reliefPerBrgy[r.barangay] = (reliefPerBrgy[r.barangay] || 0) + 1; });
+    const reliefRows = Object.keys(reliefPerBrgy).map((k) => ({ brgy: k, count: reliefPerBrgy[k] }))
+      .sort((a, b) => b.count - a.count);
+    const reliefPhases = { to_distribute: 0, during: 0, fully: 0 };
+    relief.forEach((r) => {
+      const status = (r.status || r.phase || '').toLowerCase();
+      if (/distribut/.test(status) && !/fully|complete/.test(status)) reliefPhases.during++;
+      else if (/fully|complete/.test(status)) reliefPhases.fully++;
+      else reliefPhases.to_distribute++;
+    });
+    const distLog = U.DATA.distributionLog || [];
+    const totalRecipients = distLog.length;
+
+    /* previous-period comparison: last 7 days vs the 7 days before that */
+    const week = (trendDaily.length >= 7) ? trendDaily.slice(-7).reduce((a, b) => a + b, 0) : 0;
+    const prev = (trendDaily.length >= 14) ? trendDaily.slice(0, 7).reduce((a, b) => a + b, 0) : 0;
+    const weekDelta = prev ? Math.round(((week - prev) / prev) * 100) : 0;
+
+    /* barangay filter dropdown */
+    const brgyOpts = ['All'].concat(U.DATA.barangays).map((b) =>
+      '<option value="' + esc(b) + '"' + (brgyFilter === b ? ' selected' : '') + '>' + esc(b === 'All' ? 'All barangays' : b) + '</option>').join('');
+
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Analytics and Reporting', (isLGU ? 'Municipality-wide telemetry across hazards, response times and verification quality.' : 'Barangay telemetry across hazards, response times and verification quality. Scope is enforced by the database.'),
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('export-analytics') + '>' + I('doc', 15) + 'Export PDF</button>') +
+      pageHead('Analytics and Reporting', (isLGU ? 'Municipality-wide telemetry across hazards, response times, verification quality, shelters and relief.' : 'Barangay telemetry across hazards, response times, verification quality, shelters and relief. Scope is enforced by the database.'),
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="analytics-export-csv">' + I('download', 15) + 'Export CSV</button>' +
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="export-analytics">' + I('doc', 15) + 'Export PDF</button>') +
       syncStatusBanner(st) +
+      /* unified filters: date range + barangay filter applies to every card */
       '<div class="ug-card"><div class="ug-card-b ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:flex-end">' +
         '<div class="ug-field" style="margin:0"><label class="ug-lab">From</label><input class="ug-in" type="date" data-field="anFrom" value="' + esc(st.anFrom || '') + '"></div>' +
         '<div class="ug-field" style="margin:0"><label class="ug-lab">To</label><input class="ug-in" type="date" data-field="anTo" value="' + esc(st.anTo || '') + '"></div>' +
+        (isLGU ? '<div class="ug-field" style="margin:0;min-width:180px"><label class="ug-lab">Barangay</label>' +
+          '<select class="ug-sel" data-field="anBrgyFilter">' + brgyOpts + '</select></div>' : '') +
         '<button class="ug-btn ug-btn--sm"' + A('an-apply') + '>' + I('check', 14) + 'Apply range</button>' +
         '<span class="ug-dimmer" style="font-size:11px;margin-left:auto">Empty dates default to the last 30 days</span></div></div>' +
+      /* top KPI strip — comparison with the previous period */
       '<div class="ug-dgrid4">' +
-        U.stat({ label: 'Reports This Week', value: String(an.weekTotal || 0), delta: (an.weekDelta >= 0 ? '+' : '') + (an.weekDelta || 0) + '% vs previous week', dir: (an.weekDelta >= 0 ? 'up' : 'down'), tone: 'advisory', icon: 'inbox' }) +
-        U.stat({ label: 'Verified Share', value: (an.autoVerifiedShare || 0) + '%', delta: (an.total || 0) + ' reports on record', dir: 'flat', tone: 'resolved', icon: 'shield' }) +
-        U.stat({ label: 'Corroboration Rate', value: (an.corroborationRate || 0) + '%', delta: 'Reports reaching three confirmations', dir: 'flat', tone: 'prepared', icon: 'clock' }) +
-        U.stat({ label: 'Shelters at Capacity', value: String(cnt.fullCenters || 0), delta: (cnt.openCenters || 0) + ' open of ' + (cnt.centers || 0), dir: 'flat', tone: 'warning', icon: 'shelter' }) +
+        U.stat({ label: 'Reports This Week', value: String(week || 0), delta: (weekDelta >= 0 ? '+' : '') + (weekDelta || 0) + '% vs previous week', dir: (weekDelta >= 0 ? 'up' : 'down'), tone: 'advisory', icon: 'inbox', nav: 'incidents' }) +
+        U.stat({ label: 'Verified Share', value: (inc.length ? Math.round(verified / total * 100) : 0) + '%', delta: verified + ' of ' + inc.length + ' reports verified', dir: 'flat', tone: 'resolved', icon: 'shield' }) +
+        U.stat({ label: 'Open Reports', value: String(openCount), delta: overThresholdCount + ' over 30 min unverified', dir: 'flat', tone: 'warning', icon: 'alert', nav: 'incidents' }) +
+        U.stat({ label: 'Shelters at Capacity', value: String(fullShelters.length), delta: (cnt.openCenters || 0) + ' open of ' + (cnt.centers || 0), dir: 'flat', tone: 'warning', icon: 'shelter', nav: 'centers' }) +
       '</div>' +
+      /* trend + response performance */
       '<div class="ug-dgrid3">' +
         '<div class="ug-card" style="grid-column:span 2"><div class="ug-card-h"><h3>Incident Trend, Last 14 Days</h3>' +
           '<div class="ug-rowf ug-gap8" style="gap:8px"><span class="ug-dimmer ug-mono" style="font-size:10px">REPORTS PER DAY</span>' +
@@ -1848,36 +2103,144 @@ const UG_SCREENS = (() => {
             '<div class="ug-dim" style="font-size:11px;line-height:1.55">How fast reports in the range moved through the pipeline. A long dispatch time usually means the queue needs another duty officer.</div>' +
           '</div></div>' +
       '</div>' +
+      /* A. hazard type distribution — full list, including Others */
       '<div class="ug-dgrid2">' +
-        '<div class="ug-card"><div class="ug-card-h"><h3>' + (isLGU ? 'Barangay Comparison' : 'Barangay Breakdown') + '</h3><span class="ug-dimmer ug-mono" style="font-size:10px">INCIDENTS BY BARANGAY</span></div>' +
+        '<div class="ug-card"><div class="ug-card-h"><h3>A · Reports by Hazard Type</h3><span class="ug-dimmer ug-mono" style="font-size:10px">' + hazRows.length + ' CATEGORIES</span></div>' +
+          '<div class="ug-card-b ug-col" style="gap:12px">' +
+            (hazRows.length ? hazRows.map(x => '<div class="ug-col" style="gap:6px"><div class="ug-rowf ug-between" style="font-size:11.5px">' +
+              '<button class="ug-rowf ug-gap6" style="gap:6px;background:transparent;border:0;cursor:pointer;color:inherit;padding:0;font:inherit" data-act="sev-filter" data-v="all" title="Open these reports">' +
+                '<span style="color:' + x[2] + ';display:flex">' + I('alert', 12) + '</span>' +
+                '<span style="color:var(--ug-ink);font-weight:600">' + esc(x[0]) + '</span></button>' +
+              '<span class="ug-mono">' + x[1] + '</span></div>' +
+              '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.round(x[1] / Math.max(hazRows[0][1], 1) * 100) + '%;background:' + x[2] + '"></div></div></div>').join('')
+              : '<div class="ug-dim" style="font-size:12px">No reports recorded yet.</div>') +
+            '<div class="ug-dim" style="font-size:11px;line-height:1.55">Includes "Others". Tap a row label to filter the incident queue by hazard.</div>' +
+          '</div></div>' +
+        /* B. barangay comparison */
+        '<div class="ug-card"><div class="ug-card-h"><h3>B · Reports by Barangay</h3>' +
+          '<span class="ug-dimmer ug-mono" style="font-size:10px">' + brgyRows.length + ' BARANGAYS</span></div>' +
           '<div class="ug-card-b ug-col" style="gap:9px">' +
-            ((an.byBarangay && an.byBarangay.length) ? an.byBarangay.slice(0, 8).map(b =>
-              '<div class="ug-col" style="gap:5px"><div class="ug-rowf ug-between" style="font-size:11.5px"><span>' + esc(b.barangay || '—') + '</span><span class="ug-mono">' + b.total + ' total · ' + b.open + ' open</span></div>' +
-              '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, b.total * 4) + '%;background:var(--ug-signal)"></div></div></div>').join('')
+            ((brgyRows.length) ? brgyRows.slice(0, 10).map(b =>
+              '<div class="ug-col" style="gap:5px"><button class="ug-rowf ug-between" style="gap:8px;font-size:11.5px;background:transparent;border:0;cursor:pointer;color:inherit;padding:0;font:inherit;text-align:left" data-act="sev-filter" data-v="all" title="Open ' + esc(b.brgy) + ' reports">' +
+                '<span>' + esc(b.brgy || '—') + '</span><span class="ug-mono">' + b.total + ' reports</span></button>' +
+                '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, b.total * 4) + '%;background:var(--ug-signal)"></div></div></div>').join('')
               : '<div class="ug-dim" style="font-size:12px">No incidents in the selected range.</div>') +
             '<div class="ug-dim" style="font-size:11px">' + (isLGU ? 'Municipality-wide comparison across all barangays.' : 'Your barangay only — the scope is enforced server side.') + '</div>' +
           '</div></div>' +
-        '<div class="ug-card"><div class="ug-card-h"><h3>Hazard Type Distribution</h3><span class="ug-dimmer ug-mono" style="font-size:10px">ALL LOADED REPORTS</span></div>' +
-          '<div class="ug-card-b ug-col" style="gap:12px">' +
-            (function () {
-              const rows = hazardRows(6);
-              if (!rows.length) return '<div class="ug-dim" style="font-size:12px">No reports recorded yet.</div>';
-              const max = Math.max(rows[0][1], 4);
-              return rows.map(x => '<div class="ug-col" style="gap:6px"><div class="ug-rowf ug-between" style="font-size:11.5px">' +
-                '<span>' + esc(x[0]) + '</span><span class="ug-mono">' + x[1] + '</span></div>' +
-                '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.round(x[1] / max * 100) + '%;background:' + x[2] + '"></div></div></div>').join('');
-            })() +
-          '</div></div>' +
-        '<div class="ug-card"><div class="ug-card-h"><h3>Corroboration Quality</h3></div>' +
+      '</div>' +
+      /* C. status breakdown — clickable counts */
+      '<div class="ug-card"><div class="ug-card-h"><h3>C · Report Status Breakdown</h3>' +
+        '<span class="ug-chip is-on">' + inc.length + ' total in scope</span></div>' +
+        '<div class="ug-card-b ug-col" style="gap:14px">' +
+          '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px">' +
+            '<button class="ug-card ug-stat-card" style="cursor:pointer;text-align:left" data-act="sev-filter" data-v="reported"><div class="ug-card-b ug-col" style="gap:4px"><span class="ug-lab">Processing</span><span class="ug-mono" style="font-size:22px;font-weight:600;color:var(--ug-warning)">' + stages.reported + '</span></div></button>' +
+            '<button class="ug-card ug-stat-card" style="cursor:pointer;text-align:left" data-act="sev-filter" data-v="dispatched"><div class="ug-card-b ug-col" style="gap:4px"><span class="ug-lab">Deployed</span><span class="ug-mono" style="font-size:22px;font-weight:600;color:var(--ug-st-dispatched)">' + stages.dispatched + '</span></div></button>' +
+            '<button class="ug-card ug-stat-card" style="cursor:pointer;text-align:left" data-act="sev-filter" data-v="resolved"><div class="ug-card-b ug-col" style="gap:4px"><span class="ug-lab">Resolved</span><span class="ug-mono" style="font-size:22px;font-weight:600;color:var(--ug-prepared)">' + stages.resolved + '</span></div></button>' +
+            '<button class="ug-card ug-stat-card" style="cursor:pointer;text-align:left" data-act="sev-filter" data-v="rejected"><div class="ug-card-b ug-col" style="gap:4px"><span class="ug-lab">Rejected</span><span class="ug-mono" style="font-size:22px;font-weight:600;color:var(--ug-emergency)">' + stages.rejected + '</span></div></button>' +
+          '</div>' +
+          '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;font-size:12px">' +
+            '<span class="ug-rowf ug-gap6" style="gap:6px"><span class="ug-dim">Open (unresolved)</span>' +
+              '<button class="ug-mono" style="background:transparent;border:0;cursor:pointer;color:var(--ug-warning);font:inherit;font-weight:600" data-act="sev-filter" data-v="all">' + openCount + '</button></span>' +
+            '<span class="ug-rowf ug-gap6" style="gap:6px"><span class="ug-dim">Oldest unresolved</span>' +
+              '<span class="ug-mono" style="color:' + (oldestAgeMin > staleThreshold ? 'var(--ug-emergency)' : 'var(--ug-ink-2)') + '">' + (oldestAgeMin > 0 ? oldestAgeMin + ' min ago' : '—') + '</span></span>' +
+            '<span class="ug-rowf ug-gap6" style="gap:6px"><span class="ug-dim">Beyond 30 min threshold</span>' +
+              '<span class="ug-mono" style="color:' + (overThresholdCount > 0 ? 'var(--ug-emergency)' : 'var(--ug-prepared)') + '">' + overThresholdCount + '</span></span>' +
+          '</div>' +
+          (oldest ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="align-self:flex-start" data-act="open-incident" data-id="' + esc(oldest.id) + '">' + I('alert', 13) + 'Open the oldest unresolved report</button>' : '') +
+        '</div></div>' +
+      /* D + E. response time by unit + dispatch workload */
+      '<div class="ug-dgrid2">' +
+        '<div class="ug-card"><div class="ug-card-h"><h3>D · Response Time by Unit</h3>' +
+          '<span class="ug-dimmer ug-mono" style="font-size:10px">FROM ACTUAL DISPATCH TIMESTAMPS</span></div>' +
           '<div class="ug-card-b ug-col" style="gap:14px">' +
-            '<div class="ug-rowf ug-gap16" style="gap:16px;align-items:flex-end">' +
-              '<div><div class="ug-mono" style="font-size:30px;font-weight:700;color:var(--ug-prepared)">' + (an.corroborationRate || 0) + '%</div>' +
-              '<div class="ug-dimmer" style="font-size:10.5px">of reports reached three confirmations</div></div>' +
-            '</div>' +
-            '<div class="ug-hr"></div>' +
-            '<div class="ug-dim" style="font-size:11.5px;line-height:1.6">Corroboration keeps the queue moving when call volumes spike. Only reports that reach three independent confirmations in the same barangay skip manual review; everything else stays with the duty officer.</div>' +
+            unitStats.map((u) => '<div class="ug-col" style="gap:5px">' +
+              '<div class="ug-rowf ug-between" style="font-size:11.5px"><span style="color:var(--ug-ink-2);font-weight:600">' + esc(u.unit) + '</span><span class="ug-dim">' + u.count + ' dispatch' + (u.count === 1 ? '' : 'es') + '</span></div>' +
+              '<div class="ug-rowf ug-between" style="font-size:11px"><span class="ug-dim">avg</span><span class="ug-mono" style="color:var(--ug-signal)">' + fmtDur(u.avg) + '</span></div>' +
+              '<div class="ug-rowf ug-between" style="font-size:11px"><span class="ug-dim">slowest</span><span class="ug-mono" style="color:var(--ug-warning)">' + fmtDur(u.slowest) + '</span></div>' +
+            '</div>').join('') +
+            '<div class="ug-dim" style="font-size:11px;line-height:1.55">Average and slowest time from report submission to dispatch, bucketed by unit type (BFP / PNP / Rescue / Hospital). Computed from actual dispatch timestamps in the database.</div>' +
+          '</div></div>' +
+        '<div class="ug-card"><div class="ug-card-h"><h3>E · Dispatch Workload</h3>' +
+          '<span class="ug-dimmer ug-mono" style="font-size:10px">' + teamRows.length + ' TEAMS</span></div>' +
+          '<div class="ug-card-b ug-col" style="gap:9px">' +
+            (teamRows.length ? teamRows.slice(0, 8).map((t) => '<div class="ug-col" style="gap:5px"><div class="ug-rowf ug-between" style="font-size:11.5px">' +
+              '<span>' + esc(t.team) + '</span><span class="ug-mono">' + t.count + ' dispatch' + (t.count === 1 ? '' : 'es') + '</span></div>' +
+              '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, t.count / Math.max(teamRows[0].count, 1) * 100) + '%;background:var(--ug-st-dispatched)"></div></div></div>').join('')
+              : '<div class="ug-dim" style="font-size:12px">No dispatches recorded yet.</div>') +
+            /* unit support request acknowledgement time — gap closure from the
+               previous audit. unit_requests.decided_at exists in the schema
+               (migration 038); we compute avg ack time for decided requests. */
+            (function () {
+              const reqs = (U.DATA.unitRequests || []).filter((r) => r.created_at && r.decided_at);
+              if (!reqs.length) return '<div class="ug-hr" style="margin:8px 0"></div><div class="ug-dim" style="font-size:11px">No decided support requests yet.</div>';
+              const acks = reqs.map((r) => (Date.parse(r.decided_at) - Date.parse(r.created_at)) / 1000);
+              const avgAck = acks.reduce((a, b) => a + b, 0) / acks.length;
+              const slowestAck = acks.reduce((a, b) => Math.max(a, b), 0);
+              const fmtDur = (s) => s == null ? '—' : (s >= 3600 ? (s / 3600).toFixed(1) + ' h' : Math.round(s / 60) + ' min');
+              return '<div class="ug-hr" style="margin:10px 0"></div>' +
+                '<div class="ug-lab">Support request acknowledgement</div>' +
+                '<div class="ug-rowf ug-between" style="font-size:11.5px;margin-top:4px"><span class="ug-dim">average</span><span class="ug-mono" style="color:var(--ug-signal)">' + fmtDur(avgAck) + '</span></div>' +
+                '<div class="ug-rowf ug-between" style="font-size:11.5px"><span class="ug-dim">slowest</span><span class="ug-mono" style="color:var(--ug-warning)">' + fmtDur(slowestAck) + '</span></div>' +
+                '<div class="ug-rowf ug-between" style="font-size:11.5px"><span class="ug-dim">decided / pending</span><span class="ug-mono">' + reqs.length + ' / ' + ((U.DATA.unitRequests || []).length - reqs.length) + '</span></div>';
+            })() +
+            '<div class="ug-dim" style="font-size:11px;line-height:1.55;margin-top:6px">Number of dispatches per team, plus acknowledgement time for unit support requests (created_at → decided_at). Use this to balance load between units when one is clearly over-assigned or slow to respond.</div>' +
           '</div></div>' +
       '</div>' +
+      /* F + G. verification quality + shelter occupancy */
+      '<div class="ug-dgrid2">' +
+        '<div class="ug-card"><div class="ug-card-h"><h3>F · Verification Quality</h3>' +
+          '<span class="ug-dim" style="font-size:10.5px">Monitoring only · no verify controls</span></div>' +
+          '<div class="ug-card-b ug-col" style="gap:14px">' +
+            '<div class="ug-rowf ug-gap16" style="gap:16px">' +
+              '<div><div class="ug-mono" style="font-size:30px;font-weight:700;color:var(--ug-prepared)">' + verified + '</div><div class="ug-dimmer" style="font-size:10.5px">verified (incl. dispatched / resolved)</div></div>' +
+              '<div><div class="ug-mono" style="font-size:30px;font-weight:700;color:var(--ug-warning)">' + unverified + '</div><div class="ug-dimmer" style="font-size:10.5px">still unverified</div></div>' +
+              '<div><div class="ug-mono" style="font-size:30px;font-weight:700;color:var(--ug-emergency)">' + rejected + '</div><div class="ug-dimmer" style="font-size:10.5px">rejected / duplicate</div></div>' +
+            '</div>' +
+            '<div class="ug-hr"></div>' +
+            '<div class="ug-rowf ug-between" style="font-size:11.5px"><span class="ug-dim">Auto-verified by corroboration (≥ 3)</span>' +
+              '<span class="ug-mono" style="color:var(--ug-prepared)">' + autoVerified + '</span></div>' +
+            '<div class="ug-dim" style="font-size:11.5px;line-height:1.6">Verification is performed by Barangay Officials and LDRRMO staff. The Super Admin monitors quality here but does not have verify permissions.</div>' +
+          '</div></div>' +
+        '<div class="ug-card"><div class="ug-card-h"><h3>G · Shelter Occupancy</h3>' +
+          '<span class="ug-dim" style="font-size:10.5px">' + openShelters.length + ' open · ' + fullShelters.length + ' at capacity</span></div>' +
+          '<div class="ug-card-b ug-col" style="gap:14px">' +
+            '<div><div class="ug-mono" style="font-size:30px;font-weight:700;color:var(--ug-prepared)">' + totalOcc + ' / ' + totalCap + '</div>' +
+              '<div class="ug-dimmer" style="font-size:10.5px">current occupancy / total capacity</div></div>' +
+            '<div style="height:8px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, totalCap ? Math.round(totalOcc / totalCap * 100) : 0) + '%;background:' + (totalCap && totalOcc / totalCap >= 0.85 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + '"></div></div>' +
+            (fullShelters.length ? '<div class="ug-col" style="gap:6px;margin-top:8px"><div class="ug-lab">At capacity</div>' + fullShelters.slice(0, 5).map((c) =>
+              '<button class="ug-rowf ug-between" style="gap:8px;font-size:11px;background:transparent;border:0;cursor:pointer;color:inherit;padding:3px 0;font:inherit;text-align:left;width:100%" data-act="center-detail" data-id="' + esc(c.uuid || c.id) + '"><span>' + esc(c.name) + '</span><span class="ug-mono" style="color:var(--ug-warning)">' + c.occ + '/' + c.cap + '</span></button>').join('') + '</div>' : '') +
+          '</div></div>' +
+      '</div>' +
+      /* H. relief goods distribution */
+      '<div class="ug-card"><div class="ug-card-h"><h3>H · Relief Goods Distribution</h3>' +
+        '<span class="ug-dim" style="font-size:10.5px">' + totalRecipients + ' recipients · ' + reliefRows.length + ' barangays</span></div>' +
+        '<div class="ug-card-b ug-col" style="gap:14px">' +
+          '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px">' +
+            '<div class="ug-card ug-stat-card" style="flex:1;min-width:140px"><div class="ug-card-b ug-col" style="gap:4px"><span class="ug-lab">To be distributed</span>' +
+              '<span class="ug-mono" style="font-size:22px;font-weight:600;color:var(--ug-warning)">' + reliefPhases.to_distribute + '</span></div></div>' +
+            '<div class="ug-card ug-stat-card" style="flex:1;min-width:140px"><div class="ug-card-b ug-col" style="gap:4px"><span class="ug-lab">During distribution</span>' +
+              '<span class="ug-mono" style="font-size:22px;font-weight:600;color:var(--ug-signal)">' + reliefPhases.during + '</span></div></div>' +
+            '<div class="ug-card ug-stat-card" style="flex:1;min-width:140px"><div class="ug-card-b ug-col" style="gap:4px"><span class="ug-lab">Fully distributed</span>' +
+              '<span class="ug-mono" style="font-size:22px;font-weight:600;color:var(--ug-prepared)">' + reliefPhases.fully + '</span></div></div>' +
+          '</div>' +
+          '<div class="ug-col" style="gap:6px"><div class="ug-lab">Per barangay</div>' +
+            (reliefRows.length ? reliefRows.slice(0, 8).map((r) =>
+              '<div class="ug-col" style="gap:5px"><div class="ug-rowf ug-between" style="font-size:11.5px"><span>' + esc(r.brgy) + '</span><span class="ug-mono">' + r.count + '</span></div>' +
+              '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, r.count / Math.max(reliefRows[0].count, 1) * 100) + '%;background:var(--ug-prepared)"></div></div></div>').join('')
+              : '<div class="ug-dim" style="font-size:12px">No distributions recorded.</div>') +
+          '</div>' +
+        '</div></div>' +
+      /* Comparison with previous equivalent reporting period */
+      '<div class="ug-card"><div class="ug-card-h"><h3>I · Period Comparison</h3>' +
+        '<span class="ug-dim" style="font-size:10.5px">Last 7 days vs the 7 days before</span></div>' +
+        '<div class="ug-card-b ug-col" style="gap:14px">' +
+          '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;font-size:12px">' +
+            '<span class="ug-rowf ug-gap6" style="gap:6px"><span class="ug-dim">This week</span><span class="ug-mono" style="color:var(--ug-signal);font-weight:600">' + week + '</span></span>' +
+            '<span class="ug-rowf ug-gap6" style="gap:6px"><span class="ug-dim">Previous week</span><span class="ug-mono">' + prev + '</span></span>' +
+            '<span class="ug-rowf ug-gap6" style="gap:6px"><span class="ug-dim">Delta</span><span class="ug-mono" style="color:' + (weekDelta >= 0 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + ';font-weight:600">' + (weekDelta >= 0 ? '+' : '') + weekDelta + '%</span></span>' +
+          '</div>' +
+          '<div class="ug-dim" style="font-size:11px;line-height:1.55">A negative delta is good — fewer incidents this week than last. The barangay and date filters above apply to every card on this page.</div>' +
+        '</div></div>' +
     '</div>';
   }
 
@@ -2070,6 +2433,10 @@ const UG_SCREENS = (() => {
 }
 
   function frame(st){
+    /* remember the last state so feature modules that build buttons outside
+       the rendering tree (actionChip in dCommand) can read session info without
+       a parameter reshuffle. */
+    U._lastSt = st;
     if (st.role === 'citizen') {
       if (st.view === 'desktop') return UG_WEB.frameCitizenWeb(Object.assign({}, st, { session: sess(st) }));
       return frameMobile(Object.assign({}, st, { route: MOB(st.route), session: sess(st) }));
