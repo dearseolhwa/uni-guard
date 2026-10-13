@@ -726,3 +726,39 @@
 .ug-lang-chip.is-on .ug-lang-flag{
   background:var(--ug-signal); color:var(--ug-signal-ink);
 }
+
+/* =========================================================================
+   Section 12 — scrolling fixes for the Barangay Official and LGU consoles.
+
+   The console is a flex column: app bar / top bar (flex:none) + body
+   (.ug-d-body, flex:1, min-height:0). The body owns its own scrolling and
+   every nested container that needs to scroll has to keep the overflow chain
+   intact: min-height:0 on every flex parent so a deeply nested ug-scroll
+   card does not clip the page.
+
+   The default rules left .ug-d-body without an explicit overflow, which
+   meant that on some browsers a card with max-height + ug-scroll would
+   swallow the page scroll and the user could not reach content at the
+   bottom. The rules below make the body the single scroller for the page
+   and let inner ug-scroll containers manage their own bounded areas.
+   ========================================================================= */
+.ug-d-main { overflow: hidden; }
+.ug-d-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: auto;
+}
+/* any nested ug-scroll container keeps its own scroll but does not chain
+   to the page, so a long inner list (recent incidents, dispatches, audit
+   log) never traps the page scroll. */
+.ug-d-body .ug-scroll {
+  overscroll-behavior: contain;
+}
+/* the citizen mobile shell already scrolls correctly, but the same applies
+   for the barangay_official mobile shell (when an official signs in via the
+   mobile layout). */
+.ug-m-body.ug-scroll {
+  overscroll-behavior: contain;
+}
