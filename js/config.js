@@ -29,6 +29,12 @@ const UG_CONFIG = (function () {
     CORROBORATION_WINDOW_HOURS: 6,
     CORROBORATION_THRESHOLD: 3,
 
+    /* Super Admin permissions gate. Default false: the Super Admin has read +
+       edit but NO verify permission, by spec section 1. The server-side RPC
+       (advance_report_status / lgu_verify) enforces this independently —
+       flipping this flag only relaxes the client-side button guard. */
+    SUPER_ADMIN_VERIFY_OVERRIDE: false,
+
     /* how often the offline queue retries while the app is open */
     SYNC_RETRY_MS: 20000
   };

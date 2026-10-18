@@ -32,11 +32,20 @@
     incidentSort: 'default',
     /* analytics date range (ISO yyyy-mm-dd) */
     anFrom: '', anTo: '',
+    /* analytics barangay filter (LGU only) */
+    anBrgyFilter: 'All',
     /* shelters: 'all' (default) or 'mine' */
     shelterScope: 'all',
     /* new slices for the integrated features */
     reliefFilter: 'All', benSearch: '', benSearchLgu: '', benBarangayFilter: 'All',
-    invCatFilter: 'all', invBrgyFilter: 'All',
+    /* inventory search box (module E) + LGU barangay filter on the
+       inventory tab (barangay_official is locked to their own barangay) */
+    invSearch: '', invBrgyFilter: 'All',
+    /* search boxes for other admin modules (dispatch units, users, shelters, road status) */
+    unitSearch: '', userSearch: '', shelterSearch: '', rsSearch: '',
+    /* audit log filters: extra fields for the enhanced Activity Log */
+    auditRole: 'All', auditAction: 'All', auditBarangay: 'All',
+    auditPage: 1, auditPageSize: 25,
     guideHazard: UG_HAZARDS.LIST[0].label, guidePhase: 'before',
     faqSearch: '',
     reportStatusFilter: 'all',
@@ -110,11 +119,13 @@
        innerHTML, which replaces the .ug-side / .ug-nav list — so its
        scrollTop resets to 0. Capture both the main scroll container and the
        sidebar (and dispatch sidebar) scroll positions before the rebuild
-       and restore them after. */
-    const prevScroll = q('.ug-scroll');
+       and restore them after. The main .ug-scroll keeps the route-change
+       reset-to-top behaviour from revision 1 (Section 12 fix). */
+    const prev = q('.ug-scroll');
+    const prevRoute = (prev && prev.dataset && prev.dataset.route) || null;
+    const top = prev ? prev.scrollTop : 0;
     const prevSide = q('.ug-side');
     const prevDispatchNav = q('#ug-dispatch-nav');
-    const top = prevScroll ? prevScroll.scrollTop : 0;
     const sideTop = prevSide ? prevSide.scrollTop : 0;
     const dispatchTop = prevDispatchNav ? prevDispatchNav.scrollTop : 0;
     S.view = viewFor();
@@ -131,7 +142,19 @@
     }
 
     const sc = q('.ug-scroll');
-    if (sc) sc.scrollTop = top;
+    if (sc) {
+      /* If the route changed, scroll to the top of the new section so the
+         user is not stranded at the bottom after picking a navigation item
+         (Section 12). Otherwise restore the previous scroll position so
+         filter changes don't jump the view. */
+      if (prevRoute && S.route && prevRoute !== S.route) {
+        sc.scrollTop = 0;
+        if (sc.dataset) sc.dataset.route = S.route;
+      } else {
+        sc.scrollTop = top;
+        if (sc.dataset) sc.dataset.route = S.route;
+      }
+    }
     /* restore sidebar scroll position so the active item stays in view. */
     const newSide = q('.ug-side');
     if (newSide && sideTop) newSide.scrollTop = sideTop;
@@ -247,6 +270,17 @@
       try {
         if (typeof Repo !== 'undefined' && Repo.loadDispatchDirectory) {
           await Repo.loadDispatchDirectory();
+        }
+      } catch (e) {}
+      render();
+    }
+    /* Hotlines page: load pending change requests so the Super Admin queue
+       and the LGU/BO "Your pending requests" section both render with live
+       data. (Master prompt · Emergency Hotlines approval.) */
+    if (route === 'hotlines') {
+      try {
+        if (typeof Repo !== 'undefined' && Repo.loadChangeRequests) {
+          await Repo.loadChangeRequests();
         }
       } catch (e) {}
       render();
@@ -1314,6 +1348,17 @@
     },
 
     advance: async (d) => {
+      /* Super Admin must not verify reports (Section 1 of the spec). The
+         advance action moves reported → verified (i.e. verifies it), so block
+         the Super Admin from using it. Edit-report is the Super Admin's
+         override path. The server-side RPC enforces this independently. */
+      if (isSuperAdmin() && !UG_CONFIG.SUPER_ADMIN_VERIFY_OVERRIDE) {
+        const inc0 = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
+        if (inc0 && inc0.status === 'reported') {
+          toast('Super Admin cannot verify reports. Use Edit to correct the record instead.', 'warning');
+          return;
+        }
+      }
       const order = ['reported', 'verified', 'dispatched', 'resolved'];
       const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
       if (!inc) return;
@@ -1354,13 +1399,20 @@
       if (inc) dispatchModal(inc);
     },
 
-    /* LGU-only second verification path (migration 036). When a barangay is
-       inactive OR the 1-hour verification window has elapsed (migration 045),
-       LGU/LDRRMC can mark a reported incident as LGU-verified so the
-       response can move forward. The RPC records verified_by_role='lgu_ldrrmc'
-       + the verifier's name so both verify levels stay distinguishable. */
+    /* LGU-only second verification path (migration 036 + migration 047 for
+       the 1-hour overdue queue). When a barangay is inactive OR the 1-hour
+       verification window has elapsed, LGU/LDRRMC can mark a reported
+       incident as LGU-verified so the response can move forward. The RPC
+       records verified_by_role='lgu_ldrrmc' + the verifier's name so both
+       verify levels stay distinguishable. */
     'lgu-verify': async (d) => {
       if (!requireRole(['lgu_ldrrmc'])) { toast('Only LGU / LDRRMC can LGU-verify a report', 'warning'); return; }
+      /* The Super Admin inherits the lgu_ldrrmc role but must not verify reports.
+         They have read + edit permission only — no verify, no LGU-verify. */
+      if (isSuperAdmin() && !UG_CONFIG.SUPER_ADMIN_VERIFY_OVERRIDE) {
+        toast('Super Admin cannot verify reports. Use Edit to correct the record instead.', 'warning');
+        return;
+      }
       const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
       if (!inc) return;
       if (inc.status !== 'reported') { toast('Only a report still in "reported" can be LGU-verified', 'warning'); return; }
@@ -1371,7 +1423,7 @@
       });
       if (note === null) return;
       try {
-        /* Try the dedicated overdue-verification RPC first (migration 045);
+        /* Try the dedicated overdue-verification RPC first (migration 047);
            fall back to the existing lguVerify (migration 036) for older
            schemas. Both paths produce the same audit + status transition. */
         try {
@@ -1510,19 +1562,124 @@
       } catch (e) { toast(e.message, 'warning'); }
     },
 
+    /* Section 5 + 7: full shelter details modal + dedicated Edit Location
+       action (replacing the "Open Waze" / "Navigate with Waze" control on
+       the admin card). The Edit Location modal updates lat/lng, and the
+       change goes through Repo.updateCenter so it lands in the same column
+       the rest of the system reads, and the audit trigger logs it. */
+    'center-detail': (d) => {
+      const c = (UG.DATA.centers || []).find((x) => (x.uuid || x.id) === d.id || x.id === d.id);
+      if (!c) return;
+      const pct = c.cap ? Math.min(100, Math.round(c.occ / c.cap * 100)) : 0;
+      const geoState = UG_GEO.classify(c.lat, c.lng);
+      const facList = Array.isArray(c.facilities) ? c.facilities
+        : (c.facilities ? String(c.facilities).split(',').map((s) => s.trim()).filter(Boolean) : []);
+      const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + UG_UTIL.esc(k) + '</span><span style="text-align:right;max-width:60%">' + UG_UTIL.esc(v == null || v === '' ? '—' : v) + '</span></div>';
+      UG_FEATURES.modal({
+        title: c.name || 'Evacuation center',
+        body:
+          '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:12px">' +
+            '<div class="ug-rowf ug-between" style="gap:10px;align-items:center">' +
+              UG.badge(c.status, c.status ? c.status.charAt(0).toUpperCase() + c.status.slice(1) : '—') +
+              '<span class="ug-mono" style="font-size:11px;color:var(--ug-ink-3)">' + UG_UTIL.esc(c.id) + '</span>' +
+            '</div>' +
+            '<div>' +
+              '<div class="ug-rowf ug-between" style="font-size:11.5px;margin-bottom:5px"><span class="ug-dim">Occupancy</span>' +
+                '<span class="ug-mono">' + (c.occ || 0) + ' / ' + (c.cap || 0) + ' &middot; ' + pct + '%</span></div>' +
+              '<div style="height:8px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--ug-emergency)' : pct >= 80 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + '"></div></div>' +
+            '</div>' +
+            (facList.length ? '<div class="ug-rowf ug-gap6 ug-wrap" style="gap:5px">' + facList.map((x) => '<span class="ug-chip ug-chip--soft">' + UG.icon('check', 11) + UG_UTIL.esc(x) + '</span>').join('') + '</div>' : '') +
+          '</div></div>' +
+          '<div style="margin-top:14px">' +
+            kv('Center name', c.name) +
+            kv('Barangay', c.brgy) +
+            kv('Status', c.status) +
+            kv('Capacity', c.cap) +
+            kv('Current occupancy', c.occ) +
+            kv('Coordinates', (typeof c.lat === 'number' && typeof c.lng === 'number') ? UG_GEO.fmt(c.lat, c.lng) : '—') +
+            kv('Contact person', c.contact_person) +
+            kv('Contact phone', c.contact_phone) +
+            (c.note ? kv('Notes', c.note) : '') +
+            (c.created_at ? kv('Created', UG_UTIL.absTime(c.created_at) || '') : '') +
+            (c.updated_at ? kv('Last updated', UG_UTIL.absTime(c.updated_at) || '') : '') +
+          '</div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Close</button>' +
+          (c.contact_phone ? '<a class="ug-btn" href="tel:' + UG_UTIL.esc(String(c.contact_phone).replace(/[^\\d+]/g, '')) + '" style="text-decoration:none">' + UG.icon('phone', 13) + 'Call</a>' : '') +
+          '<button class="ug-btn ug-btn--ghost" data-act="center-edit-location" data-id="' + UG_UTIL.esc(d.id) + '">' + UG.icon('pin', 13) + 'Edit Location</button>' +
+          '<button class="ug-btn ug-btn--signal" data-act="center-edit" data-id="' + UG_UTIL.esc(d.id) + '">' + UG.icon('settings', 13) + 'Edit</button>'
+      });
+    },
+
+    'center-edit-location': async (d) => {
+      const c = (UG.DATA.centers || []).find((x) => (x.uuid || x.id) === d.id || x.id === d.id);
+      if (!c) return;
+      UG_FEATURES.modal({
+        title: 'Edit location · ' + c.name,
+        body:
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Coordinates (latitude, longitude)</label>' +
+            '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:flex-end">' +
+              '<div class="ug-field" style="flex:1;margin:0"><label class="ug-lab">Latitude</label>' +
+                '<input class="ug-in" data-loc-lat value="' + (typeof c.lat === 'number' ? c.lat : '') + '" placeholder="16.0206" inputmode="decimal"></div>' +
+              '<div class="ug-field" style="flex:1;margin:0"><label class="ug-lab">Longitude</label>' +
+                '<input class="ug-in" data-loc-lng value="' + (typeof c.lng === 'number' ? c.lng : '') + '" placeholder="120.2306" inputmode="decimal"></div>' +
+            '</div>' +
+            '<div class="ug-help">Coordinates are used for the shelter\'s map pin and Waze navigation. Use the map on the citizen Hazard Map screen to verify the location.</div></div>' +
+          '<div class="ug-rowf ug-gap8" style="gap:8px;margin-top:12px">' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-loc-use>' + UG.icon('pin', 13) + 'Use my location</button>' +
+            (typeof c.lat === 'number' && typeof c.lng === 'number'
+              ? '<a class="ug-btn ug-btn--sm ug-btn--ghost" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(c.lat, c.lng) + '" style="text-decoration:none">' + UG.icon('route', 13) + 'Open in Waze</a>'
+              : '') +
+          '</div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Save location</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-loc-use]').addEventListener('click', async () => {
+            try {
+              const pos = await UG_FEATURES.locate();
+              wrap.querySelector('[data-loc-lat]').value = pos.lat;
+              wrap.querySelector('[data-loc-lng]').value = pos.lng;
+              toast('Location captured', 'prepared');
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+          wrap.querySelector('[data-save]').addEventListener('click', async () => {
+            const lat = parseFloat(wrap.querySelector('[data-loc-lat]').value);
+            const lng = parseFloat(wrap.querySelector('[data-loc-lng]').value);
+            if (isNaN(lat) || isNaN(lng)) { toast('Enter a valid latitude and longitude', 'warning'); return; }
+            const state = UG_GEO.classify(lat, lng);
+            if (state !== 'ok') {
+              const ok = await UG_FEATURES.confirm({
+                title: 'Coordinates look unusual',
+                message: UG_GEO.message(state) + ' Save anyway?'
+              });
+              if (!ok) return;
+            }
+            try {
+              await Repo.updateCenter(c.uuid || c.id, { lat: lat, lng: lng });
+              toast('Location updated and logged to the audit trail', 'prepared');
+              close();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
+    },
+
     'add-hotline': async () => {
+      /* Master prompt · Emergency Hotlines Management. Only the Super Admin
+         can directly add an official hotline. LGU / BO use request-hotline-add. */
+      if (!isSuperAdmin()) { toast('Only the Super Admin can add official hotlines. Use "Request a new hotline" instead.', 'warning'); return; }
       const agency = ((q('[data-field="hotlineAgency"]') || {}).value || '').trim();
       const number = ((q('[data-field="hotlineNumber"]') || {}).value || '').trim();
       const scope = ((q('[data-field="hotlineScope"]') || {}).value || '').trim() || UG_GEO.PLACE.areaAll;
       if (!agency || !number) { toast('An agency and a contact number are required', 'warning'); return; }
       try {
         await Repo.createHotline({ agency_name: agency, contact_number: number, scope: scope });
-        toast('Hotline added and cached for offline use', 'prepared');
+        toast('Hotline added and logged to the audit trail', 'prepared');
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
 
     'edit-hotline': async (d) => {
+      if (!isSuperAdmin()) { toast('Only the Super Admin can directly edit official hotlines.', 'warning'); return; }
       const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
       if (!h) return;
       UG_FEATURES.modal({
@@ -1545,7 +1702,7 @@
             if (!agency || !number) { toast('An agency and a contact number are required', 'warning'); return; }
             try {
               await Repo.updateHotline(h.uuid || h.id, { agency_name: agency, contact_number: number, scope: scope });
-              toast('Hotline updated', 'prepared');
+              toast('Hotline updated and logged to the audit trail', 'prepared');
               close();
             } catch (e) { toast(e.message, 'warning'); }
           });
@@ -1554,16 +1711,170 @@
     },
 
     'delete-hotline': async (d) => {
+      /* Super Admin only. The confirmation dialog already existed; we keep it
+         and add a second confirmation prompt for the reason, so the audit log
+         captures why an official hotline was removed. */
+      if (!isSuperAdmin()) { toast('Only the Super Admin can delete official hotlines.', 'warning'); return; }
       const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
       if (!h) return;
       const ok = await UG_FEATURES.confirm({
-        title: 'Delete hotline', message: 'Remove ' + h.agency + ' from the directory on every device?',
+        title: 'Delete hotline', message: 'Remove ' + h.agency + ' from the directory on every device? This cannot be undone.',
         confirmLabel: 'Delete', danger: true
       });
       if (!ok) return;
-      try { await Repo.deleteHotline(h.uuid || h.id); toast('Hotline deleted', 'warning'); }
+      try { await Repo.deleteHotline(h.uuid || h.id); toast('Hotline deleted and logged to the audit trail', 'warning'); }
       catch (e) { toast(e.message, 'warning'); }
       render();
+    },
+
+    /* hotline detail modal — Super Admin + LGU/BO both see the full record;
+       Super Admin gets Edit + Delete in the footer, LGU/BO get Request Change */
+    'open-hotline-detail': (d) => {
+      const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
+      if (!h) return;
+      const isSuper = isSuperAdmin();
+      const canRequest = !!S.session && (S.session.role === 'lgu_ldrrmc' && !isSuper || S.session.role === 'barangay_official');
+      const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + UG_UTIL.esc(k) + '</span><span style="text-align:right;max-width:60%">' + UG_UTIL.esc(v == null || v === '' ? '—' : v) + '</span></div>';
+      UG_FEATURES.modal({
+        title: h.agency || 'Hotline',
+        body:
+          '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-between" style="gap:10px;align-items:center">' +
+            '<span class="ug-mono" style="font-size:17px;color:var(--ug-signal)">' + UG_UTIL.esc(h.number) + '</span>' +
+            '<a class="ug-btn ug-btn--sm" href="tel:' + UG_UTIL.esc(String(h.number).replace(/[^\d+]/g, '')) + '" style="text-decoration:none">' + UG.icon('phone', 13) + 'Call</a>' +
+          '</div></div>' +
+          '<div style="margin-top:14px">' +
+            kv('Agency', h.agency) +
+            kv('Category', h.type) +
+            kv('Contact number', h.number) +
+            kv('Scope', h.scope) +
+            kv('Description', h.description) +
+            (h.barangay ? kv('Barangay', h.barangay) : '') +
+            kv('Active', h.active === false ? 'No' : 'Yes') +
+            (h.created_at ? kv('Created', UG_UTIL.absTime(h.created_at) || '') : '') +
+            (h.updated_at ? kv('Last updated', UG_UTIL.absTime(h.updated_at) || '') : '') +
+          '</div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Close</button>' +
+          (isSuper
+            ? '<button class="ug-btn ug-btn--ghost" data-act="edit-hotline" data-id="' + UG_UTIL.esc(h.id) + '">' + UG.icon('settings', 13) + 'Edit</button>' +
+              '<button class="ug-btn ug-btn--danger" data-act="delete-hotline" data-id="' + UG_UTIL.esc(h.id) + '">' + UG.icon('x', 13) + 'Delete</button>'
+            : canRequest
+              ? '<button class="ug-btn ug-btn--signal" data-act="request-hotline-edit" data-id="' + UG_UTIL.esc(h.id) + '">' + UG.icon('edit', 13) + 'Request Change</button>'
+              : '')
+      });
+    },
+
+    /* LGU/BO: open the request-a-new-hotline form */
+    'request-hotline-add': () => {
+      if (!S.session) return;
+      const isSuper = isSuperAdmin();
+      if (isSuper) { toast('You can add hotlines directly — use the Add Hotline form below.', 'info'); return; }
+      hotlineRequestModal('add', null);
+    },
+
+    /* LGU/BO: open the request-a-change form for an existing hotline */
+    'request-hotline-edit': (d) => {
+      if (!S.session) return;
+      const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
+      if (!h) return;
+      /* show a small chooser: edit or delete this hotline? */
+      UG_FEATURES.modal({
+        title: 'Request a change · ' + h.agency,
+        body:
+          '<div class="ug-col" style="gap:10px">' +
+            '<div class="ug-dim" style="font-size:11.5px;line-height:1.5">Pick the kind of change you want to request. The Super Admin will review it before the official directory is updated.</div>' +
+            '<button class="ug-btn ug-btn--signal" data-act="request-hotline-form" data-action="edit" data-id="' + UG_UTIL.esc(h.id) + '">' + UG.icon('settings', 14) + 'Edit this hotline</button>' +
+            '<button class="ug-btn ug-btn--danger" data-act="request-hotline-form" data-action="delete" data-id="' + UG_UTIL.esc(h.id) + '">' + UG.icon('x', 14) + 'Request deletion of this hotline</button>' +
+          '</div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button>'
+      });
+    },
+
+    'request-hotline-form': (d) => {
+      const action = d.action; // 'edit' or 'delete'
+      const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
+      if (!h) return;
+      hotlineRequestModal(action, h);
+    },
+
+    /* Super Admin: open the change request review modal */
+    'open-change-request': (d) => {
+      const r = (UG.DATA.changeRequests || []).find((x) => x.id === d.id);
+      if (!r) return;
+      const isSuper = isSuperAdmin();
+      const isOwn = r.requester_id === (S.session && S.session.id);
+      const esc = UG_UTIL.esc;
+      const fmtData = (data) => {
+        if (!data || typeof data !== 'object') return '—';
+        const keys = Object.keys(data);
+        if (!keys.length) return '—';
+        return keys.map((k) => '<div class="ug-rowf ug-between" style="gap:8px;font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;max-width:60%">' + esc(String(data[k] == null ? '—' : data[k])) + '</span></div>').join('');
+      };
+      const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
+      UG_FEATURES.modal({
+        title: 'Change request · ' + r.action.toUpperCase(),
+        body:
+          kv('Submitted by', r.requester_name || '—') +
+          kv('Role', r.requester_role || '—') +
+          kv('Barangay', r.requester_barangay || '—') +
+          kv('Target table', r.target_table) +
+          (r.target_id ? kv('Target record id', r.target_id) : '') +
+          kv('Action', r.action) +
+          kv('Status', r.status) +
+          kv('Submitted', UG_UTIL.absTime(r.created_at) || '') +
+          (r.decided_at ? kv('Decided', UG_UTIL.absTime(r.decided_at) || '') : '') +
+          (r.decision_note ? kv('Decision note', r.decision_note) : '') +
+          (r.reason ? kv('Reason for request', r.reason) : '') +
+          '<div style="margin-top:12px"><div class="ug-lab">Existing information</div>' + fmtData(r.current_data) + '</div>' +
+          '<div style="margin-top:12px"><div class="ug-lab">Proposed information</div>' + fmtData(r.proposed_data) + '</div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Close</button>' +
+          (isSuper && r.status === 'pending'
+            ? '<button class="ug-btn ug-btn--danger" data-act="reject-change-request" data-id="' + esc(r.id) + '">' + UG.icon('x', 13) + 'Reject</button>' +
+              '<button class="ug-btn ug-btn--signal" data-act="approve-change-request" data-id="' + esc(r.id) + '">' + UG.icon('check', 13) + 'Approve</button>'
+            : isOwn && r.status === 'pending'
+              ? '<span class="ug-dimmer" style="font-size:11px">Pending Super Admin review</span>'
+              : '')
+      });
+    },
+
+    'approve-change-request': async (d) => {
+      if (!isSuperAdmin()) { toast('Only the Super Admin can approve a change request', 'warning'); return; }
+      const r = (UG.DATA.changeRequests || []).find((x) => x.id === d.id);
+      if (!r) return;
+      const note = await UG_FEATURES.prompt({
+        title: 'Approve ' + r.action + ' request',
+        label: 'Decision note (optional, shown to the requester and in the audit log)',
+        placeholder: 'e.g. Verified against the official BFP directory.'
+      });
+      if (note === null) return;
+      try {
+        await Repo.approveChangeRequest(r.id, note || '');
+        toast('Request approved. The official record is updated and the requester has been notified.', 'prepared');
+        if (Repo.loadChangeRequests) await Repo.loadChangeRequests();
+        if (Repo.loadAll) await Repo.loadAll(); // refresh hotlines list
+        render();
+      } catch (e) { toast(e.message, 'warning'); }
+    },
+
+    'reject-change-request': async (d) => {
+      if (!isSuperAdmin()) { toast('Only the Super Admin can reject a change request', 'warning'); return; }
+      const r = (UG.DATA.changeRequests || []).find((x) => x.id === d.id);
+      if (!r) return;
+      const note = await UG_FEATURES.prompt({
+        title: 'Reject ' + r.action + ' request',
+        label: 'Reason (shown to the requester and in the audit log)',
+        placeholder: 'e.g. Duplicate of an existing hotline.',
+        required: true
+      });
+      if (note === null) return;
+      if (!note || !note.trim()) { toast('A reason is required when rejecting a request', 'warning'); return; }
+      try {
+        await Repo.rejectChangeRequest(r.id, note || '');
+        toast('Request rejected. The official record is unchanged; the requester has been notified.', 'warning');
+        if (Repo.loadChangeRequests) await Repo.loadChangeRequests();
+        render();
+      } catch (e) { toast(e.message, 'warning'); }
     },
 
     'export-hotlines': async () => {
@@ -1614,6 +1925,49 @@
           toast('Analytics exported as PDF', 'info');
         } catch (err) { toast(err.message, 'warning'); }
       } catch (e) { toast(e.message, 'warning'); }
+    },
+
+    /* Section 10: CSV export for the analytics page. Reflects the currently
+       selected barangay + date filters, the same way the on-screen cards do. */
+    'analytics-export-csv': () => {
+      const csvCell = (v) => {
+        const s = String(v == null ? '' : v).replace(/"/g, '""');
+        return /[",\n]/.test(s) ? '"' + s + '"' : s;
+      };
+      const stamp = new Date().toISOString().slice(0, 10);
+      const inc = (UG.DATA.incidents || []).filter((i) =>
+        S.anBrgyFilter === 'All' || S.session.role !== 'lgu_ldrrmc' || i.brgy === S.anBrgyFilter);
+      const byHaz = {};
+      inc.forEach((i) => { byHaz[i.hazard] = (byHaz[i.hazard] || 0) + 1; });
+      const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0, rejected: 0 };
+      inc.forEach((i) => { if (stages[i.status] != null) stages[i.status]++; });
+      const byBrgy = {};
+      inc.forEach((i) => { byBrgy[i.brgy] = (byBrgy[i.brgy] || 0) + 1; });
+      const hdr = ['Metric,Value'];
+      const lines = hdr.concat([
+        'Total reports in scope,' + inc.length,
+        'Open,' + inc.filter((i) => i.status !== 'resolved' && i.status !== 'rejected').length,
+        'Processing (reported),' + stages.reported,
+        'Verified,' + stages.verified,
+        'Deployed (dispatched),' + stages.dispatched,
+        'Resolved,' + stages.resolved,
+        'Rejected,' + stages.rejected,
+        'Auto-verified (>=3 corroborations),' + inc.filter((i) => (i.corr || 0) >= 3).length,
+        '',
+        'By hazard type,',
+        ...Object.keys(byHaz).map((k) => csvCell(k) + ',' + byHaz[k]),
+        '',
+        'By barangay,',
+        ...Object.keys(byBrgy).map((k) => csvCell(k) + ',' + byBrgy[k]),
+        '',
+        'Shelter occupancy,',
+        ...(UG.DATA.centers || []).map((c) => csvCell(c.name) + ',' + (c.occ || 0) + '/' + (c.cap || 0)),
+        '',
+        'Date range,' + (S.anFrom || 'start') + ' to ' + (S.anTo || 'today'),
+        'Barangay filter,' + (S.anBrgyFilter || 'All')
+      ]);
+      downloadText('uniguard-analytics-' + stamp + '.csv', lines.join('\n'));
+      toast('Analytics exported as CSV', 'info');
     },
 
     declare: async () => {
@@ -2118,6 +2472,131 @@
       });
     },
 
+    /* Section 9: open a unit's full details. Shows team name, assigned unit,
+       personnel, contact, status and other stored fields. Includes a
+       "Manage Accounts" footer button so the Super Admin can deactivate or
+       reactivate a member account. */
+    'open-unit': (d) => {
+      const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
+      if (!unit) { toast('That unit no longer exists', 'warning'); return; }
+      const esc = UG_UTIL.esc;
+      /* list of dispatch_team accounts that belong to this unit, if profiles
+         have been loaded into S.users; otherwise fall back to an empty roster. */
+      const members = (S.users || []).filter((u) => u.role === 'dispatch_team' && u.dispatch_unit_id === unit.id);
+      const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
+      UG_FEATURES.modal({
+        title: 'Dispatch unit · ' + unit.name,
+        body:
+          '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:12px">' +
+            '<div class="ug-rowf ug-between" style="gap:10px;align-items:center">' +
+              (unit.active ? UG.icon('shield', 18) : UG.icon('shieldx', 18)) +
+              '<span class="ug-mono" style="font-size:11px;color:var(--ug-ink-3)">' + esc(unit.id) + '</span>' +
+            '</div>' +
+            (members.length ? '<div class="ug-col" style="gap:6px"><div class="ug-lab">Members (' + members.length + ')</div>' +
+              members.slice(0, 5).map((m) => '<div class="ug-rowf ug-between" style="font-size:11.5px;gap:8px"><span>' + esc(m.full_name || m.email) + '</span>' +
+                '<span class="ug-dim">' + esc(m.unit_role || 'member') + (m.disabled ? ' · disabled' : '') + '</span></div>').join('') +
+              (members.length > 5 ? '<div class="ug-dimmer" style="font-size:11px">+' + (members.length - 5) + ' more</div>' : '') + '</div>' : '') +
+          '</div></div>' +
+          '<div style="margin-top:14px">' +
+            kv('Unit name', unit.name) +
+            kv('Unit type', unit.unit_type) +
+            kv('Contact number', unit.contact_number) +
+            kv('Address', unit.address) +
+            kv('Status', unit.status) +
+            kv('Active', unit.active ? 'Yes' : 'No') +
+            (unit.created_at ? kv('Created', UG_UTIL.absTime(unit.created_at) || '') : '') +
+            (unit.updated_at ? kv('Last updated', UG_UTIL.absTime(unit.updated_at) || '') : '') +
+          '</div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Close</button>' +
+          '<button class="ug-btn ug-btn--ghost" data-act="admin-unit-accounts" data-id="' + esc(unit.id) + '">' + UG.icon('users', 13) + 'Manage Accounts</button>' +
+          '<button class="ug-btn ug-btn--signal" data-act="admin-edit-unit" data-id="' + esc(unit.id) + '">' + UG.icon('settings', 13) + 'Edit</button>'
+      });
+    },
+
+    /* Section 9: Manage Accounts modal for a dispatch unit. Lists all members
+       with their role + status, and lets the Super Admin deactivate or
+       reactivate any member. Uses the existing admin-users edge function
+       (action: 'set-disabled') so the change lands in the database, signs the
+       user out, and writes an audit_log entry. */
+    'admin-unit-accounts': async (d) => {
+      const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
+      if (!unit) { toast('That unit no longer exists', 'warning'); return; }
+      /* refresh S.users so the roster is current before opening the modal */
+      try {
+        if (Repo.client()) { S.users = await Repo.listUsers(); UG.DATA.users = S.users; }
+      } catch (e) { /* fall back to the cached list */ }
+      const members = (S.users || []).filter((u) => u.role === 'dispatch_team' && u.dispatch_unit_id === unit.id);
+      const esc = UG_UTIL.esc;
+      const memberRow = (m) => '<tr>' +
+        '<td><div style="font-weight:600">' + esc(m.full_name || '(no name)') + '</div>' +
+          '<div class="ug-dimmer" style="font-size:10.5px">' + esc(m.email || '') + '</div></td>' +
+        '<td>' + esc(m.unit_role || 'member') + '</td>' +
+        '<td>' + (m.disabled ? UG.icon('x', 13) + ' Disabled' : UG.icon('check', 13) + ' Active') + '</td>' +
+        '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end">' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-edit-account" data-id="' + esc(m.id) + '">Edit</button>' +
+          (m.disabled
+            ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="admin-disable" data-id="' + esc(m.id) + '" data-next="false">Enable</button>'
+            : '<button class="ug-btn ug-btn--sm ug-btn--danger" data-act="admin-disable" data-id="' + esc(m.id) + '" data-next="true">Deactivate</button>') +
+        '</div></td>' +
+      '</tr>';
+      UG_FEATURES.modal({
+        title: 'Manage accounts · ' + unit.name,
+        body:
+          '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:10px">' +
+            '<div class="ug-rowf ug-between" style="gap:8px;font-size:12px"><span class="ug-dim">Unit</span><span style="font-weight:600">' + esc(unit.name) + '</span></div>' +
+            '<div class="ug-rowf ug-between" style="gap:8px;font-size:12px"><span class="ug-dim">Type</span><span>' + esc(unit.unit_type) + '</span></div>' +
+            '<div class="ug-rowf ug-between" style="gap:8px;font-size:12px"><span class="ug-dim">Members</span><span class="ug-mono">' + members.length + '</span></div>' +
+          '</div></div>' +
+          '<div class="ug-card" style="overflow:hidden;margin-top:14px"><table class="ug-table">' +
+            '<thead><tr><th>Account</th><th>Role</th><th>Status</th><th class="t-right">Action</th></tr></thead>' +
+            '<tbody>' + (members.length ? members.map(memberRow).join('') :
+              '<tr><td colspan="4" style="text-align:center;padding:20px">No members yet. Use "Invite member" below.</td></tr>') + '</tbody>' +
+          '</table></div>' +
+          '<div class="ug-help" style="margin-top:10px">Deactivating an account immediately signs the user out and prevents further sign-in. The account\'s history and related dispatch records are preserved — only access is revoked. The action is recorded in the centralized Activity Log.</div>',
+        footer:
+          '<button class="ug-btn" data-modal-close>Close</button>' +
+          '<button class="ug-btn ug-btn--ghost" data-act="admin-invite-unit-member" data-unit-id="' + esc(unit.id) + '">' + UG.icon('plus', 13) + 'Invite member</button>'
+      });
+    },
+
+    'unit-clear-search': () => { S.unitSearch = ''; render(); },
+    'user-clear-search': () => { S.userSearch = ''; render(); },
+
+    /* Section 9: edit an account profile (name, phone, email) — opens the
+       existing profile editor. For Super Admin only. */
+    'admin-edit-account': (d) => {
+      const u = (S.users || []).find((x) => x.id === d.id);
+      if (!u) { toast('That account no longer exists', 'warning'); return; }
+      const esc = UG_UTIL.esc;
+      UG_FEATURES.modal({
+        title: 'Edit account · ' + (u.full_name || u.email),
+        body:
+          '<div class="ug-field"><label class="ug-lab">Full name</label><input class="ug-in" data-acc-name value="' + esc(u.full_name || '') + '"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Email</label><input class="ug-in" type="email" data-acc-email value="' + esc(u.email || '') + '"></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Phone</label><input class="ug-in" data-acc-phone value="' + esc(u.phone || '') + '"></div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Save</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-save]').addEventListener('click', async () => {
+            const patch = {
+              full_name: wrap.querySelector('[data-acc-name]').value.trim(),
+              phone: wrap.querySelector('[data-acc-phone]').value.trim(),
+              updated_at: new Date().toISOString()
+            };
+            try {
+              const c = Repo.client();
+              if (!c) { toast('Connect to the server to edit accounts', 'warning'); return; }
+              const { error } = await c.from('profiles').update(patch).eq('id', u.id);
+              if (error) throw new Error(error.message);
+              toast('Account updated and logged to the audit trail', 'prepared');
+              try { S.users = await Repo.listUsers(); UG.DATA.users = S.users; } catch (e) {}
+              close();
+              render();
+            } catch (e) { toast(e.message, 'warning'); }
+          });
+        }
+      });
+    },
     /* ----------------------------------------- edit a dispatch unit (LGU / unit_admin) */
     'admin-edit-unit': async (d) => {
       const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
@@ -2161,34 +2640,11 @@
       });
     },
 
-    /* ------------------------------------- view a dispatch unit (Super Admin read-only) */
-    'admin-view-unit': (d) => {
-      const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
-      if (!unit) { toast('That unit no longer exists', 'warning'); return; }
-      const esc = UG_UTIL.esc;
-      const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600">' + esc(v || '—') + '</span></div>';
-      UG_FEATURES.modal({
-        title: 'Unit details · ' + unit.name,
-        body:
-          '<div style="margin-bottom:10px;display:flex;gap:8px;align-items:center">' +
-            U.badge(unit.active ? 'open' : 'closed', unit.active ? 'Active' : 'Inactive') +
-            U.badge('id', unit.unit_type || '—') + '</div>' +
-          kv('Name', unit.name) +
-          kv('Type', unit.unit_type) +
-          kv('Contact number', unit.contact_number) +
-          kv('Address', unit.address) +
-          kv('Status', unit.status) +
-          kv('Active', unit.active ? 'Yes' : 'No'),
-        footer: '<button class="ug-btn" data-modal-close>Close</button>'
-      });
-    },
-
     /* ------------------------------------------- delete a dispatch unit (Super Admin) */
     'admin-delete-unit': async (d) => {
       if (!isSuperAdmin()) { toast('Only the Super Admin can delete a dispatch unit', 'warning'); return; }
       const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
       if (!unit) { toast('That unit no longer exists', 'warning'); return; }
-      const esc = UG_UTIL.esc;
       const ok = await UG_FEATURES.confirm({
         title: 'Delete this dispatch unit?',
         message: 'Unit "' + unit.name + '" will be permanently removed. Personnel and equipment records stay, but the unit can no longer be dispatched to. This cannot be undone.',
@@ -2217,38 +2673,6 @@
         try { await Repo.loadDispatchDirectory(); } catch (e) {}
         render();
       } catch (e) { toast(e.message || 'Could not delete the unit', 'warning'); }
-    },
-
-    /* ---------------------------- manage a dispatch unit's members (Super Admin / unit admin) */
-    'admin-unit-account': async (d) => {
-      const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
-      if (!unit) { toast('That unit no longer exists', 'warning'); return; }
-      const esc = UG_UTIL.esc;
-      /* list the unit's members from the user list (the same list Super Admin
-         manages on the Users screen), filtered to this unit. */
-      const members = (UG.DATA.users || []).filter((u) => u.dispatch_unit_id === d.id || u.unit_id === d.id);
-      const memberRow = (m) => '<tr><td><div style="font-weight:600">' + esc(m.full_name || m.email) + '</div>' +
-        '<div class="ug-dimmer" style="font-size:10.5px">' + esc(m.email || '') + '</div></td>' +
-        '<td>' + esc(m.unit_role || 'member') + '</td>' +
-        '<td>' + (m.disabled ? U.badge('closed', 'Disabled') : U.badge('open', 'Active')) + '</td>' +
-        '<td class="t-right">' + (isSuperAdmin() && !m.disabled
-          ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-invite-unit-member" data-unit-id="' + esc(d.id) + '">Re-invite</button>' : '') +
-        '</td></tr>';
-      UG_FEATURES.modal({
-        title: 'Unit members · ' + unit.name,
-        body:
-          '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:flex-start;margin-bottom:12px">' +
-            '<span style="color:var(--ug-signal);display:flex">' + UG.icon('users', 17) + '</span>' +
-            '<div class="ug-note">Manage the unit admin and members of <b>' + esc(unit.name) + '</b>. New members receive an invitation email and join this unit as responders.</div>' +
-          '</div>' +
-          (members.length
-            ? '<div class="ug-card" style="overflow:hidden;margin:0"><table class="ug-table"><thead><tr><th>Account</th><th>Role</th><th>Status</th><th class="t-right">Action</th></tr></thead><tbody>' + members.map(memberRow).join('') + '</tbody></table></div>'
-            : '<div class="ug-empty"><span class="e-ico">' + UG.icon('users', 20) + '</span>' +
-               '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No members yet</div>' +
-               '<div class="ug-dim" style="font-size:11px">Invite the first unit admin below. They can then invite further members from the Dispatch console.</div></div>'),
-        footer: '<button class="ug-btn" data-modal-close>Close</button>' +
-          '<button class="ug-btn ug-btn--signal" data-act="admin-invite-unit-member" data-unit-id="' + esc(d.id) + '">' + UG.icon('plus', 14) + 'Invite member</button>'
-      });
     },
 
     /* --------------------------------------- invite a member into a unit (unit_admin / LGU) */
@@ -2334,35 +2758,47 @@
 
     'admin-export-audit': () => {
       /* exports exactly what the filters show */
+      const roleLabel = (r) => {
+        const map = { citizen: 'Citizen', barangay_official: 'Barangay Official', lgu_ldrrmc: 'LDRRMO Staff', super_admin: 'Super Admin', dispatch_team: 'Dispatch Team' };
+        return map[r] || (r ? r.replace(/_/g, ' ') : 'System');
+      };
       const rows = UG_ADMIN.filterAudit(S).map((a) => [
         UG_UTIL.absTime(a.created_at) || '',
         a.actor_name || (a.actor_id ? String(a.actor_id).slice(0, 8) : 'System'),
-        UG_ADMIN.entityLabel(a.entity), a.action || '',
+        roleLabel(a.actor_role === 'super_admin' ? 'super_admin' : a.actor_role),
+        a.actor_barangay || '',
+        UG_ADMIN.entityLabel(a.entity),
+        a.action || '',
         UG_ADMIN.describe(a).slice(0, 400)
       ]);
       if (!rows.length) { toast('Nothing to export', 'info'); return; }
       const filt = [S.auditEntity && S.auditEntity !== 'All' ? 'record type ' + UG_ADMIN.entityLabel(S.auditEntity) : '',
+        S.auditAction && S.auditAction !== 'All' ? 'action type ' + S.auditAction : '',
+        S.auditRole && S.auditRole !== 'All' ? 'role ' + S.auditRole : '',
+        S.auditBarangay && S.auditBarangay !== 'All' ? 'barangay ' + S.auditBarangay : '',
         S.auditActor && S.auditActor !== 'All' ? 'changed by ' + S.auditActor : '',
         (S.auditFrom || S.auditTo) ? 'dates ' + (S.auditFrom || 'start') + ' to ' + (S.auditTo || 'today') : '',
         S.auditQ ? 'search "' + S.auditQ + '"' : ''].filter(Boolean).join(', ');
       try {
         UG_PDF.exportDoc({
           title: 'Activity Log',
-          subtitle: 'Who changed what, newest first.',
+          subtitle: 'Who changed what, newest first. Covers Barangay Officials, LDRRMO Staff, the Super Admin and Dispatch Teams.',
           kind: 'Activity log',
           landscape: true,
           generatedBy: (S.session ? S.session.name + ' · ' + (S.session.title || (UG_WEB.ROLE_INFO[S.session.role] || {}).label) : 'UniGuard'),
           scope: UG_GEO.PLACE.scope,
           meta: 'Filters: ' + (filt || 'none'),
           filename: 'uniguard-activity-log.pdf',
-          tables: [{ name: 'Activity entries', note: 'Recorded by the database at write time.', head: ['When', 'Who', 'Record', 'Action', 'What changed'], rows: rows }]
+          tables: [{ name: 'Activity entries', note: 'Recorded by the database at write time. The actor identity and role come from a trusted server source.', head: ['When', 'Who', 'Role', 'Barangay', 'Module', 'Action', 'What changed'], rows: rows }]
         });
         toast('Activity log exported as PDF', 'info');
       } catch (e) { toast(e.message, 'warning'); }
     },
 
     'audit-clear': () => {
-      S.auditQ = ''; S.auditEntity = 'All'; S.auditActor = 'All'; S.auditFrom = ''; S.auditTo = '';
+      S.auditQ = ''; S.auditEntity = 'All'; S.auditActor = 'All';
+      S.auditRole = 'All'; S.auditAction = 'All'; S.auditBarangay = 'All';
+      S.auditFrom = ''; S.auditTo = ''; S.auditPage = 1;
       render();
     },
 
@@ -2370,6 +2806,10 @@
       const a = (S.audit || []).find((x) => x.id === d.id);
       if (!a) return;
       const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + UG_UTIL.esc(k) + '</span><span style="text-align:right;max-width:60%">' + UG_UTIL.esc(v) + '</span></div>';
+      const roleLabel = (r) => {
+        const map = { citizen: 'Citizen', barangay_official: 'Barangay Official', lgu_ldrrmc: 'LDRRMO Staff', super_admin: 'Super Admin', dispatch_team: 'Dispatch Team' };
+        return map[r] || (r ? r.replace(/_/g, ' ') : 'System');
+      };
       let changed = '';
       try {
         const m = a.meta || {};
@@ -2379,19 +2819,65 @@
             UG_UTIL.esc(String(m.changed[k].from)) + ' → ' + UG_UTIL.esc(String(m.changed[k].to)) + '</div>').join('');
         }
       } catch (e) { changed = ''; }
+      /* "Open this record" deep-link: routes the user to the matching module
+         and opens the affected record's own detail view. Only shown when the
+         entity maps to a record type the app can open. */
+      const entityToRoute = (entity) => ({
+        reports: 'incidents', emergency_hotlines: 'hotlines', evacuation_centers: 'centers',
+        road_status: 'roadwork', road_work_posts: 'roadwork', advisories: 'advisories',
+        faqs: 'faqs', preparedness_guides: 'guides', sos_log: 'sos', profiles: 'users',
+        dispatch_units: 'dispatch-units', change_requests: 'hotlines',
+        relief_inventory: 'relief', relief_distribution_log: 'relief'
+      })[entity] || null;
+      const route = entityToRoute(a.entity || '');
+      const openRecordBtn = (route && a.entity_id)
+        ? '<button class="ug-btn ug-btn--signal" data-act="audit-open-record" data-route="' + UG_UTIL.esc(route) + '" data-id="' + UG_UTIL.esc(a.entity_id) + '" data-entity="' + UG_UTIL.esc(a.entity || '') + '">' + UG.icon('doc', 13) + 'Open this record</button>'
+        : '';
       UG_FEATURES.modal({
         title: 'Activity entry',
         body:
           kv('When', UG_UTIL.absTime(a.created_at) || '') +
           kv('Actor', a.actor_name || (a.actor_id ? String(a.actor_id).slice(0, 8) : 'system')) +
+          kv('Role', roleLabel(a.actor_role === 'super_admin' ? 'super_admin' : a.actor_role)) +
+          kv('Barangay', a.actor_barangay || '—') +
+          kv('Module', UG_ADMIN.entityLabel(a.entity || '')) +
           kv('Action', a.action || '') +
           kv('Entity', a.entity || '') +
           kv('Entity id', a.entity_id || '') +
-          (changed ? '<div style="margin-top:10px"><div class="ug-lab">Changed</div>' + changed + '</div>' : '') +
+          (changed ? '<div style="margin-top:10px"><div class="ug-lab">Changed fields (previous → new)</div>' + changed + '</div>' : '') +
           (a.meta && !changed ? '<div style="margin-top:10px"><div class="ug-lab">Detail</div><pre class="ug-note" style="white-space:pre-wrap">' + UG_UTIL.esc(JSON.stringify(a.meta, null, 2)) + '</pre></div>' : ''),
-        footer: '<button class="ug-btn" data-modal-close>Close</button>'
+        footer:
+          '<button class="ug-btn" data-modal-close>Close</button>' +
+          openRecordBtn
       });
     },
+
+    /* deep-link from Activity Log → affected record's own detail view */
+    'audit-open-record': (d) => {
+      const route = d.route, id = d.id, entity = d.entity;
+      /* navigate first, then open the detail modal on the next render */
+      S.route = route;
+      /* store a pending open-id so the screen-specific render can pick it up */
+      S.pendingOpenId = id;
+      S.pendingOpenEntity = entity;
+      render();
+      /* the per-entity open action */
+      const openAct = {
+        reports: 'open-incident',
+        emergency_hotlines: 'open-hotline-detail',
+        evacuation_centers: 'center-detail',
+        road_status: 'rs-detail',
+        advisories: 'open-advisory',
+        dispatch_units: 'open-unit',
+        relief_inventory: 'inv-detail',
+        change_requests: 'open-change-request'
+      }[entity];
+      if (openAct && ALL[openAct]) {
+        setTimeout(() => ALL[openAct]({ id: id }), 60);
+      }
+    },
+
+    'audit-page': (d) => { S.auditPage = parseInt(d.p, 10) || 1; render(); },
 
     'sos-ack': async (d) => {
       try { await Repo.updateSosStatus(d.id, 'acknowledged'); toast('SOS acknowledged — the sender has been notified', 'prepared'); }
@@ -2413,6 +2899,7 @@
     },
 
     'shelter-scope': (d) => { S.shelterScope = d.v || 'all'; render(); },
+    'shelter-clear-search': () => { S.shelterSearch = ''; render(); },
 
     /* analytics date range: date inputs land in S via the change handler */
     'an-apply': async () => {
@@ -2674,6 +3161,8 @@
 
     'relief-tab': (d) => { S.reliefTab = d.v; render(); },
     'inv-cat': (d) => { S.invCatFilter = d.v; render(); },
+    'inv-clear-search': () => { S.invSearch = ''; render(); },
+    'inv-detail': (d) => { if (typeof UG_RELIEF !== 'undefined' && UG_RELIEF.invDetailModal) UG_RELIEF.invDetailModal(d.id); },
 
     'inv-add': () => {
       if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can manage inventory', 'warning'); return; }
@@ -3202,6 +3691,15 @@
       const r = (UG.DATA.roadStatus || []).find((x) => x.id === d.id);
       if (r) roadStatusForm(r);
     },
+    /* Section 8: open the road status detail modal. The citizen screen's
+       UG_ROADWORK.roadDetailModal already shows every stored field; we reuse
+       it here so the Super Admin / LGU gets the same full record view, with
+       an Edit action appended in the footer for authorized users. */
+    'rs-detail': (d) => {
+      if (typeof UG_ROADWORK !== 'undefined' && UG_ROADWORK.roadDetailModal) {
+        UG_ROADWORK.roadDetailModal(d.id);
+      }
+    },
     'rs-pin': async () => {
       try {
         const pos = await UG_FEATURES.locate();
@@ -3280,6 +3778,90 @@
     }
   };
 
+  /* ─────────────────────────────────────────────────────────────────────
+   *  hotlineRequestModal — the LGU/BO change request form for emergency
+   *  hotlines (master prompt · Emergency Hotlines Management and Super Admin
+   *  Approval). action = 'add' | 'edit' | 'delete'; existing = the hotline
+   *  row being modified (null for 'add'). Submits through Repo.submitChange-
+   *  Request, which calls the submit_change_request RPC (security definer)
+   *  that stamps the requester from auth.uid() and writes the audit row.
+   * ───────────────────────────────────────────────────────────────────── */
+  function hotlineRequestModal(action, existing) {
+    const esc = UG_UTIL.esc;
+    const isEdit = action === 'edit';
+    const isDelete = action === 'delete';
+    const isAdd = action === 'add';
+    /* pre-fill the proposed fields from the existing record when editing */
+    const cur = existing || {};
+    const agencyVal = isEdit ? (cur.agency || '') : '';
+    const numberVal = isEdit ? (cur.number || '') : '';
+    const scopeVal = isEdit ? (cur.scope || '') : '';
+    const descVal = isEdit ? (cur.description || '') : '';
+    UG_FEATURES.modal({
+      title: isAdd ? 'Request a new hotline'
+           : isDelete ? 'Request deletion of ' + (cur.agency || 'hotline')
+           : 'Request an edit to ' + (cur.agency || 'hotline'),
+      body:
+        '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">' +
+          'Your request will be reviewed by the Super Admin. The official directory is not changed until the request is approved. You will be notified when a decision is made.' +
+        '</div></div>' +
+        (isDelete ? '<div class="ug-field"><label class="ug-lab">Existing agency</label><div class="ug-dim" style="font-size:13px;padding:8px 0">' + esc(cur.agency || '—') + '</div>' +
+          '<div class="ug-dim ug-mono" style="font-size:11px">' + esc(cur.number || '—') + '</div></div>'
+          : '<div class="ug-field"><label class="ug-lab">Agency name</label>' +
+            '<input class="ug-in" data-req-agency value="' + esc(agencyVal) + '" placeholder="e.g. Bureau of Fire Protection"></div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Contact number</label>' +
+              '<input class="ug-in" data-req-number value="' + esc(numberVal) + '" placeholder="(075) 000-0000"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Scope</label>' +
+              '<input class="ug-in" data-req-scope value="' + esc(scopeVal) + '" placeholder="Fire and rescue"></div>' +
+          '</div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Description (optional)</label>' +
+            '<input class="ug-in" data-req-desc value="' + esc(descVal) + '" placeholder="e.g. 24/7 fire and rescue dispatch"></div>') +
+        '<div class="ug-field" style="margin-top:12px"><label class="ug-lab">Reason for this request</label>' +
+          '<textarea class="ug-ta" data-req-reason rows="3" placeholder="e.g. The BFP changed their 24-hour dispatch number."></textarea>' +
+          '<div class="ug-help">Shown to the Super Admin when they review your request, and stored in the audit log.</div></div>',
+      footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
+        '<button class="ug-btn ug-btn--signal" data-submit>Submit request</button>',
+      onMount: (wrap, close) => {
+        wrap.querySelector('[data-submit]').addEventListener('click', async () => {
+          const reason = wrap.querySelector('[data-req-reason]').value.trim();
+          if (!reason) { toast('A reason is required so the Super Admin can review the request', 'warning'); return; }
+          const proposed = isDelete ? {} : {
+            agency_name: wrap.querySelector('[data-req-agency]').value.trim(),
+            contact_number: wrap.querySelector('[data-req-number]').value.trim(),
+            scope: wrap.querySelector('[data-req-scope]').value.trim() || 'Municipality-wide',
+            description: wrap.querySelector('[data-req-desc]').value.trim()
+          };
+          if (!isDelete) {
+            if (!proposed.agency_name || !proposed.contact_number) {
+              toast('An agency name and a contact number are required', 'warning'); return;
+            }
+          }
+          const current = existing ? {
+            agency_name: existing.agency || '',
+            contact_number: existing.number || '',
+            scope: existing.scope || '',
+            description: existing.description || ''
+          } : {};
+          try {
+            const res = await Repo.submitChangeRequest({
+              target_table: 'emergency_hotlines',
+              action: action,
+              target_id: existing ? (existing.uuid || existing.id) : null,
+              current_data: current,
+              proposed_data: proposed,
+              reason: reason
+            });
+            toast('Request submitted. The Super Admin has been notified. You will see the decision in your notifications.', 'prepared');
+            if (Repo.loadChangeRequests) await Repo.loadChangeRequests();
+            close();
+            render();
+          } catch (e) { toast(e.message, 'warning'); }
+        });
+      }
+    });
+  }
+
   const ALL = Object.assign({},
     AUTH_ACTIONS,
     APP_ACTIONS,
@@ -3324,6 +3906,11 @@
     if (f === 'benSearchLgu') { S.benSearchLgu = v; render(f); return; }
     if (f === 'faqSearch') { S.faqSearch = v; render(f); return; }
     if (f === 'auditQ') { S.auditQ = v; render(f); return; }
+    if (f === 'invSearch') { S.invSearch = v; render(f); return; }
+    if (f === 'unitSearch') { S.unitSearch = v; render(f); return; }
+    if (f === 'userSearch') { S.userSearch = v; render(f); return; }
+    if (f === 'shelterSearch') { S.shelterSearch = v; render(f); return; }
+    if (f === 'rsSearch') { S.rsSearch = v; render(f); return; }
     if (f === 'reportAddress') { S.report.locationNote = v; return; }
     /* road work composer fields */
     if (f === 'rwTitle') { S.roadDraft.title = v; return; }
@@ -3347,6 +3934,7 @@
     else if (f === 'advArea') S.draft.area = v;
     else if (f === 'anFrom') { S.anFrom = v; return; }
     else if (f === 'anTo') { S.anTo = v; return; }
+    else if (f === 'anBrgyFilter') { S.anBrgyFilter = v; render(); return; }
     else if (f === 'hazard') S.report.hazard = v;
     else if (f === 'brgy') S.report.brgy = v;
     else if (f === 'rwBarangay') { S.roadDraft.barangay = v; render(); return; }
@@ -3355,7 +3943,8 @@
     else if (f === 'recBrgyFilter') { S.recBrgyFilter = v; render(); return; }
     else if (f === 'invBrgyFilter') { S.invBrgyFilter = v; render(); return; }
     /* activity log filters */
-    else if (f === 'auditEntity' || f === 'auditActor' || f === 'auditFrom' || f === 'auditTo') { S[f] = v; render(); return; }
+    else if (f === 'auditEntity' || f === 'auditActor' || f === 'auditFrom' || f === 'auditTo'
+          || f === 'auditRole' || f === 'auditAction' || f === 'auditBarangay') { S[f] = v; S.auditPage = 1; render(); return; }
     else if (f === 'auditQ') return;
     else if (f === 'assignResponder') return;
     else return;
@@ -3522,7 +4111,6 @@
       const as = p.get('role') || p.get('as');
       if (!as || !UG_WEB.ROLE_INFO[as]) return false;
       const seeded = UG.DATA.sessions[as];
-      if (!seeded) return false;
       const session = {
         id: 'dev', email: seeded.email, name: seeded.name, initials: seeded.initials,
         /* ?super=0 previews the LDRRMO Staff tier; the default LGU preview is the Super Admin */

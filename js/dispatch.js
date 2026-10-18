@@ -248,14 +248,14 @@ const UG_DISPATCH = (function () {
 
   /* ----------------------------------------------------- the desktop frame layout */
   const DNAV = [
-    ['dispatch',  T('nav.dispatch'), 'truck'],
-    ['equipment', T('nav.equipment'), 'shield'],
-    ['roster',    T('nav.roster'),       'users'],
-    ['hospital',  T('nav.hospital'),              'shelter', 'Hospital'],
-    ['requests',  T('nav.requests'),      'inbox'],
-    ['analytics', T('nav.unit-analytics'),        'layers'],
-    ['contacts',  T('nav.contacts'),             'phone'],
-    ['notifications', T('nav.notifications'),    'bell'],
+    ['dispatch',  'Incoming Dispatches', 'truck'],
+    ['equipment', 'Equipment & Readiness', 'shield'],
+    ['roster',    'Roster & Shifts',       'users'],
+    ['hospital',  'Hospital',              'shelter', 'Hospital'],
+    ['requests',  'Support Requests',      'inbox'],
+    ['analytics', 'Unit Analytics',        'layers'],
+    ['contacts',  'Directory',             'phone'],
+    ['notifications', 'Notifications',    'bell'],
   ];
 
   function unitTypeLabel(t) {
@@ -286,7 +286,7 @@ const UG_DISPATCH = (function () {
           '<span class="ug-av">' + esc((session && session.initials) || '?') + '</span>' +
           '<span class="ug-col" style="gap:0;min-width:0"><span style="font-size:12px;font-weight:600">' + esc(session && session.name) + '</span>' +
           '<span class="ug-dimmer" style="font-size:10px">' + esc(session && session.scope) + '</span>' +
-          '<span class="ug-dimmer" style="font-size:10px">' + (unit ? unitTypeLabel(unit.unit_type) : '') + (unit && dutyCount ? ' · ' + dutyCount + ' ' + esc(T('dispatch.onDuty')) : '') + '</span></span></div>' +
+          '<span class="ug-dimmer" style="font-size:10px">' + (unit ? unitTypeLabel(unit.unit_type) : '') + (unit && dutyCount ? ' · ' + dutyCount + ' on duty' : '') + '</span></span></div>' +
         '<button class="ug-nav" data-act="logout">' + I('logout', 18) + '<span>' + esc(T('action.signout')) + '</span></button>' +
         '<div class="ug-mono" style="font-size:9px;color:var(--ug-ink-3);padding:2px 9px 4px">build ' + esc((typeof UG_CONFIG !== 'undefined' && UG_CONFIG.BUILD) || 'dev') + '</div>' +
       '</div>' +
@@ -315,15 +315,15 @@ const UG_DISPATCH = (function () {
 
   const DTITLES = (function () {
     const map = {
-      dispatch: [T('title.dispatch'), ''],
-      'dispatch-detail': [T('title.dispatchDetail'), ''],
-      equipment: [T('title.equipment'), T('dispatch.equipmentSub')],
-      roster: [T('title.roster'), T('dispatch.rosterSub')],
-      hospital: [T('title.hospital'), T('dispatch.hospitalSub')],
-      requests: [T('title.requests'), T('dispatch.requestsSub')],
-      analytics: [T('title.unitAnalytics'), T('dispatch.analyticsSub')],
-      contacts: [T('title.contacts'), T('dispatch.directorySub')],
-      notifications: [T('title.notifications'), T('dispatch.notificationsSub')]
+      dispatch: ['UniGuard Dispatch Console', ''],
+      'dispatch-detail': ['Dispatch detail', ''],
+      equipment: ['Equipment & readiness', 'Track each piece of equipment and run the shift checklist.'],
+      roster: ['Roster & shifts', 'Who is on duty, shift times, roles.'],
+      hospital: ['Hospital capacity', 'ER/ICU beds, ambulance, accepting / divert, incoming-patient notices.'],
+      requests: ['Support requests', 'Ask the LGU for fuel, extra personnel, equipment or mutual aid.'],
+      analytics: ['Unit analytics', 'Response time, monthly count, equipment usage.'],
+      contacts: ['Directory', 'BFP, PNP, rescue units, hospitals and barangay captains.'],
+      notifications: ['Notifications', 'Every push alert delivered to this unit.']
     };
     return function (route) { return map[route] || map.dispatch; };
   })();
@@ -346,138 +346,138 @@ const UG_DISPATCH = (function () {
   }
 
   function sIncoming(st) {
-    if (state.loading) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('loading', T('state.loading'));
-    if (state.error)   return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('error', T('toast.couldNotLoad'), state.error);
+    if (state.loading) return pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.') + statePanel('loading', 'Loading');
+    if (state.error)   return pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.') + statePanel('error', 'Could not load', state.error);
     const list = state.data.dispatches || [];
     const open = list.filter((d) => d.dispatch_status !== 'done');
-    if (!list.length) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) +
-      emptyState('truck', T('dispatch.noDispatches'), T('dispatch.noDispatchesHint'));
+    if (!list.length) return pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.') +
+      emptyState('truck', 'No dispatches yet', 'When an LGU or barangay official dispatches your unit, the dispatch lands here.');
 
     const row = (d) => {
       const r = d.report || {};
       return '<button class="ug-card" style="text-align:left;cursor:pointer" data-act="dispatch-open" data-id="' + esc(d.id) + '">' +
         '<div class="ug-card-b ug-col" style="gap:8px">' +
         '<div class="ug-rowf ug-between" style="gap:8px">' +
-          '<span style="font-size:13px;font-weight:700">' + esc(r.code || '') + ' · ' + esc(r.hazard_type || T('label.type')) + '</span>' +
+          '<span style="font-size:13px;font-weight:700">' + esc(r.code || '') + ' · ' + esc(r.hazard_type || 'Hazard') + '</span>' +
           '<span>' + badge(d.dispatch_status, d.dispatch_status) + '</span>' +
         '</div>' +
-        '<div class="ug-dim" style="font-size:11.5px">' + esc(r.barangay || '') + (d.eta ? ' · ' + esc(T('dispatch.eta')) + ' ' + absTime(d.eta) : '') + '</div>' +
-        '<div class="ug-dimmer" style="font-size:10.5px">' + esc(T('dispatch.dispatchedBy')) + ' ' + esc(d.dispatched_by_name || '') + ' · ' + ago(d.dispatched_at) + '</div>' +
+        '<div class="ug-dim" style="font-size:11.5px">' + esc(r.barangay || '') + (d.eta ? ' · ETA ' + absTime(d.eta) : '') + '</div>' +
+        '<div class="ug-dimmer" style="font-size:10.5px">Dispatched ' + ago(d.dispatched_at) + ' by ' + esc(d.dispatched_by_name || '') + '</div>' +
         '</div></button>';
     };
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead(T('dispatch.incoming'), T('dispatch.incomingSub'),
-        '<span class="ug-chip is-on">' + open.length + ' ' + esc(T('dispatch.active')) + '</span>') +
+      pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.',
+        '<span class="ug-chip is-on">' + open.length + ' active</span>') +
       '<div class="ug-wgrid-3">' + list.slice(0, 12).map(row).join('') + '</div>' +
-      (list.length > 12 ? '<button class="ug-btn ug-btn--ghost" data-act="dispatch-nav" data-route="analytics">' + esc(T('dispatch.viewAll')) + '</button>' : '') +
+      (list.length > 12 ? '<button class="ug-btn ug-btn--ghost" data-act="dispatch-nav" data-route="analytics">View all</button>' : '') +
       '</div>';
   }
 
   function sDispatchDetail(st) {
     const id = state.openDispatchId;
     const d = (state.data.dispatches || []).find((x) => x.id === id);
-    if (!d) return pageHead(T('title.dispatchDetail'), '') + emptyState('truck', T('dispatch.noDispatches'), T('dispatch.noDispatchesHint'));
+    if (!d) return pageHead('Dispatch detail', '') + emptyState('truck', 'No dispatch selected', 'Open one from the list.');
     const r = d.report || {};
     const events = (state.data.events || []).filter((e) => e.dispatch_id === d.id);
     const next = d.dispatch_status === 'sent' ? 'acknowledged'
       : d.dispatch_status === 'acknowledged' ? 'en_route'
       : d.dispatch_status === 'en_route' ? 'on_scene'
       : d.dispatch_status === 'on_scene' ? 'done' : null;
-    const stepLabel = (s) => ({ sent: T('dispatch.acknowledge'), acknowledged: T('dispatch.enRoute'), en_route: T('dispatch.onScene'), on_scene: T('dispatch.done'), done: T('dispatch.done') })[s] || s;
+    const stepLabel = (s) => ({ sent: 'Acknowledge', acknowledged: 'En route', en_route: 'On scene', on_scene: 'Done', done: 'Done' })[s] || s;
 
-    const eventsList = events.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>' + esc(T('label.when')) + '</th><th>' + esc(T('label.actor')) + '</th><th>' + esc(T('label.action')) + '</th><th>' + esc(T('label.note')) + '</th></tr></thead><tbody>' +
+    const eventsList = events.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Note</th></tr></thead><tbody>' +
       events.map((e) => '<tr><td class="t-num">' + absTime(e.created_at) + '</td><td>' + esc(e.actor_name) + '</td><td>' + esc(e.action) + '</td><td class="ug-dimmer" style="font-size:11px">' + esc(e.note) + '</td></tr>').join('') +
       '</tbody></table></div>' : '';
-    const afterAction = d.after_action ? card('<div class="ug-col" style="gap:6px"><div style="font-size:12px;font-weight:700">' + esc(T('dispatch.afterAction')) + '</div>' +
+    const afterAction = d.after_action ? card('<div class="ug-col" style="gap:6px"><div style="font-size:12px;font-weight:700">' + esc('After-action report') + '</div>' +
       '<div class="ug-note" style="font-size:11.5px;white-space:pre-wrap">' + esc(d.after_action) + '</div>' +
-      '<div class="ug-dimmer" style="font-size:10px">' + esc(T('admin.createdColumn')) + ' ' + ago(d.after_action_at) + '</div></div>') : '';
+      '<div class="ug-dimmer" style="font-size:10px">Filed ' + ago(d.after_action_at) + '</div></div>') : '';
 
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead(T('dispatch.back') + ' · ' + (d.id || '').slice(0, 8), T('dispatch.incident') + ' ' + (r.code || '') + ' · ' + (r.barangay || ''),
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-nav" data-route="dispatch">' + I('chevron', 13) + esc(T('dispatch.back')) + '</button>') +
+      pageHead('Dispatch ' + (d.id || '').slice(0, 8), 'Incident ' + (r.code || '') + ' · ' + (r.barangay || ''),
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-nav" data-route="dispatch">' + I('chevron', 13) + 'Back</button>') +
       '<div class="ug-wgrid-2">' +
         card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">' + esc(r.code || '') + ' · ' + esc(r.hazard_type || '') + '</div>' +
           '<div class="ug-dim" style="font-size:12px">' + esc(r.description || '') + '</div>' +
           '<div class="ug-rowf ug-gap10" style="gap:10px"><span class="ug-badge ug-badge--id">' + esc(r.barangay || '') + '</span>' +
             '<span class="ug-badge ug-badge--' + (r.severity || 'advisory') + '">' + esc(r.severity || '') + '</span>' +
-            (d.eta ? '<span class="ug-dim">' + esc(T('dispatch.eta')) + ' ' + absTime(d.eta) + '</span>' : '') + '</div>' +
-          '<div class="ug-dimmer" style="font-size:10.5px">' + esc(T('dispatch.dispatchedBy')) + ' ' + esc(d.dispatched_by_name || '') + ' · ' + ago(d.dispatched_at) + '</div>' +
+            (d.eta ? '<span class="ug-dim">ETA ' + absTime(d.eta) + '</span>' : '') + '</div>' +
+          '<div class="ug-dimmer" style="font-size:10.5px">Dispatched by ' + esc(d.dispatched_by_name || '') + ' · ' + ago(d.dispatched_at) + '</div>' +
           '<div class="ug-note" style="font-size:11.5px;white-space:pre-wrap;margin-top:6px">' + esc(d.instructions || '') + '</div></div>') +
-        card('<div class="ug-col" style="gap:10px"><div style="font-size:13px;font-weight:700">' + esc(T('dispatch.statusLabel')) + '</div>' +
+        card('<div class="ug-col" style="gap:10px"><div style="font-size:13px;font-weight:700">Status</div>' +
           '<div class="ug-rowf ug-gap8" style="gap:8px">' + badge(d.dispatch_status, stepLabel(d.dispatch_status)) + '</div>' +
           '<div class="ug-rowf ug-gap8" style="gap:8px">' +
-            (next ? '<input class="ug-in" type="text" data-act="dispatch-note" data-id="' + esc(d.id) + '" placeholder="' + esc(T('dispatch.noteOptional')) + '" style="flex:1;max-width:none">' : '') +
+            (next ? '<input class="ug-in" type="text" data-act="dispatch-note" data-id="' + esc(d.id) + '" placeholder="Note (optional)" style="flex:1;max-width:none">' : '') +
             (next ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-respond" data-id="' + esc(d.id) + '" data-next="' + next + '">' + stepLabel(next) + '</button>' : '') +
           '</div>' +
-          '<div class="ug-dim" style="font-size:11px">' + esc(T('dispatch.statusHelp')) + '</div></div>') +
+          '<div class="ug-dim" style="font-size:11px">Each step is one click. On scene and Done notify the reporter.</div></div>') +
       '</div>' +
       eventsList +
       afterAction +
-      (d.dispatch_status === 'done' && !d.after_action ? card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">' + esc(T('dispatch.fileAfterAction')) + '</div>' +
-        '<textarea class="ug-ta" rows="4" data-act="dispatch-aa" data-id="' + esc(d.id) + '" placeholder="' + esc(T('dispatch.afterActionHint')) + '"></textarea>' +
-        '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-aa-submit" data-id="' + esc(d.id) + '">' + I('check', 14) + esc(T('dispatch.submitAfterAction')) + '</button></div>') : '') +
+      (d.dispatch_status === 'done' && !d.after_action ? card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">File an after-action report</div>' +
+        '<textarea class="ug-ta" rows="4" data-act="dispatch-aa" data-id="' + esc(d.id) + '" placeholder="What was done, time spent, equipment used, casualties or patients, outcome"></textarea>' +
+        '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-aa-submit" data-id="' + esc(d.id) + '">' + I('check', 14) + 'Submit after-action</button></div>') : '') +
     '</div>';
   }
 
   function sEquipment(st) {
-    if (state.loading) return pageHead(T('title.equipment'), '') + statePanel('loading');
-    if (state.error)   return pageHead(T('title.equipment'), '') + statePanel('error', T('toast.couldNotLoad'), state.error);
+    if (state.loading) return pageHead('Equipment & readiness', '') + statePanel('loading');
+    if (state.error)   return pageHead('Equipment & readiness', '') + statePanel('error', 'Could not load', state.error);
     const rows = state.data.equipment || [];
-    if (!rows.length) return pageHead(T('title.equipment'), T('dispatch.equipmentSub')) +
-      emptyState('shield', T('dispatch.noEquipment'), T('dispatch.noEquipmentHint'));
+    if (!rows.length) return pageHead('Equipment & readiness', 'Track each piece and run the shift checklist.') +
+      emptyState('shield', 'No equipment yet', 'Your unit admin can add equipment here.');
     const overdue = rows.filter((r) => !r.last_checked_at || (Date.now() - Date.parse(r.last_checked_at)) > 86400000).length;
     const row = (r) => {
       const overdueClass = !r.last_checked_at || (Date.now() - Date.parse(r.last_checked_at)) > 86400000 ? ' style="border-left:3px solid var(--ug-warning)"' : '';
       return '<tr' + overdueClass + '>' +
-        '<td><div style="font-weight:600">' + esc(r.identifier || r.custom_label || T('label.item')) + '</div>' +
+        '<td><div style="font-weight:600">' + esc(r.identifier || r.custom_label || 'Equipment') + '</div>' +
           '<div class="ug-dimmer" style="font-size:10.5px">' + esc(r.notes || '') + '</div></td>' +
         '<td>' + badge(r.status, r.status) + '</td>' +
         '<td>' + badge(r.condition, r.condition) + '</td>' +
-        '<td class="t-num">' + (r.last_checked_at ? ago(r.last_checked_at) : '—') + '</td>' +
-        '<td class="t-right"><button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-check" data-id="' + esc(r.id) + '">' + esc(T('action.check')) + '</button>' +
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-status" data-id="' + esc(r.id) + '">' + esc(T('action.status')) + '</button></td>' +
+        '<td class="t-num">' + (r.last_checked_at ? ago(r.last_checked_at) : 'never') + '</td>' +
+        '<td class="t-right"><button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-check" data-id="' + esc(r.id) + '">Check</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-status" data-id="' + esc(r.id) + '">Status</button></td>' +
       '</tr>';
     };
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead(T('title.equipment'), T('dispatch.equipmentSub'),
-        '<span class="ug-chip is-on">' + rows.length + ' ' + esc(T('label.item')) + '</span>' +
-        (overdue ? '<span class="ug-chip" style="background:rgba(255,179,64,.14);color:var(--ug-warning)">' + overdue + ' ' + esc(T('dispatch.overdue')) + '</span>' : '')) +
+      pageHead('Equipment & readiness', 'Track each piece and run the shift checklist.',
+        '<span class="ug-chip is-on">' + rows.length + ' items</span>' +
+        (overdue ? '<span class="ug-chip" style="background:rgba(255,179,64,.14);color:var(--ug-warning)">' + overdue + ' OVERDUE</span>' : '')) +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>' + esc(T('label.item')) + '</th><th>' + esc(T('label.status')) + '</th><th>' + esc(T('label.condition')) + '</th><th>' + esc(T('label.lastCheck')) + '</th><th class="t-right">' + esc(T('label.action')) + '</th></tr></thead>' +
+      '<thead><tr><th>Equipment</th><th>Status</th><th>Condition</th><th>Last check</th><th class="t-right">Action</th></tr></thead>' +
       '<tbody>' + rows.map(row).join('') + '</tbody></table></div>' +
-      (state.data.unit && state.data.unit.unit_type === 'Hospital' ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-nav" data-route="hospital">' + I('shelter', 14) + esc(T('title.hospital')) + '</button>' : '') +
+      (state.data.unit && state.data.unit.unit_type === 'Hospital' ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-nav" data-route="hospital">' + I('shelter', 14) + 'Hospital capacity</button>' : '') +
     '</div>';
   }
 
   function sRoster(st) {
-    if (state.loading) return pageHead(T('title.roster'), '') + statePanel('loading');
-    if (state.error)   return pageHead(T('title.roster'), '') + statePanel('error', T('toast.couldNotLoad'), state.error);
+    if (state.loading) return pageHead('Roster & shifts', '') + statePanel('loading');
+    if (state.error)   return pageHead('Roster & shifts', '') + statePanel('error', 'Could not load', state.error);
     const rows = state.data.personnel || [];
     const unit = state.data.unit;
     const canInvite = unit && (st.session && st.session.unit_role === 'unit_admin');
-    const inviteBtn = canInvite ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="admin-invite-unit-member" data-unit-id="' + esc(unit && unit.id) + '">' + I('plus', 14) + esc(T('action.inviteMember')) + '</button>' : '';
-    if (!rows.length) return pageHead(T('title.roster'), T('dispatch.rosterSub'), inviteBtn) +
-      emptyState('users', T('dispatch.noPersonnel'), canInvite ? T('dispatch.noPersonnelHintAdmin') : T('dispatch.noPersonnelHintMember'));
+    const inviteBtn = canInvite ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="admin-invite-unit-member" data-unit-id="' + esc(unit && unit.id) + '">' + I('plus', 14) + 'Invite member</button>' : '';
+    if (!rows.length) return pageHead('Roster & shifts', 'Who is on duty, shift times, roles.', inviteBtn) +
+      emptyState('users', 'No personnel yet', canInvite ? 'Use Invite member to send an email to a new unit member.' : 'Ask your unit admin to add personnel.');
     const onDuty = rows.filter((p) => p.on_duty).length;
     const row = (p) => '<tr>' +
       '<td><div style="font-weight:600">' + esc(p.name) + '</div>' +
         '<div class="ug-dimmer" style="font-size:10.5px">' + esc(p.role || '') + '</div></td>' +
       '<td>' + esc(p.phone || '') + '</td>' +
-      '<td>' + badge(p.on_duty ? 'on' : 'off', p.on_duty ? T('dispatch.onDuty') : 'Off duty') + '</td>' +
+      '<td>' + badge(p.on_duty ? 'on' : 'off', p.on_duty ? 'On duty' : 'Off duty') + '</td>' +
       '<td class="t-num">' + (p.shift_start ? absTime(p.shift_start) : '—') + '</td>' +
-      '<td class="t-right"><button class="ug-btn ug-btn--sm' + (p.on_duty ? '' : ' ug-btn--signal') + '" data-act="dispatch-duty" data-id="' + esc(p.id) + '" data-next="' + (p.on_duty ? 'false' : 'true') + '">' + (p.on_duty ? esc(T('action.clockOut')) : esc(T('action.clockIn'))) + '</button></td>' +
+      '<td class="t-right"><button class="ug-btn ug-btn--sm' + (p.on_duty ? '' : ' ug-btn--signal') + '" data-act="dispatch-duty" data-id="' + esc(p.id) + '" data-next="' + (p.on_duty ? 'false' : 'true') + '">' + (p.on_duty ? 'Clock out' : 'Clock in') + '</button></td>' +
     '</tr>';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead(T('title.roster'), T('dispatch.rosterSub'),
-        '<span class="ug-chip is-on">' + onDuty + ' ' + esc(T('dispatch.onDuty')) + '</span>' + inviteBtn) +
+      pageHead('Roster & shifts', 'Who is on duty, shift times, roles.',
+        '<span class="ug-chip is-on">' + onDuty + ' on duty</span>' + inviteBtn) +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>' + esc(T('label.name')) + ' / ' + esc(T('label.role')) + '</th><th>' + esc(T('label.phone')) + '</th><th>' + esc(T('label.status')) + '</th><th>' + esc(T('label.shiftStart')) + '</th><th class="t-right">' + esc(T('label.action')) + '</th></tr></thead>' +
+      '<thead><tr><th>Name / role</th><th>Phone</th><th>Status</th><th>Shift start</th><th class="t-right">Action</th></tr></thead>' +
       '<tbody>' + rows.map(row).join('') + '</tbody></table></div></div>';
   }
 
   function sHospital(st) {
-    if (state.loading) return pageHead(T('title.hospital'), '') + statePanel('loading');
-    if (state.error)   return pageHead(T('title.hospital'), '') + statePanel('error', T('toast.couldNotLoad'), state.error);
+    if (state.loading) return pageHead('Hospital', '') + statePanel('loading');
+    if (state.error)   return pageHead('Hospital', '') + statePanel('error', 'Could not load', state.error);
     const cap = state.data.capacity || { er_beds: 0, icu_beds: 0, available: 0, accepting: true };
     const notices = state.data.notices || [];
     const noticeRow = (n) => '<tr>' +
@@ -485,26 +485,26 @@ const UG_DISPATCH = (function () {
       '<td class="t-num">' + esc(n.patients || 1) + '</td>' +
       '<td>' + esc(n.condition || '') + '</td>' +
       '<td>' + badge(n.status, n.status) + '</td>' +
-      '<td class="t-right">' + (n.status === 'sent' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="dispatch-ack-notice" data-id="' + esc(n.id) + '">' + esc(T('action.ack')) + '</button>' : '') + '</td>' +
+      '<td class="t-right">' + (n.status === 'sent' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="dispatch-ack-notice" data-id="' + esc(n.id) + '">Ack</button>' : '') + '</td>' +
     '</tr>';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead(T('title.hospital'), T('dispatch.hospitalSub'),
-        '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-capacity-edit">' + I('settings', 14) + esc(T('action.update')) + '</button>') +
+      pageHead('Hospital capacity', 'ER / ICU beds, ambulance, accepting / divert, incoming-patient notices.',
+        '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-capacity-edit">' + I('settings', 14) + 'Update</button>') +
       '<div class="ug-rowf ug-gap10" style="gap:10px">' +
-        readout(cap.er_beds, T('label.ERBeds'), 'var(--ug-signal)') +
-        readout(cap.icu_beds, T('label.ICUBeds'), 'var(--ug-signal)') +
-        readout(cap.available, T('label.available'), 'var(--ug-prepared)') +
-        readout(cap.accepting ? T('label.accepting') : T('label.divert'), T('label.status'), cap.accepting ? 'var(--ug-prepared)' : 'var(--ug-emergency)') +
+        readout(cap.er_beds, 'ER beds', 'var(--ug-signal)') +
+        readout(cap.icu_beds, 'ICU beds', 'var(--ug-signal)') +
+        readout(cap.available, 'Available', 'var(--ug-prepared)') +
+        readout(cap.accepting ? 'Accepting' : 'Divert', 'Status', cap.accepting ? 'var(--ug-prepared)' : 'var(--ug-emergency)') +
       '</div>' +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>' + esc(T('label.when')) + '</th><th>' + esc(T('label.patients')) + '</th><th>' + esc(T('label.condition')) + '</th><th>' + esc(T('label.status')) + '</th><th class="t-right">' + esc(T('label.action')) + '</th></tr></thead>' +
-      '<tbody>' + (notices.length ? notices.map(noticeRow).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px">' + esc(T('dispatch.noPatientNotices')) + '</td></tr>') + '</tbody></table></div>' +
+      '<thead><tr><th>When</th><th>Patients</th><th>Condition</th><th>Status</th><th class="t-right">Action</th></tr></thead>' +
+      '<tbody>' + (notices.length ? notices.map(noticeRow).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px">No incoming-patient notices</td></tr>') + '</tbody></table></div>' +
     '</div>';
   }
 
   function sRequests(st) {
-    if (state.loading) return pageHead(T('title.requests'), '') + statePanel('loading');
-    if (state.error)   return pageHead(T('title.requests'), '') + statePanel('error', T('toast.couldNotLoad'), state.error);
+    if (state.loading) return pageHead('Support requests', '') + statePanel('loading');
+    if (state.error)   return pageHead('Support requests', '') + statePanel('error', 'Could not load', state.error);
     const rows = state.data.requests || [];
     const open = rows.filter((r) => r.status === 'pending' || r.status === 'approved');
     const row = (r) => '<tr>' +
@@ -515,18 +515,18 @@ const UG_DISPATCH = (function () {
       '<td class="t-num">' + (r.decided_at ? absTime(r.decided_at) : '—') + '</td>' +
     '</tr>';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead(T('title.requests'), T('dispatch.requestsSub'),
-        '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-request-new">' + I('plus', 14) + esc(T('action.newRequest')) + '</button>') +
-      (open.length ? '<span class="ug-chip is-on">' + open.length + ' ' + esc(T('dispatch.open')) + '</span>' : '') +
+      pageHead('Support requests', 'Ask the LGU for fuel, extra personnel, equipment or mutual aid.',
+        '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-request-new">' + I('plus', 14) + 'New request</button>') +
+      (open.length ? '<span class="ug-chip is-on">' + open.length + ' open</span>' : '') +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>' + esc(T('label.when')) + '</th><th>' + esc(T('label.kind')) + '</th><th>' + esc(T('label.details')) + '</th><th>' + esc(T('label.status')) + '</th><th>' + esc(T('label.decided')) + '</th></tr></thead>' +
-      '<tbody>' + (rows.length ? rows.map(row).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px">' + esc(T('dispatch.noRequests')) + '</td></tr>') + '</tbody></table></div>' +
+      '<thead><tr><th>When</th><th>Kind</th><th>Details</th><th>Status</th><th>Decided</th></tr></thead>' +
+      '<tbody>' + (rows.length ? rows.map(row).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px">No requests yet</td></tr>') + '</tbody></table></div>' +
     '</div>';
   }
 
   function sAnalytics(st) {
     const dispatches = state.data.dispatches || [];
-    if (!dispatches.length) return pageHead(T('title.unitAnalytics'), '') + emptyState('layers', T('dispatch.noAnalyticsYet'), T('dispatch.noAnalyticsHint'));
+    if (!dispatches.length) return pageHead('Unit analytics', '') + emptyState('layers', 'No dispatches yet', 'Your response time and monthly count appear here once you have an active dispatch.');
     const acks = dispatches.filter((d) => d.ack_at).length;
     const avgAck = acks ? (dispatches.reduce((s, d) => s + (Date.parse(d.ack_at) - Date.parse(d.dispatched_at)) / 60000, 0) / acks).toFixed(1) : '—';
     const scenes = dispatches.filter((d) => d.on_scene_at && d.ack_at).length;
@@ -536,17 +536,17 @@ const UG_DISPATCH = (function () {
       const m = new Date(); return new Date(d.dispatched_at).getMonth() === m.getMonth() && new Date(d.dispatched_at).getFullYear() === m.getFullYear();
     }).length;
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead(T('title.unitAnalytics'), T('dispatch.analyticsSub'),
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-csv">' + I('download', 14) + esc(T('action.exportCsv')) + '</button>') +
+      pageHead('Unit analytics', 'Response time, monthly count, equipment usage.',
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-csv">' + I('download', 14) + 'Export CSV</button>') +
       '<div class="ug-rowf ug-gap10" style="gap:10px">' +
-        readout(dispatches.length, T('label.totalDispatches'), 'var(--ug-signal)') +
-        readout(month, T('label.thisMonth'), 'var(--ug-signal)') +
-        readout(avgAck + ' min', T('label.avgAck'), 'var(--ug-prepared)') +
-        readout(avgScene + ' min', T('label.avgToScene'), 'var(--ug-prepared)') +
-        readout(done, T('label.completed'), 'var(--ug-prepared)') +
+        readout(dispatches.length, 'Total dispatches', 'var(--ug-signal)') +
+        readout(month, 'This month', 'var(--ug-signal)') +
+        readout(avgAck + ' min', 'Avg ack', 'var(--ug-prepared)') +
+        readout(avgScene + ' min', 'Avg to scene', 'var(--ug-prepared)') +
+        readout(done, 'Completed', 'var(--ug-prepared)') +
       '</div>' +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>' + esc(T('label.when')) + '</th><th>' + esc(T('dispatch.incident')) + '</th><th>' + esc(T('label.barangay')) + '</th><th>' + esc(T('label.status')) + '</th><th>' + esc(T('dispatch.acknowledge')) + '</th><th>' + esc(T('dispatch.onScene')) + '</th></tr></thead>' +
+      '<thead><tr><th>When</th><th>Incident</th><th>Barangay</th><th>Status</th><th>Ack</th><th>On scene</th></tr></thead>' +
       '<tbody>' + dispatches.slice(0, 30).map((d) => '<tr>' +
         '<td class="t-num">' + absTime(d.dispatched_at) + '</td>' +
         '<td>' + esc(d.report && d.report.code) + '</td>' +
@@ -561,42 +561,42 @@ const UG_DISPATCH = (function () {
     const dir = state.data.directory || {};
     const hotlines = dir.hotlines || [];
     const captains = dir.captains || [];
-    const callLink = (num) => '<a class="ug-btn ug-btn--sm ug-btn--signal" href="tel:' + esc(String(num).replace(/[^+\d]/g, '')) + '">' + I('phone', 13) + esc(T('action.call')) + '</a>';
+    const callLink = (num) => '<a class="ug-btn ug-btn--sm ug-btn--signal" href="tel:' + esc(String(num).replace(/[^+\d]/g, '')) + '">' + I('phone', 13) + 'Call</a>';
     const row = (h) => '<tr><td><div style="font-weight:600">' + esc(h.agency_name) + '</div>' +
       '<div class="ug-dimmer" style="font-size:10.5px">' + esc(h.scope || '') + '</div></td>' +
       '<td>' + esc(h.category || 'Other') + '</td>' +
       '<td class="t-num">' + esc(h.contact_number) + '</td>' +
       '<td class="t-right">' + callLink(h.contact_number) + '</td></tr>';
     const cRow = (c) => '<tr><td><div style="font-weight:600">' + esc(c.captain_name || '(unassigned)') + '</div>' +
-      '<div class="ug-dimmer" style="font-size:10.5px">' + esc(T('admin.captainColumn')) + ' · ' + esc(c.name) + '</div></td>' +
+      '<div class="ug-dimmer" style="font-size:10.5px">Brgy Captain · ' + esc(c.name) + '</div></td>' +
       '<td class="t-num">' + esc(c.captain_phone || '—') + '</td>' +
       '<td class="t-right">' + (c.captain_phone ? callLink(c.captain_phone) : '') + '</td></tr>';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead(T('title.contacts'), T('dispatch.directorySub')) +
+      pageHead('Directory', 'BFP, PNP, rescue units, hospitals and barangay captains. Tap to call.') +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>' + esc(T('label.agency')) + '</th><th>' + esc(T('label.category')) + '</th><th>' + esc(T('label.number')) + '</th><th class="t-right">' + esc(T('label.action')) + '</th></tr></thead>' +
+      '<thead><tr><th>Agency</th><th>Category</th><th>Number</th><th class="t-right">Action</th></tr></thead>' +
       '<tbody>' + hotlines.map(row).join('') + '</tbody></table></div>' +
       (captains.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>' + esc(T('admin.captainColumn')) + '</th><th>' + esc(T('label.phone')) + '</th><th class="t-right">' + esc(T('label.action')) + '</th></tr></thead>' +
+      '<thead><tr><th>Barangay captain</th><th>Phone</th><th class="t-right">Action</th></tr></thead>' +
       '<tbody>' + captains.map(cRow).join('') + '</tbody></table></div>' : '') +
     '</div>';
   }
 
   function sNotifications(st) {
     const rows = state.data.notifications || [];
-    if (!rows.length) return pageHead(T('title.notifications'), '') + emptyState('bell', T('dispatch.noNotifications'), T('dispatch.noNotificationsHint'));
+    if (!rows.length) return pageHead('Notifications', '') + emptyState('bell', 'No notifications yet', 'Alerts delivered to this unit appear here.');
     const row = (n) => '<tr>' +
       '<td class="t-num">' + absTime(n.created_at) + '</td>' +
       '<td>' + esc(n.title) + '</td>' +
       '<td class="ug-dim" style="font-size:11.5px">' + esc(n.body) + '</td>' +
-      '<td>' + (n.read_at ? badge('open', T('label.read')) : badge('warning', T('label.unread'))) + '</td>' +
-      '<td class="t-right">' + (n.read_at ? '' : '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-notif-read" data-id="' + esc(n.id) + '">' + esc(T('action.markRead')) + '</button>') + '</td>' +
+      '<td>' + (n.read_at ? badge('open', 'Read') : badge('warning', 'Unread')) + '</td>' +
+      '<td class="t-right">' + (n.read_at ? '' : '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-notif-read" data-id="' + esc(n.id) + '">Mark read</button>') + '</td>' +
     '</tr>';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead(T('title.notifications'), T('dispatch.notificationsSub'),
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-notif-read-all">' + esc(T('action.markAllRead')) + '</button>') +
+      pageHead('Notifications', 'Every push alert delivered to this unit.',
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-notif-read-all">Mark all read</button>') +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>' + esc(T('label.when')) + '</th><th>' + esc(T('label.title')) + '</th><th>' + esc(T('label.body')) + '</th><th>' + esc(T('label.status')) + '</th><th class="t-right">' + esc(T('label.action')) + '</th></tr></thead>' +
+      '<thead><tr><th>When</th><th>Title</th><th>Body</th><th>Status</th><th class="t-right">Action</th></tr></thead>' +
       '<tbody>' + rows.map(row).join('') + '</tbody></table></div></div>';
   }
 
