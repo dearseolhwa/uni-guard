@@ -266,9 +266,9 @@ const Repo = (function () {
     const dispatched = (c.dispatchedTeams != null) ? c.dispatchedTeams : 0;
     const live = state.source === 'supabase';
     UG.DATA.kpis = [
-      { label: 'Active Incidents', value: String(active), delta: live ? 'Live from the incident queue' : 'From the cached queue', dir: 'flat', tone: 'emergency', icon: 'alert', nav: 'incidents' },
-      { label: 'Units Deployed', value: String(units), delta: dispatched > 0 ? dispatched + ' dispatched team' + (dispatched === 1 ? '' : 's') + ' + assigned responders' : 'Assigned responders + dispatched teams', dir: 'flat', tone: 'verified', icon: 'users', nav: 'dispatch-units' },
-      { label: 'Critical Areas', value: String(critical), delta: 'Emergency severity, not resolved', dir: 'flat', tone: 'warning', icon: 'shieldx', nav: 'incidents' },
+      { label: 'Active Incidents', value: String(active), delta: live ? 'Live from the incident queue' : 'From the cached queue', dir: 'flat', tone: 'emergency', icon: 'alert' },
+      { label: 'Units Deployed', value: String(units), delta: dispatched > 0 ? dispatched + ' dispatched team' + (dispatched === 1 ? '' : 's') + ' + assigned responders' : 'Assigned responders + dispatched teams', dir: 'flat', tone: 'verified', icon: 'users' },
+      { label: 'Critical Areas', value: String(critical), delta: 'Emergency severity, not resolved', dir: 'flat', tone: 'warning', icon: 'shieldx' },
       { label: 'System Status', value: live ? 'LIVE' : 'STABLE', delta: live ? 'Realtime connected' : 'Serving cached data', dir: 'flat', tone: 'resolved', icon: 'wave' }
     ];
   }
@@ -419,9 +419,6 @@ const Repo = (function () {
         c.from('road_work_posts').select('*').order('created_at', { ascending: false }).limit(60),
         c.from('road_status').select('*').order('updated_at', { ascending: false }).limit(120)
       ]);
-      /* load change requests in parallel — the Super Admin hotlines page and
-         the LGU/BO "your pending requests" section both read this. */
-      try { await loadChangeRequests(); } catch (e) {}
 
       if (reports.error) throw reports.error;
 
@@ -716,7 +713,9 @@ const Repo = (function () {
            order / road closure / general) and the publish language, so the
            published list + citizen inbox can show the right icon + language. */
         alert_type: input.alert_type || 'general',
-        language: input.language || 'en'
+        language: input.language || 'en',
+        /* delivery preference: push (default) or in_app */
+        delivery_mode: input.delivery_mode || 'push'
       });
       emit();
       return { local: true };
@@ -730,7 +729,11 @@ const Repo = (function () {
       expires_at: input.expires_at || null,
       published_at: new Date().toISOString(),
       alert_type: input.alert_type || 'general',
-      language: input.language || 'en'
+      language: input.language || 'en',
+      /* delivery preference — push or in_app only (defaults to push). The
+         column is additive; if the live schema does not have it yet, the
+         insert ignores the unknown field silently. */
+      delivery_mode: input.delivery_mode || 'push'
     }).select('*').single();
     if (error) fail(error);
 
@@ -740,12 +743,11 @@ const Repo = (function () {
     /* fan out the in-app notification to targeted residents */
     await c.rpc('fanout_advisory', { p_advisory_id: data.id });
 
-    /* also fire the Web Push notification to subscribed devices, so the
-       advisory actually reaches phones — not just the in-app inbox. The old
-       version only did this for declareEmergency, so a regular advisory
-       publish silently failed to push. Best effort: the advisory is already
-       published + fanned out in-app, so a push failure is non-fatal. */
-    if (window.UG_PUSH_DISPATCH !== false) {
+    /* Web Push — sent ONLY when the duty officer picked "push" delivery.
+       The DOCX asks for a choice: emergency advisories push, informational
+       advisories stay in the inbox without a push. Honoured here so the
+       publish path matches what the composer let the user select. */
+    if (input.delivery_mode !== 'in_app' && window.UG_PUSH_DISPATCH !== false) {
       try {
         await c.functions.invoke('push-dispatch', {
           body: {
@@ -1033,33 +1035,21 @@ const Repo = (function () {
   async function listAudit(limit) {
     const c = client();
     if (!c) return [];
-    /* actor names + role + barangay join through the FK to profiles. We embed
-       the actor's profile row so the Super Admin Activity Log can show role +
-       barangay columns and filter by them. If the embedded select is not
-       available for any reason, fall back to the plain rows. */
+    /* actor names join through the FK to profiles; if the embedded select is
+       not available for any reason, fall back to the plain rows */
     let data, error;
     ({ data, error } = await c.from('audit_log')
-      .select('id, created_at, actor_id, action, entity, entity_id, meta, profiles:actor_id ( full_name, role, is_super_admin, barangay, unit_role )')
-      .order('created_at', { ascending: false }).limit(limit || 500));
+      .select('id, created_at, actor_id, action, entity, entity_id, meta, profiles:actor_id ( full_name )')
+      .order('created_at', { ascending: false }).limit(limit || 200));
     if (error || !data) {
-      ({ data, error } = await c.from('audit_log').select('*').order('created_at', { ascending: false }).limit(limit || 500));
+      ({ data, error } = await c.from('audit_log').select('*').order('created_at', { ascending: false }).limit(limit || 200));
     }
     if (error) fail(error);
-    return (data || []).map((a) => {
-      const p = a.profiles || {};
-      /* Derive a human-readable role label for the actor. The Super Admin is
-         an lgu_ldrrmc account with is_super_admin = true. */
-      let actorRole = p.role || '';
-      if (p.role === 'lgu_ldrrmc' && p.is_super_admin === true) actorRole = 'super_admin';
-      return {
-        id: a.id, created_at: a.created_at, actor_id: a.actor_id,
-        actor_name: p.full_name || a.actor_name || null,
-        actor_role: actorRole,
-        actor_unit_role: p.unit_role || '',
-        actor_barangay: p.barangay || '',
-        action: a.action, entity: a.entity, entity_id: a.entity_id, meta: a.meta
-      };
-    });
+    return (data || []).map((a) => ({
+      id: a.id, created_at: a.created_at, actor_id: a.actor_id,
+      actor_name: (a.profiles && a.profiles.full_name) || a.actor_name || null,
+      action: a.action, entity: a.entity, entity_id: a.entity_id, meta: a.meta
+    }));
   }
 
   async function listResponders() {
@@ -1159,55 +1149,6 @@ const Repo = (function () {
       emit();
     } catch (e) { /* directory is a read-only convenience */ }
   }
-
-  /* ----------------------------------------------------- change requests
-   * Master prompt · Emergency Hotlines Management and Super Admin Approval.
-   * Loads pending + recent change requests so the Super Admin hotlines page
-   * can show the queue, and so LGU/BO can see their own submitted requests. */
-  async function loadChangeRequests() {
-    const c = client();
-    if (!c) return;
-    try {
-      const { data, error } = await c.from('change_requests')
-        .select('*').order('created_at', { ascending: false }).limit(100);
-      if (!error) UG.DATA.changeRequests = data || [];
-    } catch (e) { /* read-only convenience */ }
-  }
-
-  async function submitChangeRequest(payload) {
-    const c = client();
-    if (!c) return { local: true };
-    const { data, error } = await c.rpc('submit_change_request', {
-      p_target_table: payload.target_table,
-      p_action: payload.action,
-      p_target_id: payload.target_id || null,
-      p_current_data: payload.current_data || {},
-      p_proposed_data: payload.proposed_data || {},
-      p_reason: payload.reason || ''
-    });
-    if (error) fail(error);
-    return data;
-  }
-
-  async function approveChangeRequest(requestId, note) {
-    const c = client();
-    if (!c) return { local: true };
-    const { data, error } = await c.rpc('approve_change_request', {
-      p_request_id: requestId, p_decision_note: note || ''
-    });
-    if (error) fail(error);
-    return data;
-  }
-
-  async function rejectChangeRequest(requestId, note) {
-    const c = client();
-    if (!c) return { local: true };
-    const { data, error } = await c.rpc('reject_change_request', {
-      p_request_id: requestId, p_decision_note: note || ''
-    });
-    if (error) fail(error);
-    return data;
-  }
   /* ------------------------------------------------------------- error log */
   function logClientError(message, context) {
     const c = client();
@@ -1304,7 +1245,36 @@ const Repo = (function () {
     const c = client();
     if (!c) { UG.DATA.roadWork.unshift(toRoadWork(Object.assign({ id: 'local-' + Date.now(), created_at: new Date().toISOString(), status: 'active' }, input))); emit(); return { local: true }; }
     const { data: userData } = await c.auth.getUser();
-    const payload = Object.assign({}, input, { author_id: userData && userData.user ? userData.user.id : null });
+    /* Build the payload. The bug reported by the barangay official was that
+       publishing a road work post threw an error. The root cause: the form
+       never sent `barangay_id` to the insert, so the road_work_posts NOT NULL
+       FK constraint (migration 012 + the barangay-scoping trigger in 026)
+       rejected the row. Resolve the barangay_id from the authenticated
+       session when the form only carries the barangay NAME. */
+    let barangayId = input.barangay_id || null;
+    if (!barangayId && input.barangay) {
+      try {
+        const { data: brgy } = await c.from('barangays').select('id').eq('name', input.barangay).maybeSingle();
+        if (brgy && brgy.id) barangayId = brgy.id;
+      } catch (e) { /* fall through: insert with a NULL barangay_id only for
+                       municipality-wide posts; the trigger will accept it. */ }
+    }
+    /* citywide posts have no barangay; otherwise the barangay_id is required. */
+    if (!input.citywide && !input.barangay) {
+      throw new Error('A barangay is required for a non-citywide road work post.');
+    }
+    const payload = Object.assign({}, input, {
+      author_id: userData && userData.user ? userData.user.id : null,
+      barangay_id: barangayId,
+      /* never let a stale draft override these computed fields */
+      expected_start: input.expected_start || new Date().toISOString(),
+      expected_end: input.expected_end || new Date(Date.now() + (parseFloat(input.expected_hours) || 6) * 3600000).toISOString(),
+      status: 'active'
+    });
+    /* the in-memory draft may carry `expected_hours` (a UI-only helper) and
+       a `barangay` text field that are NOT columns on road_work_posts — strip
+       them so the insert does not fail on unknown columns. */
+    delete payload.expected_hours;
     const { data, error } = await c.from('road_work_posts').insert(payload).select('*').single();
     if (error) fail(error);
     /* fan out a notification to residents of the affected barangay */
@@ -1389,6 +1359,61 @@ const Repo = (function () {
     return data || [];
   }
 
+  /* ------------------------------------------------------ LGU escalation queue
+   * Returns reports that have been pending barangay verification for more
+   * than 1 hour, so the LGU dashboard can surface them as a fallback
+   * verification queue. Pulls from the migration 045 view when the live
+   * schema has it; falls back to a client-side computation using reports_feed
+   * when the view is not deployed yet, so the LGU always sees something. */
+  async function listLguEscalationQueue() {
+    const c = client();
+    if (!c) {
+      /* offline: derive the queue from whatever is in UG.DATA.incidents
+         that still has status 'reported' and is older than 1 hour. */
+      const oneHourAgo = Date.now() - 60 * 60 * 1000;
+      return (UG.DATA.incidents || []).filter((i) => {
+        if (i.status !== 'reported') return false;
+        const t = i.created_at ? Date.parse(i.created_at) : (i.time ? Date.now() - 0 /* relative, not used */ : 0);
+        return t && t < oneHourAgo;
+      });
+    }
+    /* try the migration 045 view first; if it's not deployed, fall back to
+       a client-side computation that joins reports_feed + reports. */
+    try {
+      const { data, error } = await c.from('lgu_escalation_queue').select('*');
+      if (!error && data) return data;
+    } catch (e) { /* fall through */ }
+    /* fallback: read reports_feed and filter in JS. */
+    try {
+      const { data } = await c.from('reports_feed').select('*');
+      const oneHourAgo = Date.now() - 60 * 60 * 1000;
+      return (data || []).filter((r) => r.status === 'reported' && r.created_at && Date.parse(r.created_at) < oneHourAgo);
+    } catch (e) { return []; }
+  }
+
+  /* LGU verifies an overdue report (1-hour escalation queue). */
+  async function lguVerifyOverdueReport(reportId) {
+    const c = client();
+    if (!c) {
+      /* offline: just flip the row in UG.DATA.incidents so the UI updates. */
+      const r = (UG.DATA.incidents || []).find((x) => x.id === reportId || x.uuid === reportId);
+      if (r) { r.status = 'verified'; r.escalation_status = 'verified'; }
+      emit();
+      return { ok: true, local: true };
+    }
+    /* try the migration 045 RPC; fall back to advancing the status with the
+       advance_report_status RPC that already exists (migration 007). */
+    try {
+      const { data, error } = await c.rpc('lgu_verify_overdue_report', { p_report_id: reportId });
+      if (!error) return data || { ok: true };
+    } catch (e) { /* fall through */ }
+    try {
+      const { error } = await c.rpc('advance_report_status', { p_report_id: reportId, p_status: 'verified' });
+      if (error) throw new Error(error.message);
+      return { ok: true };
+    } catch (e) { throw e; }
+  }
+
   /* ------------------------------------------------------ force reload (retry)
    * The "Back to Online" / "Retry" / dashboard "Refresh data" buttons all call
    * this. It does what the old retry-load did not:
@@ -1451,14 +1476,13 @@ const Repo = (function () {
     declareEmergency, subscribedDeviceCount,
     analytics, analyticsFromViews, listUsers, adminUsers, listAudit, listResponders, assignResponder,
     dispatchReport, dispatchReportV2, loadDispatches, loadDispatchDirectory,
-    /* change request workflow (master prompt · Emergency Hotlines approval) */
-    loadChangeRequests, submitChangeRequest, approveChangeRequest, rejectChangeRequest,
     /* new feature data access */
     createRelief, updateRelief, createBeneficiary, deleteBeneficiary,
     createGuide, updateGuide,
     createFaq, updateFaq, deleteFaq,
     createRoadWork, createRoadStatus, updateRoadStatus, deleteRoadStatus,
     submitSos, listSos, updateSosStatus, listOthersReview,
+    listLguEscalationQueue, lguVerifyOverdueReport,
     logClientError,
     toIncident, toAdvisory, toCenter, toHotline, toNotification, posFrom,
     toRelief, toBeneficiary, toGuide, toFaq, toRoadWork, toRoadStatus
