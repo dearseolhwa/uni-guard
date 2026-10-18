@@ -599,66 +599,6 @@
 .ug-stat-card{ padding:0; }
 .ug-stat-card .ug-card-b{ padding:14px 16px; }
 
-/* ============================================================================
-   Operations Dashboard · KPI card consistency
-   ==========================================================================
-   The DOCX reports that the four KPI cards on the Operations Dashboard
-   (Active Incidents, Units Deployed, Critical Areas, System Status) did not
-   share the same design. They are all rendered via UG.stat() (a single
-   function), so the only drift can come from CSS overrides. The rules below
-   force every .ug-dgrid4 > .ug-stat to share identical structure, padding,
-   spacing, typography and icon treatment — so the four cards read as one
-   family. Equivalent KPI cards on every other dashboard inherit the same
-   look because they use the same .ug-stat class. */
-.ug-dgrid4 > .ug-stat,
-.ug-dgrid4 .ug-stat,
-.ug-dgrid3 .ug-stat,
-.ug-dgrid-stats .ug-stat-card .ug-stat{
-  padding:14px 15px;
-  min-height:96px;
-  display:flex; flex-direction:column; gap:8px;
-  align-items:stretch;
-}
-.ug-dgrid4 > .ug-stat .s-top,
-.ug-dgrid4 .ug-stat .s-top,
-.ug-dgrid3 .ug-stat .s-top{
-  display:flex; align-items:center; justify-content:space-between; gap:8px;
-  min-height:30px;
-}
-.ug-dgrid4 > .ug-stat .s-ico,
-.ug-dgrid4 .ug-stat .s-ico,
-.ug-dgrid3 .ug-stat .s-ico,
-.ug-dgrid-stats .ug-stat-card .s-ico{
-  width:30px; height:30px; border-radius:8px; display:grid; place-items:center;
-  background:rgba(255,255,255,.05);
-}
-.ug-dgrid4 > .ug-stat .s-val,
-.ug-dgrid4 .ug-stat .s-val,
-.ug-dgrid3 .ug-stat .s-val{
-  font-family:var(--ug-display); font-weight:800; font-size:27px;
-  letter-spacing:-.03em; line-height:1;
-}
-.ug-dgrid4 > .ug-stat .s-delta,
-.ug-dgrid4 .ug-stat .s-delta,
-.ug-dgrid3 .ug-stat .s-delta{
-  font-family:var(--ug-mono); font-size:11px; display:flex; align-items:center; gap:5px;
-}
-/* uniform card surface across every dashboard */
-.ug-dgrid4 > .ug-stat,
-.ug-dgrid4 .ug-stat,
-.ug-dgrid3 .ug-stat{
-  background:var(--ug-surface); border:1px solid var(--ug-line);
-  border-radius:var(--ug-r-lg); box-shadow:var(--ug-shadow);
-}
-/* on hover, every KPI card in any dashboard highlights the same way */
-.ug-dgrid4 > .ug-stat:hover,
-.ug-dgrid4 .ug-stat:hover,
-.ug-dgrid3 .ug-stat:hover{
-  border-color:var(--ug-line-strong);
-  transform:translateY(-1px);
-  transition:transform .15s, border-color .15s;
-}
-
 .ug-inv-table{ width:100%; border-collapse:collapse; font-size:12px; }
 .ug-inv-table th{
   text-align:left; padding:10px 12px; font-size:10.5px; font-weight:600;
@@ -785,4 +725,40 @@
 }
 .ug-lang-chip.is-on .ug-lang-flag{
   background:var(--ug-signal); color:var(--ug-signal-ink);
+}
+
+/* =========================================================================
+   Section 12 — scrolling fixes for the Barangay Official and LGU consoles.
+
+   The console is a flex column: app bar / top bar (flex:none) + body
+   (.ug-d-body, flex:1, min-height:0). The body owns its own scrolling and
+   every nested container that needs to scroll has to keep the overflow chain
+   intact: min-height:0 on every flex parent so a deeply nested ug-scroll
+   card does not clip the page.
+
+   The default rules left .ug-d-body without an explicit overflow, which
+   meant that on some browsers a card with max-height + ug-scroll would
+   swallow the page scroll and the user could not reach content at the
+   bottom. The rules below make the body the single scroller for the page
+   and let inner ug-scroll containers manage their own bounded areas.
+   ========================================================================= */
+.ug-d-main { overflow: hidden; }
+.ug-d-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: auto;
+}
+/* any nested ug-scroll container keeps its own scroll but does not chain
+   to the page, so a long inner list (recent incidents, dispatches, audit
+   log) never traps the page scroll. */
+.ug-d-body .ug-scroll {
+  overscroll-behavior: contain;
+}
+/* the citizen mobile shell already scrolls correctly, but the same applies
+   for the barangay_official mobile shell (when an official signs in via the
+   mobile layout). */
+.ug-m-body.ug-scroll {
+  overscroll-behavior: contain;
 }
