@@ -762,3 +762,12 @@
 .ug-m-body.ug-scroll {
   overscroll-behavior: contain;
 }
+
+/* Fix pack 01 · F12: the report-form pin is larger and pulses so it is easy
+   to find and drag */
+.ug-report-pin{position:relative}
+.ug-report-pin .ug-marker{position:relative;z-index:1;cursor:grab;box-shadow:0 0 0 2px #fff,0 6px 14px -4px rgba(0,0,0,.6)}
+.ug-report-pin .ug-pin-ring{position:absolute;inset:-9px;border-radius:50%;border:2px solid #34D6F0;
+  animation:ugPinPulse 1.6s ease-out infinite;pointer-events:none}
+@keyframes ugPinPulse{from{transform:scale(.6);opacity:.9}to{transform:scale(1.5);opacity:0}}
+@media (prefers-reduced-motion: reduce){.ug-report-pin .ug-pin-ring{animation:none;opacity:.45}}

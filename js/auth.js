@@ -8,7 +8,7 @@ const Auth = (function () {
   const LOCAL_KEY = 'uniguard.local-accounts';
   const SESSION_KEY = 'uniguard.session';
 
-  const state = { session: null, profile: null, pendingEmail: null, recovery: false };
+  const state = { session: null, profile: null, pendingEmail: null, recovery: false, offline: false, needsRevalidate: false };
   const watchers = new Set();
   function onChange(fn) { watchers.add(fn); return () => watchers.delete(fn); }
   function emit() { watchers.forEach((fn) => { try { fn(state); } catch (e) {} }); }
@@ -58,7 +58,28 @@ const Auth = (function () {
     };
   }
 
-  /* Load the authoritative profile row for a signed in user. */
+  /* Where Supabase email links send people back to. A loopback address only
+     works on the machine running the dev server, never on a phone. */
+  function redirectUrl() {
+    const isLoopback = (u) => /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(u || '');
+    const configured = UG_CONFIG.APP_PUBLIC_URL || '';
+    const here = (typeof window !== 'undefined' && window.location) ? window.location.origin : '';
+    if (configured && !isLoopback(configured)) return configured;
+    if (here && !isLoopback(here)) return here;
+    if (typeof console !== 'undefined') console.warn('[UniGuard] Email links point to a loopback address and will fail on other devices. Set APP_PUBLIC_URL in env.js to the deployed https URL.');
+    return configured || here;
+  }
+
+  /* A failure caused by having no connection, as opposed to the server
+     saying no. Only the latter may ever end a session. */
+  function isNetworkError(e) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+    const m = String((e && (e.message || e.details)) || e || '').toLowerCase();
+    return /failed to fetch|networkerror|network request failed|load failed|fetch failed|timed out/.test(m);
+  }
+
+  /* Load the authoritative profile row for a signed in user. Failures are
+     tagged: err.network (no connection) or err.code = 'PROFILE_MISSING'. */
   async function loadProfile(userId, email) {
     const c = Repo.client();
     if (!c) {
@@ -66,17 +87,34 @@ const Auth = (function () {
       if (local && local.profile) return buildProfile(local.profile, email);
       throw new Error('Your account could not be loaded. Contact your LGU administrator.');
     }
-    const { data, error } = await c.from('profiles').select('*').eq('id', userId).maybeSingle();
-    if (error) throw new Error('Could not read your profile. ' + error.message);
-    if (!data) throw new Error('Profile not found. Contact your LGU administrator to finish setting up your account.');
-    return buildProfile(data, email);
+    let res;
+    try { res = await c.from('profiles').select('*').eq('id', userId).maybeSingle(); }
+    catch (e) {
+      const err = new Error('Could not read your profile. ' + ((e && e.message) || ''));
+      err.network = isNetworkError(e);
+      throw err;
+    }
+    if (res.error) {
+      const err = new Error('Could not read your profile. ' + res.error.message);
+      err.network = isNetworkError(res.error);
+      throw err;
+    }
+    if (!res.data) {
+      const err = new Error('Profile not found. Contact your LGU administrator to finish setting up your account.');
+      err.code = 'PROFILE_MISSING';
+      throw err;
+    }
+    return buildProfile(res.data, email);
   }
 
   async function apply(profile) {
     if (profile.disabled) {
       const c = Repo.client();
       if (c) { try { await c.auth.signOut(); } catch (e) {} }
-      throw new Error('This account has been disabled. Contact your LGU administrator.');
+      store.del(SESSION_KEY);
+      const err = new Error('This account has been disabled. Contact your LGU administrator.');
+      err.code = 'ACCOUNT_DISABLED';
+      throw err;
     }
     state.profile = profile;
     state.session = sessionFor(profile);
@@ -203,7 +241,7 @@ const Auth = (function () {
       email: input.email,
       password: input.password,
       options: {
-        emailRedirectTo: UG_CONFIG.APP_PUBLIC_URL,
+        emailRedirectTo: redirectUrl(),
         /* metadata is convenience only; the database trigger forces role citizen */
         data: { full_name: input.fullName, phone: input.phone, barangay: input.barangay }
       }
@@ -224,7 +262,7 @@ const Auth = (function () {
   async function resendConfirmation(email) {
     const c = Repo.client();
     if (!c) return { local: true };
-    const redirectTo = (typeof window !== 'undefined' ? window.location.origin : '') || UG_CONFIG.APP_PUBLIC_URL;
+    const redirectTo = redirectUrl();
     const { error } = await c.auth.resend({ type: 'signup', email: email, options: { emailRedirectTo: redirectTo } });
     if (error) throw new Error(UG_UTIL.authError(error.message, error.status));
     return { sent: true };
@@ -232,17 +270,15 @@ const Auth = (function () {
 
   /* ------------------------------------------------------ forgot / recovery */
   /* Always resolves the same way so we never reveal which emails exist.
-   * The redirect URL is window.location.origin so the reset email's link
-   * points back to the site the user is currently on (localhost:5500 during
-   * dev, the production URL when deployed). Falls back to UG_CONFIG.APP_PUBLIC_URL
-   * if window is not available. */
+   * The redirect URL comes from redirectUrl(): the configured public URL,
+   * else the current origin, never a loopback address when avoidable. */
   async function resetPassword(email) {
     const c = Repo.client();
     if (c) {
       /* detect the rate limit before swallowing the error, so we can surface
          a helpful toast instead of silently doing nothing. Supabase returns
          a 429 with "Email rate limit exceeded" when the free-tier cap is hit. */
-      const redirectTo = (typeof window !== 'undefined' ? window.location.origin : '') || UG_CONFIG.APP_PUBLIC_URL;
+      const redirectTo = redirectUrl();
       try {
         const { error } = await c.auth.resetPasswordForEmail(email, { redirectTo: redirectTo });
         if (error) {
@@ -297,13 +333,75 @@ const Auth = (function () {
       }
       return null;
     }
-    const { data } = await c.auth.getSession();
-    if (!data || !data.session) return null;
+    /* The profile cached by the last successful apply(), if it belongs to
+       userId (or to anyone, when userId is not known). */
+    const cached = store.get(SESSION_KEY, null);
+    const cachedProfile = (userId) =>
+      (cached && cached.profile && (!userId || cached.profile.id === userId)) ? cached.profile : null;
+    const fromCache = (p, email) => {
+      state.offline = true;
+      state.needsRevalidate = true;
+      return apply(buildProfile(p, email || p.email));
+    };
+
+    let session = null;
     try {
-      return await apply(await loadProfile(data.session.user.id, data.session.user.email));
-    } catch (e) {
-      try { await c.auth.signOut(); } catch (e2) {}
+      const { data } = await c.auth.getSession();
+      session = (data && data.session) || null;
+    } catch (e) { session = null; }
+
+    if (!session) {
+      /* Offline, Supabase cannot refresh an expired token and reports no
+         session. Open read-only from the cache; revalidate() decides once
+         the connection is back. */
+      const p = cachedProfile(null);
+      if (p && typeof navigator !== 'undefined' && navigator.onLine === false) return fromCache(p);
       return null;
+    }
+
+    try {
+      const s = await apply(await loadProfile(session.user.id, session.user.email));
+      state.offline = false;
+      state.needsRevalidate = false;
+      return s;
+    } catch (e) {
+      if (e.network) {
+        const p = cachedProfile(session.user.id);
+        if (p) return fromCache(p, session.user.email);
+        throw e;
+      }
+      /* only a definitive answer ends the session */
+      if (e.code === 'PROFILE_MISSING' || e.code === 'ACCOUNT_DISABLED') {
+        try { await c.auth.signOut(); } catch (e2) {}
+        store.del(SESSION_KEY);
+        return null;
+      }
+      throw e;
+    }
+  }
+
+  /* Called once per reconnection. Confirms that the session restored while
+     offline still exists and the account is still allowed in. Resolves to
+     { ok } or { signedOut: true } (the caller shows the sign-in screen). */
+  async function revalidate() {
+    const c = Repo.client();
+    if (!c || !state.session) return { ok: true };
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return { ok: false, offline: true };
+    let session = null;
+    try {
+      const { data } = await c.auth.getSession();
+      session = (data && data.session) || null;
+    } catch (e) { return { ok: false, offline: true }; }
+    if (!session) { await signOut(); return { ok: false, signedOut: true }; }
+    try {
+      await apply(await loadProfile(session.user.id, session.user.email));
+      state.offline = false;
+      state.needsRevalidate = false;
+      return { ok: true };
+    } catch (e) {
+      if (e.network) return { ok: false, offline: true };
+      if (e.code === 'PROFILE_MISSING' || e.code === 'ACCOUNT_DISABLED') { await signOut(); return { ok: false, signedOut: true }; }
+      return { ok: false, error: e };
     }
   }
 
@@ -319,8 +417,8 @@ const Auth = (function () {
   }
 
   return {
-    state, onChange, restore, signIn, signUp, resetPassword, updatePassword,
-    resendConfirmation, signOut, loadProfile,
+    state, onChange, restore, revalidate, signIn, signUp, resetPassword, updatePassword,
+    resendConfirmation, signOut, loadProfile, redirectUrl,
     needsOnboarding, loadUnitName, completeOnboarding
   };
 })();

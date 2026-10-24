@@ -13,6 +13,7 @@ const UG_PWA = (function () {
     online: typeof navigator === 'undefined' ? true : navigator.onLine !== false,
     swReady: false,
     queued: 0,
+    failed: 0,
     lastSync: null,
     reloaded: false
   };
@@ -72,8 +73,8 @@ const UG_PWA = (function () {
     return tx(STORE_SNAPSHOT, 'readwrite', (s) => s.delete('data')).catch(() => null);
   }
 
-  /* wipe the offline report queue (used by force refresh so a bad queued row
-     cannot resurface and re-trigger the same error after the reload). */
+  /* wipe the whole offline queue. Not used by forceRefresh (that keeps the
+     queue); kept for explicit administrative resets only. */
   function clearQueue() {
     return tx(STORE_QUEUE, 'readwrite', (s) => s.clear()).catch(() => null);
   }
@@ -108,10 +109,47 @@ const UG_PWA = (function () {
   }
 
   /* ----------------------------------------------------------- offline queue */
+  /* ask the browser to wake the page when the network returns (Background
+     Sync, where supported); the worker then posts FLUSH_QUEUE */
+  function requestBackgroundSync() {
+    try {
+      if (typeof navigator === 'undefined' || !navigator.serviceWorker) return;
+      navigator.serviceWorker.ready.then((reg) => {
+        if (reg && reg.sync && reg.sync.register) reg.sync.register('uniguard-queue').catch(() => null);
+      }).catch(() => null);
+    } catch (e) { /* best effort */ }
+  }
+
   function enqueue(report) {
     return tx(STORE_QUEUE, 'readwrite', (s) => s.add(Object.assign({ queued_at: new Date().toISOString() }, report)))
-      .then(() => refreshQueueCount())
+      .then(() => { requestBackgroundSync(); return refreshQueueCount(); })
       .catch(() => null);
+  }
+
+  function putRow(row) {
+    return tx(STORE_QUEUE, 'readwrite', (s) => s.put(row)).catch(() => null);
+  }
+
+  /* One person in danger tapping SOS again and again must not stack up rows:
+     a queued SOS from the last 10 minutes is replaced by the newer position. */
+  async function upsertQueuedSos(row) {
+    const rows = await listQueue();
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    const recent = (rows || []).filter((r) => r._kind === 'sos' &&
+      Date.parse(r.client_sent_at || r.queued_at) >= cutoff);
+    if (!recent.length) return enqueue(Object.assign({ _kind: 'sos' }, row));
+    const keep = recent[recent.length - 1];
+    const next = Object.assign({}, keep, {
+      lat: row.lat != null ? row.lat : keep.lat,
+      lng: row.lng != null ? row.lng : keep.lng,
+      accuracy: row.lat != null ? row.accuracy : keep.accuracy,
+      note: row.note || keep.note || '',
+      updated_at: new Date().toISOString(),
+      attempts: 0, failed: false
+    });
+    await putRow(next);
+    requestBackgroundSync();
+    return refreshQueueCount();
   }
 
   function listQueue() {
@@ -125,33 +163,67 @@ const UG_PWA = (function () {
   async function refreshQueueCount() {
     const rows = await listQueue();
     state.queued = (rows || []).length;
+    state.failed = (rows || []).filter((r) => r.failed).length;
     emit();
     return state.queued;
   }
 
-  /* Called on reconnect and on a timer while the app is open. */
-  async function flushQueue() {
+  const MAX_ATTEMPTS = 5;
+  let flushing = false;
+
+  /* Called on reconnect, on a timer while the app is open, and when the
+     worker posts FLUSH_QUEUE. SOS rows go first. A network error stops the
+     loop (everything waits for the next try); a server rejection only counts
+     an attempt on that row and moves on, so one bad row never blocks the
+     rest. After MAX_ATTEMPTS a row is marked failed and skipped until the
+     resident retries it (opts.retryFailed). */
+  async function flushQueue(opts) {
+    opts = opts || {};
+    if (flushing) return 0;
     if (!state.online || !Repo.online()) return 0;
-    const rows = await listQueue();
-    if (!rows || !rows.length) return 0;
+    flushing = true;
     let sent = 0;
-        for (const row of rows) {
-      try {
-        if (row._kind === 'sos') {
-          await Repo.submitSos({ lat: row.lat, lng: row.lng, accuracy: row.accuracy, note: row.note });
-        } else {
-          await Repo.createReport({
-            hazard_type: row.hazard_type, hazard_other_text: row.hazard_other_text || '',
-            barangay: row.barangay, description: row.description,
-            severity: row.severity, urgency: row.urgency, lat: row.lat, lng: row.lng,
-            location_note: row.location_note || '',
-            photoBlob: row.photoBlob || null, reportCodeHint: 'offline'
-          });
+    try {
+      const rows = (await listQueue()) || [];
+      if (!rows.length) return 0;
+      rows.sort((a, b) => (a._kind === 'sos' ? 0 : 1) - (b._kind === 'sos' ? 0 : 1));
+      for (const row of rows) {
+        if (row.failed && !opts.retryFailed) continue;
+        try {
+          if (row._kind === 'sos') {
+            const stamp = row.client_sent_at ? new Date(row.client_sent_at).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }) : '';
+            const res = await Repo.submitSos({
+              lat: row.lat, lng: row.lng, accuracy: row.accuracy,
+              /* the duty officer must know this SOS waited for a signal */
+              note: ((row.note || '') + (stamp ? ' [Saved offline at ' + stamp + ']' : '')).trim()
+            });
+            try { document.dispatchEvent(new CustomEvent('ug:sos-delivered', { detail: { row: row, result: res } })); } catch (e) { }
+          } else {
+            await Repo.createReport({
+              hazard_type: row.hazard_type, hazard_other_text: row.hazard_other_text || '',
+              barangay: row.barangay, description: row.description,
+              severity: row.severity, urgency: row.urgency, lat: row.lat, lng: row.lng,
+              location_note: row.location_note || '',
+              photoBlob: row.photoBlob || null, reportCodeHint: 'offline'
+            });
+          }
+          await removeFromQueue(row.id);
+          sent++;
+        } catch (e) {
+          if (UG_UTIL.isNetworkError(e)) break;
+          row.attempts = (row.attempts || 0) + 1;
+          row.last_error = UG_UTIL.friendlyError(e);
+          row.failed = row.attempts >= MAX_ATTEMPTS;
+          await putRow(row);
+          if (row._kind === 'sos') {
+            try { document.dispatchEvent(new CustomEvent('ug:sos-rejected', { detail: { row: row, message: row.last_error } })); } catch (e2) { }
+          }
         }
-        await removeFromQueue(row.id);
-        sent++;
-      } catch (e) { break; }
+      }
+    } finally {
+      flushing = false;
     }
+    await refreshQueueCount();
     if (sent) {
       await Repo.loadAll();
       emit();
@@ -293,11 +365,13 @@ const UG_PWA = (function () {
   }
 
   /* ------------------------------------------------------- force refresh */
-  /* Escape hatch: drop the worker, every cache AND the IndexedDB snapshot /
-     queue so a device that is somehow holding on to an older build (or a bad
-     cached row that throws on hydrate) starts completely clean. The previous
-     version only cleared caches, so on reload hydrateFromCache() reloaded the
-     same stale snapshot and the error came right back. */
+  /* Escape hatch: drop the worker, every cache, the IndexedDB snapshot and the
+     local notifications so a device holding on to an older build (or a bad
+     cached snapshot that throws on hydrate) starts clean. The offline queue is
+     NEVER cleared here: it holds reports and SOS a resident has not been able
+     to send yet. A row the server keeps refusing is marked failed by
+     flushQueue and shown in My Reports, where the resident can retry or
+     delete it. */
   async function forceRefresh() {
     try {
       if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
@@ -311,10 +385,7 @@ const UG_PWA = (function () {
         await Promise.all(keys.map((k) => caches.delete(k)));
       }
     } catch (e) { /* keep going */ }
-    /* wipe the IndexedDB stores so a stale snapshot / queued report can no
-       longer resurface after the reload and re-trigger the same error. */
     try { await clearSnapshot(); } catch (e) {}
-    try { await clearQueue(); } catch (e) {}
     try { await clearNotifications(); } catch (e) {}
     /* bust the HTTP cache on the shell so the newest index.html / sw.js is
        fetched, then reload. */
@@ -335,6 +406,15 @@ const UG_PWA = (function () {
     window.addEventListener('online', sync);
     window.addEventListener('offline', sync);
 
+    /* the worker's Background Sync hook asks the page to send the queue */
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
+        navigator.serviceWorker.addEventListener('message', (e) => {
+          if (e.data && e.data.type === 'FLUSH_QUEUE') flushQueue();
+        });
+      }
+    } catch (e) { /* best effort */ }
+
     register().then(() => { if (state.online) flushQueue(); });
     refreshQueueCount();
     setInterval(() => { if (state.online) flushQueue(); }, UG_CONFIG.SYNC_RETRY_MS);
@@ -342,7 +422,7 @@ const UG_PWA = (function () {
 
   return {
     state, onChange, init, register, flushQueue, forceRefresh, retryNow,
-    enqueue, listQueue, removeFromQueue, refreshQueueCount,
+    enqueue, upsertQueuedSos, listQueue, removeFromQueue, refreshQueueCount,
     storeSnapshot, readSnapshot, clearSnapshot, clearQueue, clearNotifications,
     hydrateFromCache,
     enablePush, pushEnabled, pushSupported

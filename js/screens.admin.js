@@ -404,9 +404,9 @@ const UG_ADMIN = (function () {
       '<td>' + esc(u.status || '—') + '</td>' +
       '<td>' + (u.active ? U.badge('open', T('admin.unitDetailActive')) : U.badge('closed', T('admin.unitDetailInactive'))) + '</td>' +
       '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
-        '<button class="ug-btn ug-btn--sm" data-act="admin-edit-unit" data-id="' + esc(u.id) + '" onclick="event.stopPropagation()" title="' + esc(T('action.edit')) + '">' + I('settings', 14) + esc(T('action.edit')) + '</button>' +
-        '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-unit-accounts" data-id="' + esc(u.id) + '" onclick="event.stopPropagation()" title="' + esc(T('admin.unitAccountHint')) + '">' + I('users', 14) + esc(T('admin.unitAccount')) + '</button>' +
-        (canDelete ? '<button class="ug-btn ug-btn--sm" data-act="admin-delete-unit" data-id="' + esc(u.id) + '" onclick="event.stopPropagation()" title="' + esc(T('action.delete')) + '" style="background:linear-gradient(180deg,#EF4444 0%,#B91C1C 100%);color:#fff;border:1px solid rgba(255,255,255,.15)">' + I('x', 14) + esc(T('action.delete')) + '</button>' : '') +
+        '<button class="ug-btn ug-btn--sm" data-act="admin-edit-unit" data-id="' + esc(u.id) + '" title="' + esc(T('action.edit')) + '">' + I('settings', 14) + esc(T('action.edit')) + '</button>' +
+        '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-unit-accounts" data-id="' + esc(u.id) + '" title="' + esc(T('admin.unitAccountHint')) + '">' + I('users', 14) + esc(T('admin.unitAccount')) + '</button>' +
+        (canDelete ? '<button class="ug-btn ug-btn--sm" data-act="admin-delete-unit" data-id="' + esc(u.id) + '" title="' + esc(T('action.delete')) + '" style="background:linear-gradient(180deg,#EF4444 0%,#B91C1C 100%);color:#fff;border:1px solid rgba(255,255,255,.15)">' + I('x', 14) + esc(T('action.delete')) + '</button>' : '') +
       '</div></td>' +
     '</tr>';
     const requestRow = (r) => '<tr>' +

@@ -656,6 +656,7 @@ const UG_SCREENS = (() => {
          so the citizen can place / correct the pin. The pin-drop callback is
          wired in js/app.js's mountMaps -> reportPin path. */
       '<div class="ug-field"><label class="ug-lab">Drop the pin at the hazard (drag to adjust)</label>' +
+        '<div class="ug-note" data-pin-outside style="margin-bottom:8px"' + (r.pinOutside ? '' : ' hidden') + '>' + esc(T('report.pinOutside')) + '</div>' +
         '<div class="ug-map" data-map="report-pin" style="height:200px;border-radius:10px;overflow:hidden">' + U.mapSVG({}) + '</div>' +
         '<div class="ug-help">Drag the pin to where the hazard actually is. The address and barangay update automatically; the server confirms the barangay from these coordinates.</div></div>' +
 
@@ -716,9 +717,31 @@ const UG_SCREENS = (() => {
                    ['rejected', UG_THEME.STATUS.rejected.label]];
     const mineAll = (U.DATA.incidents || []).filter((i) => i.mine); 
     const list = mineAll.filter((i) => f === 'all' || i.status === f); 
+    /* reports still in the offline queue (refreshed by app.js) come first */
+    const queued = U.DATA.queuedReports || [];
+    const queuedCard = queued.length
+      ? '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(T('offline.waitingToSend')) + '</h3>' +
+          '<span class="ug-mono ug-dimmer" style="font-size:11px">' + queued.length + '</span></div>' +
+        '<div class="ug-rows">' + queued.map((q) =>
+          '<div class="ug-row" style="align-items:flex-start">' +
+            '<span class="r-dot" style="background:' + (q.failed ? 'var(--ug-emergency)' : 'var(--ug-warning)') + '"></span>' +
+            '<div class="r-main"><div class="r-t">' + esc(q.hazard || 'Report') +
+              '<span class="ug-badge ug-badge--' + (q.failed ? 'emergency' : 'warning') + '">' + esc(q.failed ? T('offline.couldNotSend') : T('offline.waitingBadge')) + '</span></div>' +
+              '<div class="r-m"><span>' + I('pin', 12) + esc(q.brgy || '') + '</span><span>' + I('clock', 12) + esc(UG_UTIL.relTime(q.queued_at)) + '</span></div>' +
+              '<div class="ug-dim" style="font-size:11px;line-height:1.5;margin-top:4px">' +
+                esc(q.failed ? (q.last_error || T('error.generic')) : T('offline.savedWillSend')) + '</div>' +
+              (q.failed
+                ? '<div class="ug-rowf ug-gap8" style="gap:8px;margin-top:8px">' +
+                    '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('queue-retry') + '>' + I('wave', 13) + esc(T('offline.tapToRetry')) + '</button>' +
+                    '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('queue-delete', attr({ qid: q.qid })) + '>' + I('x', 13) + esc(T('action.delete')) + '</button></div>'
+                : '') +
+            '</div></div>').join('') +
+        '</div></div>'
+      : '';
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">Incident Status Tracking</div><h2 style="font-size:19px;margin-top:3px">My Reports</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Every report you have filed, with its current status at a glance. Tap to open the tracker.</p></div>' +
+      queuedCard +
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' + chips.map((c) =>
         '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('report-status-filter', attr({ v: c[0] })) + '>' + esc(c[1]) +
         '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? mineAll.length : mineAll.filter((x) => x.status === c[0]).length) + '</span></button>').join('') + '</div>' +
@@ -1082,27 +1105,27 @@ const UG_SCREENS = (() => {
       '<div class="ug-card ug-tick"><div class="ug-card-b ug-col" style="gap:12px;align-items:center;text-align:center">' +
         '<span style="width:52px;height:52px;border-radius:16px;display:grid;place-items:center;background:rgba(255,176,32,.14);color:var(--ug-warning);border:1px solid rgba(255,176,32,.3)">' + I('wifioff', 25) + '</span>' +
         '<h3 style="font-size:16px">' + (st.offline ? 'You Are Offline' : 'Offline Copy Ready') + '</h3>' +
-        '<p class="ug-dim" style="font-size:12px;line-height:1.5;max-width:280px">Cellular networks often fail during a disaster. UniGuard keeps the essentials on your device so they still open without a signal.</p>' +
+        '<p class="ug-dim" style="font-size:12px;line-height:1.5;max-width:280px">' + esc(T('offline.subtitle')) + '</p>' +
       '</div></div>' +
-      '<div class="ug-card"><div class="ug-card-h"><h3>Cached on This Device</h3><span class="ug-dimmer ug-mono" style="font-size:10px">Synced ' + esc(U.DATA.offlineCache.synced) + '</span></div>' +
+      '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(T('offline.availableNoSignal')) + '</h3><span class="ug-dimmer ug-mono" style="font-size:10px">' + esc(T('offline.lastSaved')) + ' ' + esc(U.DATA.offlineCache.synced) + '</span></div>' +
         '<div class="ug-card-b ug-col" style="gap:10px">' +
           [['Emergency Hotlines', U.DATA.offlineCache.hotlines, 'phone'], ['Evacuation Centers', U.DATA.offlineCache.centers, 'shelter'], ['Critical Advisories', U.DATA.offlineCache.advisories, 'megaphone']]
             .map(x => '<div class="ug-rowf ug-between" style="gap:10px"><span class="ug-rowf" style="gap:9px">' +
               '<span style="color:var(--ug-signal);display:flex">' + I(x[2], 16) + '</span>' +
               '<span style="font-size:12.5px">' + x[0] + '</span></span>' +
-              '<span class="ug-badge ug-badge--resolved">' + x[1] + ' ready</span></div>').join('') +
+              '<span class="ug-badge ug-badge--resolved">' + x[1] + ' ' + esc(T('offline.ready')) + '</span></div>').join('') +
         '</div></div>' +
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:10px">' +
-        '<div class="ug-lab">Service Worker Cache</div>' +
-        '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Last successful sync</span><span class="ug-mono">' + esc(U.DATA.offlineCache.synced) + '</span></div>' +
-        '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Reports queued while offline</span><span class="ug-mono">' + (UG.DATA.queueCount || 0) + ' waiting</span></div>' +
-        '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Strategy</span><span class="ug-mono">Network first</span></div>' +
-        '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Build</span><span class="ug-mono">' + esc((typeof UG_CONFIG !== 'undefined' && UG_CONFIG.BUILD) || 'dev') + '</span></div>' +
+        '<div class="ug-lab">' + esc(T('offline.savedOnPhone')) + '</div>' +
+        '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">' + esc(T('offline.lastSaved')) + '</span><span class="ug-mono">' + esc(U.DATA.offlineCache.synced) + '</span></div>' +
+        '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">' + esc(T('offline.waitingToSend')) + '</span><span class="ug-mono">' + (UG.DATA.queueCount || 0) + ' ' + esc(T('offline.waiting')) + '</span></div>' +
+        '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">' + esc(T('offline.worksWithoutInternet')) + '</span><span class="ug-mono">' + esc(('serviceWorker' in navigator) ? T('label.yes') : T('label.no')) + '</span></div>' +
+        '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">' + esc(T('settings.appVersion')) + '</span><span class="ug-mono">' + esc((typeof UG_CONFIG !== 'undefined' && UG_CONFIG.BUILD) || 'dev') + '</span></div>' +
         '<div class="ug-rowf ug-gap8" style="gap:8px">' +
           '<button class="ug-btn ug-btn--sm ug-btn--signal" style="flex:1"' + A('reconnect') + '>' + I('wave', 15) + (st.offline ? 'Back Online' : 'Check Connection') + '</button>' +
-          '<button class="ug-btn ug-btn--sm" style="flex:1"' + A('force-refresh') + '>' + I('wave', 15) + 'Force Refresh</button>' +
+          '<button class="ug-btn ug-btn--sm" style="flex:1"' + A('force-refresh') + '>' + I('wave', 15) + esc(T('offline.reloadApp')) + '</button>' +
         '</div>' +
-        '<div class="ug-dimmer" style="font-size:10.5px;line-height:1.5">Force Refresh clears the offline cache and reloads the newest build.</div>' +
+        '<div class="ug-dimmer" style="font-size:10.5px;line-height:1.5">' + esc(T('offline.reloadHelp')) + '</div>' +
       '</div></div>' +
     '</div>';
   }
@@ -1282,7 +1305,10 @@ const UG_SCREENS = (() => {
     return '<div class="ug-col" style="gap:14px">' +
       pageHead('Operations Dashboard', 'Real-time monitoring and incident command overview for ' + U.DATA.city + '.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('nav', attr({ route: 'analytics' })) + '>' + I('layers', 15) + 'Analytics</button>' +
-        '<button class="ug-btn ug-btn--danger"' + A('declare') + '>' + I('alert', 16) + 'Declare Emergency</button>') +
+        /* only LGU / LDRRMC may declare (RPC declare_emergency, migration 009) */
+        (st.session && st.session.role === 'lgu_ldrrmc'
+          ? '<button class="ug-btn ug-btn--danger"' + A('declare') + '>' + I('alert', 16) + esc(T('dashboard.declareEmergency')) + '</button>'
+          : '')) +
       syncStatusBanner(st) +
       escalationBanner +
       '<div class="ug-dgrid4">' + U.DATA.kpis.map(U.stat).join('') + '</div>' +
@@ -1304,7 +1330,7 @@ const UG_SCREENS = (() => {
             '<div class="ug-row" role="button" tabindex="0" style="width:100%;text-align:left;cursor:pointer"' + A('open-incident', attr({ id: i.id })) + '><span class="r-dot" style="background:' + (U.SEV[i.sev] || U.SEV.advisory).color + '"></span>' +
               '<div class="r-main"><div class="r-t">' + esc(i.hazard) + '<span class="ug-badge ug-badge--id">' + esc(i.id) + '</span></div>' +
                 '<div class="r-m"><span>' + I('pin', 12) + esc(i.area) + ', ' + esc(i.brgy) + '</span></div>' +
-                '<div class="r-m"><span>' + I('clock', 12) + esc(i.time) + '</span><span>' + I('shield', 12) + i.corr + ' corroborations</span></div>' +
+                '<div class="r-m"><span>' + I('clock', 12) + esc(i.time) + '</span><span>' + I('shield', 12) + esc(UG_UTIL.corroborationLabel(i.corr)) + '</span></div>' +
                 dispatchLine(i) + '</div>' +
               '<div class="ug-col" style="gap:6px;align-items:flex-end">' + U.stageBadge(i.status) + quickAction(i) + '</div></div>').join('') :
             '<div class="ug-empty"><span class="e-ico">' + I('inbox', 20) + '</span>' +
@@ -2370,9 +2396,11 @@ const UG_SCREENS = (() => {
       (st.fixed ? ' style="width:' + st.w + 'px;height:' + st.h + 'px"' : '') + '>' +
       '<div class="ug-m-shell">' +
         mAppbar(st, t[0], t[1]) +
-        (st.offline && st.route !== 'offline' ? '<div class="ug-offline">' + I('wifioff', 14) +
-          '<span>Offline mode. Showing cached data synced ' + esc(U.DATA.offlineCache.synced) + '.</span>' +
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto"' + A('toggle-offline') + '>Go live</button></div>' : '') +
+        /* the real connectivity banner is #ug-conn (index.html); this in-frame
+           strip is only a preview control in DEV builds */
+        (st.offline && UG_CONFIG.DEV && st.route !== 'offline' ? '<div class="ug-offline">' + I('wifioff', 14) +
+          '<span>Offline mode. Showing data saved ' + esc(U.DATA.offlineCache.synced) + '.</span>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto"' + A('toggle-offline') + '>Preview: simulate offline</button></div>' : '') +
         '<div class="ug-m-body ug-scroll">' + mobileBody(st) + '</div>' +
         mTabbar(st) +
         /* the floating SOS button — persistent and easy to reach for any citizen
@@ -2461,7 +2489,8 @@ const UG_SCREENS = (() => {
     '<div class="ug-d-shell">' + dSidebar(st) +
       '<div class="ug-nav-scrim" data-act="close-nav" aria-hidden="true"></div>' +
       '<div class="ug-d-main">' + dTopbar(st, t[0], t[1]) +
-        (st.offline ? '<div class="ug-offline">' + I('wifioff', 14) + '<span>Working offline. Changes are queued and will sync automatically.</span></div>' : '') +
+        /* #ug-conn is the one connectivity banner; this copy shows in DEV only */
+        (st.offline && UG_CONFIG.DEV ? '<div class="ug-offline">' + I('wifioff', 14) + '<span>Working offline. Changes are queued and will sync automatically.</span></div>' : '') +
         (st.session && st.session.role === 'barangay_official' && !st.session.barangay_id
           ? '<div class="ug-offline">' + I('alert', 14) +
             '<span>No barangay is assigned to your account yet, so you cannot see any reports. Contact your LGU administrator.</span></div>'

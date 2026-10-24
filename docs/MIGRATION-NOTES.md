@@ -18,6 +18,7 @@ already-numbered migration**; everything here is additive and safe to re-run
 | 6 | `031_road_status_full.sql` | Road-status form columns; status check widened to `passable/one_lane/blocked/under_repair`; legacy `caution` rows become `one_lane`; updater stamping. | Low — one remap of existing rows (`caution` → `one_lane`), reversible by hand. |
 | 7 | `032_guides_v2.sql` | Guide columns (summary, before/during/after, pdf); converts per-phase rows into single guides. | Medium — the conversion DELETES the v1 per-phase rows after merging their content. Re-run safe; content preserved into the new columns. Take a backup first (`pg_dump --table=preparedness_guides`). |
 | 8 | `033_audit_coverage.sql` | Generic audit triggers, `shelter_occupancy_log`, occupancy trend view. | None — new writes only, starting from run time. |
+| 9 | `048_fixpack_01.sql` | Fix Pack 01: adds `advisories.delivery_mode` (`push` / `in_app`, default `push`, check constraint) so the advisory composer can publish again; safety net for `alert_type` / `language` (041). Run after 047. | None — additive columns with defaults; re-runnable. |
 
 Run 026 before 027 if it has not been applied yet on the live project (the
 repo jumps from 023 to 025 — **check whether 024 was ever applied to the live
@@ -95,6 +96,33 @@ After 033 — audit coverage:
 select action, count(*) from public.audit_log group by 1 order by 2 desc;
 -- update a hotline, then confirm an emergency_hotlines.updated row appears
 ```
+
+After 048 — advisory delivery mode:
+
+```sql
+select column_name, data_type, column_default from information_schema.columns
+ where table_schema = 'public' and table_name = 'advisories'
+   and column_name in ('delivery_mode', 'alert_type', 'language');
+select conname from pg_constraint where conname = 'advisories_delivery_mode_check';
+```
+
+## Super Admin checks
+
+Run these when the Super Admin's **Users** or **Activity Log** screen stays
+empty or shows an error:
+
+```sql
+select id, email, role, is_super_admin, disabled from public.profiles where role = 'lgu_ldrrmc';
+select to_regclass('public.audit_log_with_actor') as audit_view;
+select count(*) from public.audit_log;
+```
+
+- No row with `is_super_admin = true` → apply 043 and set the flag on the
+  intended account.
+- `audit_view` is null → apply 045 (the app falls back to `audit_log`, but
+  without the view it cannot always show the actor's role and barangay).
+- `count(*)` is 0 → apply 033 (audit triggers); entries appear only after
+  something changes from then on.
 
 ## Data provenance note (030)
 

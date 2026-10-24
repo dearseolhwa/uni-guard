@@ -26,26 +26,49 @@ const UG_SOS = (function () {
       '<span class="sos-label">SOS</span></button>';
   }
 
-  /* the citizen SOS confirmation screen */
+  /* the citizen SOS confirmation screen. The outcome of the last tap is shown
+     inline here (sent / waiting for signal / refused), not as toasts. */
   function mSos(st) {
+    const T = (k) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : k);
     const last = st.lastSos;
     const sending = st.sosSending;
+    const status = last ? (last.status || 'sent') : '';
+    /* a real tel: link, so the call works even if every script action fails */
+    const hotline = '<div class="ug-card"><div class="ug-card-h"><h3>Backup Hotline</h3></div>' +
+        '<div class="ug-card-b ug-col" style="gap:10px">' +
+          '<p class="ug-dim" style="font-size:11.5px;line-height:1.55">If you cannot reach the LGU through the app, call the MDRRMO hotline directly. The call works even when the data signal is too weak for the SOS to send.</p>' +
+          '<a class="ug-btn ug-btn--signal ug-btn--block" href="tel:0756322222" style="text-decoration:none">' + I('phone', 16) + 'Call Lingayen MDRRMO</a>' +
+        '</div></div>';
+    const hotlineFirst = status === 'queued' || status === 'error';
+    const statusLine = !last ? ''
+      : status === 'queued'
+        ? '<div class="ug-col" style="gap:8px;align-items:center">' +
+            '<div class="ug-badge ug-badge--warning">' + esc(T('sos.waitingForSignal')) + '</div>' +
+            '<p style="font-size:12px;line-height:1.5;max-width:320px;color:var(--ug-warning)">' + esc(T('sos.savedOffline')) + '</p></div>'
+        : status === 'error'
+          ? '<div class="ug-col" style="gap:8px;align-items:center">' +
+              '<div class="ug-badge ug-badge--emergency">' + esc(T('sos.notSent')) + '</div>' +
+              '<p style="font-size:12px;line-height:1.5;max-width:320px;color:var(--ug-warning)">' + esc(last.message || '') + '</p></div>'
+          : '<div class="ug-badge ug-badge--resolved">Sent · ' + esc(last.at) + '</div>';
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">One-Tap Emergency</div>' +
       '<h2 style="font-size:19px;margin-top:3px">SOS</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">One tap sends your current GPS position, your name and your contact number to the LGU/LDRRMO duty officer. Use only when you are in immediate danger.</p></div>' +
 
+      (hotlineFirst ? hotline : '') +
+
       '<div class="ug-card ug-tick"><div class="ug-card-b ug-col" style="gap:14px;align-items:center;text-align:center;padding:22px 18px">' +
-        '<span class="ug-sos-circle' + (sending ? ' is-sending' : '') + '" data-act="sos-trigger">' + I('alert', 36) + '</span>' +
+        '<span class="ug-sos-circle' + (sending ? ' is-sending' : '') + '" data-act="sos-trigger" role="button" aria-disabled="' + (sending ? 'true' : 'false') + '"' +
+          (sending ? ' style="pointer-events:none;opacity:.7"' : '') + '>' + I('alert', 36) + '</span>' +
         '<h3 style="font-size:18px">' + (sending ? 'Sending SOS…' : 'Tap to Send SOS') + '</h3>' +
         '<p class="ug-dim" style="font-size:12px;line-height:1.5;max-width:300px">Hold still for a moment so we can read your GPS. A confirmation will appear here when the SOS has been logged.</p>' +
-        (last ? '<div class="ug-badge ug-badge--resolved">Sent · ' + esc(last.at) + '</div>' : '') +
+        statusLine +
       '</div></div>' +
 
-      (last ? '<div class="ug-card"><div class="ug-card-h"><h3>Last SOS</h3>' + U.badge('id', last.id || 'PENDING') + '</div>' +
+      (last && status === 'sent' ? '<div class="ug-card"><div class="ug-card-h"><h3>Last SOS</h3>' + U.badge('id', last.id || 'PENDING') + '</div>' +
         '<div class="ug-card-b ug-col" style="gap:11px">' +
           '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Position</span>' +
-            '<span class="ug-mono">' + esc(last.lat != null ? UG_GEO.fmt(last.lat, last.lng) : 'pending') + '</span></div>' +
+            '<span class="ug-mono">' + esc(last.lat != null ? UG_GEO.fmt(last.lat, last.lng) : 'No GPS fix') + '</span></div>' +
           '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Accuracy</span>' +
             '<span class="ug-mono">' + (last.accuracy != null ? last.accuracy + ' m' : '—') + '</span></div>' +
           '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Sent at</span>' +
@@ -54,11 +77,7 @@ const UG_SOS = (function () {
             '<span class="ug-mono">' + esc((last.reach != null ? last.reach : '—') + ' duty officers') + '</span></div>' +
         '</div></div>' : '') +
 
-      '<div class="ug-card"><div class="ug-card-h"><h3>Backup Hotline</h3></div>' +
-        '<div class="ug-card-b ug-col" style="gap:10px">' +
-          '<p class="ug-dim" style="font-size:11.5px;line-height:1.55">If you cannot reach the LGU through the app, call the MDRRMO hotline directly. The call works even when the data signal is too weak for the SOS to send.</p>' +
-          '<button class="ug-btn ug-btn--signal ug-btn--block"' + A('call', attr({ num: '(075) 632-2222', agency: 'Lingayen MDRRMO' })) + '>' + I('phone', 16) + 'Call Lingayen MDRRMO</button>' +
-        '</div></div>' +
+      (hotlineFirst ? '' : hotline) +
 
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
         '<span style="color:var(--ug-warning);display:flex">' + I('info', 17) + '</span>' +
@@ -117,11 +136,20 @@ const UG_SOS = (function () {
         '<button class="ug-btn" data-modal-close>Close</button>' +
         (s.status === 'sent' ? '<button class="ug-btn ug-btn--signal" data-act="sos-ack" data-id="' + esc(s.id) + '">' + I('check', 14) + 'Acknowledge</button>' : '') +
         (s.status !== 'resolved' ? '<button class="ug-btn ug-btn--sm" data-act="sos-resolve" data-id="' + esc(s.id) + '">' + I('check', 14) + 'Mark resolved</button>' : ''),
+      /* MapView holds one map at a time, so the mini map replaced the page's
+         map; re-render on close to bring the page map back */
+      onClose: () => {
+        if (s.lat != null && typeof MapView !== 'undefined') {
+          try { MapView.destroy(); } catch (e) {}
+          try { (window.APP_RENDER || function () {})(); } catch (e) {}
+        }
+      },
       onMount: (wrap) => {
-        /* mount the mini map after the modal is in the DOM */
+        /* mount the mini map after the modal is in the DOM. Unbounded: an SOS
+           sent from outside Lingayen must still show where it came from. */
         if (s.lat != null && typeof MapView !== 'undefined' && window.L) {
           const el = wrap.querySelector('[data-map="sos-detail"]');
-          if (el) MapView.mount(el, { center: [s.lat, s.lng], zoom: 16 }).then(() => {
+          if (el) MapView.mount(el, { center: [s.lat, s.lng], zoom: 16, unbounded: true }).then(() => {
             try { MapView.setIncidents([{ lat: s.lat, lng: s.lng, sev: 'emergency', id: 'SOS', brgy: s.barangay || '', hazard: 'SOS', status: 'reported', corr: 0 }]); } catch (e) {}
           });
         }

@@ -393,9 +393,13 @@
 /* the sign in screen scrolls inside the stage when a form is tall */
 .ug-stage--auth{overflow-y:auto;display:block}
 
-.ug-toast-host{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:500;display:flex;flex-direction:column;gap:8px;
+/* toasts sit at the top and are click-through, so they can never cover the
+   SOS, call, submit or navigation buttons */
+.ug-toast-host{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));bottom:auto;transform:translateX(-50%);z-index:500;display:flex;flex-direction:column;gap:8px;
   align-items:center;pointer-events:none;width:min(420px,calc(100% - 32px))}
-.ug-toast-host .ug-toast{pointer-events:auto;width:100%}
+.ug-toast-host .ug-toast{pointer-events:none;width:100%}
+.ug-toast-count{margin-left:auto;font-family:var(--ug-mono,monospace);font-size:11px;color:var(--ug-ink-3);flex:none}
+.ug-toast-count:empty{display:none}
 .ug-toast--prepared{border-left-color:var(--ug-prepared)}
 .ug-toast--warning{border-left-color:var(--ug-warning)}
 .ug-toast--emergency{border-left-color:var(--ug-emergency)}

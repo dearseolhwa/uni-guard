@@ -97,13 +97,14 @@ const UG_ROADWORK = (function () {
 
   /* the road status / road work detail view (full record). Reused by both the
      citizen mRoadwork screen and the LGU dRoadwork screen so the same level of
-     detail is shown everywhere (Section 8). LGU / Super Admin get an Edit
-     button in the footer; citizens only see Close. */
-  function roadDetailModal(id) {
+     detail is shown everywhere (Section 8). Barangay officials and LGU staff
+     get an Edit button in the footer; everyone else only sees Close. */
+  function roadDetailModal(id, st) {
     const r = (UG.DATA.roadStatus || []).find((x) => x.id === id);
     if (!r) return;
     const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
-    const isStaff = !!(window.UG_SCREENS && UG_SCREENS.sess && S_session && S_session.role !== 'citizen');
+    const sess = (st && st.session) || (window.UG_App && UG_App.S && UG_App.S.session) || null;
+    const isStaff = !!(sess && (sess.role === 'barangay_official' || sess.role === 'lgu_ldrrmc'));
     UG_FEATURES.modal({
       title: r.road_name || 'Road status',
       body:
@@ -122,12 +123,9 @@ const UG_ROADWORK = (function () {
           ? '<a class="ug-waze-btn" style="margin-top:12px;display:inline-flex" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.lat, r.lng) + '">' + I('route', 13) + ' Open in Waze</a>' : ''),
       footer:
         '<button class="ug-btn" data-modal-close>Close</button>' +
-        '<button class="ug-btn ug-btn--signal" data-act="rs-edit" data-id="' + esc(r.id) + '">' + I('settings', 13) + 'Edit</button>'
+        (isStaff ? '<button class="ug-btn ug-btn--signal" data-act="rs-edit" data-id="' + esc(r.id) + '">' + I('settings', 13) + 'Edit</button>' : '')
     });
   }
-  /* tiny helper so roadDetailModal can read the signed-in session without us
-     having to thread app.js state through. Set on each render by app.js. */
-  let S_session = null;
 
   /* --------------------------------------------------------------- LGU */
   function dRoadwork(st) {
@@ -188,8 +186,8 @@ const UG_ROADWORK = (function () {
             '<div class="r-main"><div class="r-t">' + esc(r.road_name) + '</div>' +
               '<div class="r-m"><span>' + I('pin', 12) + esc(r.barangay) + '</span><span>' + esc((r.cause ? r.cause + ' · ' : '') + (r.note || '')) + '</span></div></div>' +
             statusBadge(r.status) +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-edit" data-id="' + esc(r.id) + '" onclick="event.stopPropagation()">' + I('settings', 14) + '</button>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-del" data-id="' + esc(r.id) + '" onclick="event.stopPropagation()">' + I('x', 14) + '</button>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-edit" data-id="' + esc(r.id) + '">' + I('settings', 14) + '</button>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rs-del" data-id="' + esc(r.id) + '">' + I('x', 14) + '</button>' +
           '</div>').join('') : '<div class="ug-empty"><span class="e-ico">' + I('road', 20) + '</span><div style="font-size:12px;color:var(--ug-ink-2)">No road status entries match.</div></div>') + '</div></div>' +
 
       '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(T('roadwork.recentPosts')) + '</h3></div>' +

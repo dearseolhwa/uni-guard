@@ -133,8 +133,55 @@ const UG_UTIL = (function () {
     return message || 'Something went wrong. Try again.';
   }
 
+  /* Plain-language text for errors that reach a toast. Server and browser
+     messages ("TypeError: Failed to fetch", "Could not find the 'x' column ...
+     in the schema cache") mean nothing to a resident. i18n.js loads after this
+     file, so the strings are looked up at call time. */
+  const NETWORK_RE = /failed to fetch|networkerror|network request failed|load failed/;
+  function looksTechnical(message) {
+    const m = String(message || '').toLowerCase();
+    return NETWORK_RE.test(m) ||
+      /typeerror|referenceerror|syntaxerror|schema cache|pgrst|sqlstate|jwt|row-level security|permission denied|42501|duplicate key|23505|violates|relation "|column "|' column|does not exist|\bp0001\b|rate limit/.test(m);
+  }
+  /* "1 corroboration", "3 corroborations" */
+  function plural(n, one, many) {
+    return n + ' ' + (n === 1 ? one : many);
+  }
+  /* "No corroborations yet" / "1 corroboration" / "N corroborations", in the
+     active language */
+  function corroborationLabel(n) {
+    n = Number(n) || 0;
+    const t = (k, fallback) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : fallback);
+    if (n === 0) return t('incident.corrNone', 'No corroborations yet');
+    return plural(n, t('incident.corrOne', 'corroboration'), t('incident.corrMany', 'corroborations'));
+  }
+
+  /* No connection at all (or a request that never reached the server), as
+     opposed to the server refusing it. */
+  function isNetworkError(err) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+    const raw = (err && typeof err === 'object' && err.message != null) ? err.message : err;
+    return NETWORK_RE.test(String(raw == null ? '' : raw).toLowerCase());
+  }
+  function friendlyError(err) {
+    const raw = (err && typeof err === 'object' && err.message != null) ? String(err.message) : String(err == null ? '' : err);
+    const code = (err && typeof err === 'object' && err.code) ? String(err.code) : '';
+    const m = (raw + ' ' + code).toLowerCase();
+    const t = (k, fallback) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : fallback);
+    if (NETWORK_RE.test(m)) return t('error.network', 'No internet connection. Check your signal and try again.');
+    if (/schema cache|column|relation|does not exist/.test(m)) return t('error.needsUpdate', 'Something on our side needs an update. Please try again later or contact the MDRRMO.');
+    if (/jwt|token|session/.test(m) && /expired|invalid/.test(m)) return t('error.sessionEnded', 'Your session ended. Please sign in again.');
+    if (/row-level security|permission denied|42501/.test(m)) return t('error.permission', 'You don\'t have permission to do that.');
+    if (/rate limit|too many/.test(m)) return t('error.rateLimit', 'Too many attempts. Please wait a few minutes and try again.');
+    if (/duplicate key|23505/.test(m)) return t('error.duplicate', 'This record already exists.');
+    /* a sentence written by our own RPCs passes through unchanged */
+    if (raw.trim() && !looksTechnical(raw) && raw.length <= 220) return raw.trim();
+    return t('error.generic', 'Something went wrong. Please try again.');
+  }
+
   return {
     esc, since, relTime, absTime, initials, bytes, debounce, downloadBlob,
-    normalisePhone, formatPhone, passwordStrength, authError, syncLabel
+    normalisePhone, formatPhone, passwordStrength, authError, syncLabel,
+    friendlyError, looksTechnical, isNetworkError, plural, corroborationLabel
   };
 })();

@@ -414,10 +414,56 @@ const UG_SETTINGS = (function () {
   }
 
   /* ------------------------------------------------------- notifications tab */
+  /* Whether this phone is subscribed to push is only known asynchronously;
+     remember the last answer and re-render when it changes. */
+  let pushOn = null;
+  function refreshPushState() {
+    if (typeof UG_PWA === 'undefined' || !UG_PWA.pushEnabled) return;
+    UG_PWA.pushEnabled().then((v) => {
+      if (!!v !== pushOn) { pushOn = !!v; RERENDER(); }
+    }).catch(() => {});
+  }
+  function alertsStatus() {
+    const supported = typeof navigator !== 'undefined' && 'serviceWorker' in navigator &&
+      typeof window !== 'undefined' && 'PushManager' in window && typeof Notification !== 'undefined' &&
+      !!(typeof UG_CONFIG !== 'undefined' && UG_CONFIG.VAPID_PUBLIC_KEY);
+    if (!supported) return 'unsupported';
+    if (Notification.permission === 'denied') return 'blocked';
+    return pushOn ? 'on' : 'off';
+  }
+
+  /* "Alerts on this phone": the one notification setting a resident needs. */
+  function deviceAlertsCard(T) {
+    refreshPushState();
+    const status = alertsStatus();
+    const label = { on: T('settings.alertsOn'), off: T('settings.alertsOff'), blocked: T('settings.alertsBlocked'), unsupported: T('settings.alertsUnsupported') }[status];
+    const tone = status === 'on' ? 'resolved' : status === 'off' ? 'id' : 'warning';
+    return '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(T('settings.alertsOnPhone')) + '</h3>' +
+        '<span class="ug-badge ug-badge--' + tone + '">' + esc(label) + '</span></div>' +
+      '<div class="ug-card-b ug-col" style="gap:12px">' +
+        '<div class="ug-dim" style="font-size:12px;line-height:1.5">' + esc(T('settings.alertsHelp')) + '</div>' +
+        (status === 'off'
+          ? '<button class="ug-btn ug-btn--signal ug-btn--sm" style="align-self:flex-start"' + A('enable-push') + '>' + I('bell', 14) + esc(T('settings.turnOnAlerts')) + '</button>'
+          : status === 'blocked'
+            ? '<div class="ug-help">' + esc(T('settings.alertsBlockedHelp')) + '</div>'
+            : '') +
+        '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:flex-start;font-size:11.5px">' +
+          '<span style="color:var(--ug-signal);display:flex">' + I('info', 14) + '</span>' +
+          '<span class="ug-dim" style="line-height:1.5">' + esc(T('settings.alertsSmsInfo')) + '</span></div>' +
+      '</div></div>';
+  }
+
   function tabNotifications(st) {
     const prefs = getUserPrefs();
     const T = (k) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : k);
+    const role = (st.session && st.session.role) || 'citizen';
+    /* quiet hours, email digests and the SMS fallback switch are broadcast
+       policy for the whole municipality, so only LGU staff see them */
+    if (role !== 'lgu_ldrrmc') {
+      return '<div class="ug-col" style="gap:18px">' + deviceAlertsCard(T) + '</div>';
+    }
     return '<div class="ug-col" style="gap:18px">' +
+      deviceAlertsCard(T) +
       '<div class="ug-card"><div class="ug-card-h"><h3>' + T('settings.notificationChannels') + '</h3></div>' +
         '<div class="ug-card-b ug-col" style="gap:12px">' +
           toggleRow('notifications.pushEnabled', T('settings.pushEnabled'),
@@ -465,12 +511,14 @@ const UG_SETTINGS = (function () {
           kvRow(T('settings.connection'), pwa.online === false ? 'Offline' : 'Online') +
           kvRow(T('settings.lastSync'), (pwa.lastSync ? UG_UTIL.absTime(pwa.lastSync) : 'never') || 'never') +
           kvRow(T('settings.queuedReports'), String(pwa.queued || 0)) +
-          kvRow(T('settings.serviceWorker'), ('serviceWorker' in navigator) ? 'Supported' : 'Not supported') +
+          kvRow(T('settings.serviceWorker'), ('serviceWorker' in navigator) ? T('label.yes') : T('label.no')) +
+          kvRow(T('settings.appVersion'), (typeof UG_CONFIG !== 'undefined' && UG_CONFIG.BUILD) || 'dev') +
         '</div></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px">' +
         '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('settings-save-offline') + '>' + I('check', 14) + T('settings.saveOffline') + '</button>' +
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('refresh-data') + '>' + I('wave', 14) + T('settings.syncNow') + '</button>' +
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('force-refresh') + '>' + I('wave', 14) + T('settings.forceRefresh') + '</button>' +
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('force-refresh') + '>' + I('wave', 14) +
+          esc(T(st.session && st.session.role === 'citizen' ? 'offline.reloadApp' : 'settings.forceRefresh')) + '</button>' +
       '</div>' +
     '</div>';
   }
@@ -694,7 +742,7 @@ const UG_SETTINGS = (function () {
     getSystemConfig, patchSystemConfig, saveSystemConfig,
     DEFAULT_USER_PREFS, DEFAULT_SYSTEM_CONFIG,
     /* role-aware tabs */
-    tabsForRole, firstTabForRole,
+    tabsForRole, firstTabForRole, refreshPushState,
     loadTemplates, saveTemplates, ensureTemplates, templatesByCategory, templateById, fillTemplate,
     DEFAULT_TEMPLATES, CATEGORY, categoryList,
     SETTINGS_TABS, ALL_TABS

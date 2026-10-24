@@ -234,12 +234,12 @@ const UG_I18N = (function () {
       'settings.smsFallbackHint': 'For citizens without data',
       'settings.notificationChannels': 'Notification Channels',
       'settings.quietHours': 'Quiet Hours',
-      'settings.quietHoursHint': 'Preparedness advisories are held until quiet hours end',
+      'settings.quietHoursHint': 'Applies to every resident in Lingayen',
       'settings.syncStatus': 'Sync Status',
       'settings.connection': 'Connection',
       'settings.lastSync': 'Last sync',
-      'settings.queuedReports': 'Queued reports',
-      'settings.serviceWorker': 'Service worker',
+      'settings.queuedReports': 'Reports waiting to send',
+      'settings.serviceWorker': 'Works without internet',
       'settings.languageLocalization': 'Language & Localization',
       'settings.defaultLanguage': 'Default language for broadcasts',
       'settings.defaultLanguageHint': 'The language the advisory composer opens in. The other language is still required before publishing.',
@@ -256,21 +256,21 @@ const UG_I18N = (function () {
       'settings.showCorroborationHelp': 'Displays how many residents reported the same hazard on each incident card.',
       'settings.compactTables': 'Compact table density',
       'settings.compactTablesHelp': 'Reduces row padding in management tables so more rows fit on a single screen.',
-      'settings.pushEnabled': 'Web Push notifications',
-      'settings.pushEnabledHelp': 'Broadcast advisories to subscribed devices. Requires the VAPID key to be set at deploy time.',
-      'settings.smsFallbackToggle': 'SMS fallback for emergency advisories',
-      'settings.smsFallbackToggleHelp': 'When push is unavailable or a device has no data, queue the advisory to the SMS gateway.',
-      'settings.emailAlerts': 'Email alert digests',
-      'settings.emailAlertsHelp': 'Send a daily digest of emergency advisories to the registered office email.',
+      'settings.pushEnabled': 'Push notifications for advisories',
+      'settings.pushEnabledHelp': 'Send published advisories as push notifications to phones that turned on alerts. Uses the push notification key (set by the system administrator).',
+      'settings.smsFallbackToggle': 'Text message backup for emergency advisories',
+      'settings.smsFallbackToggleHelp': 'When a phone cannot receive push notifications, also send emergency advisories by text message.',
+      'settings.emailAlerts': 'Daily email summary',
+      'settings.emailAlertsHelp': 'Email a daily summary of emergency advisories to the MDRRMO office email address.',
       'settings.enableQuietHours': 'Enable quiet hours',
-      'settings.enableQuietHoursHelp': 'Non-emergency (preparedness) broadcasts are queued and sent after quiet hours end. Emergency advisories always go through immediately.',
+      'settings.enableQuietHoursHelp': 'Preparedness messages wait until quiet hours end. Emergency alerts are always sent right away.',
       'settings.quietStart': 'Quiet starts',
       'settings.quietEnd': 'Quiet ends',
       'settings.autoSync': 'Auto-sync when back online',
-      'settings.autoSyncHelp': 'Queued reports and edits are uploaded automatically the moment a connection returns.',
-      'settings.cacheMaps': 'Cache map tiles for offline use',
-      'settings.cacheMapsHelp': 'Stores the base map tiles so the operations map still renders without a connection.',
-      'settings.cacheRetention': 'Cache retention (days)',
+      'settings.autoSyncHelp': 'Reports and changes made without internet are sent automatically as soon as you are back online.',
+      'settings.cacheMaps': 'Save maps for use without internet',
+      'settings.cacheMapsHelp': 'Keeps the map on this device so it still shows without a signal.',
+      'settings.cacheRetention': 'Keep saved information for (days)',
       'settings.saveProfile': 'Save Profile',
       'settings.saveOffline': 'Save Offline Settings',
       'settings.saveLanguage': 'Save Language Settings',
@@ -756,7 +756,7 @@ const UG_I18N = (function () {
       'admin.auditNoMatch': 'No entries match these filters',
       'admin.auditNoMatchHint': 'Clear the filters to see every entry.',
       'admin.auditNothingRecorded': 'Nothing recorded yet',
-      'admin.auditNothingRecordedHint': 'Role changes, advisories, shelter updates and incident moves show up here.',
+      'admin.auditNothingRecordedHint': 'Entries appear after accounts, incidents or advisories change. If this stays empty, ask the administrator to apply migrations 033 and 045.',
       'admin.auditPreviousNew': 'Previous → New',
       'admin.auditOpenRecord': 'Open this record',
       'admin.auditEntriesOf': 'entries',
@@ -898,7 +898,82 @@ const UG_I18N = (function () {
       'ben.records': 'Records',
 
       /* ---- reporting ---- */
-      'reporting.moduleG': 'Module G: situation report, incident summary, damage and needs assessment'
+      'reporting.moduleG': 'Module G: situation report, incident summary, damage and needs assessment',
+
+      /* ---- fix pack 01 · F1 email links ---- */
+      'auth.emailConfirmed': 'Your email is confirmed. You can now sign in.',
+      'auth.linkExpired': 'This confirmation link has expired or was already used. Sign in, or request a new link.',
+      'auth.requestNewLink': 'Request a new link',
+
+      /* ---- fix pack 01 · F2 advisories ---- */
+      'error.advisoryNeedsUpdate': 'Could not publish the advisory. The system needs an update — contact the system administrator.',
+
+      /* ---- fix pack 01 · F4 pop-up actions ---- */
+      'toast.changeRequestSent': 'Your request was sent to the Super Admin for review.',
+
+      /* ---- fix pack 01 · F5 plain language ---- */
+      'error.network': 'No internet connection. Check your signal and try again.',
+      'error.needsUpdate': 'Something on our side needs an update. Please try again later or contact the MDRRMO.',
+      'error.sessionEnded': 'Your session ended. Please sign in again.',
+      'error.permission': 'You don\'t have permission to do that.',
+      'error.rateLimit': 'Too many attempts. Please wait a few minutes and try again.',
+      'error.duplicate': 'This record already exists.',
+      'error.generic': 'Something went wrong. Please try again.',
+      'settings.alertsOnPhone': 'Alerts on this phone',
+      'settings.alertsHelp': 'Get warnings and evacuation notices even when UniGuard is closed.',
+      'settings.alertsOn': 'On',
+      'settings.alertsOff': 'Off',
+      'settings.alertsBlocked': 'Blocked in browser settings',
+      'settings.alertsUnsupported': 'Not supported on this browser',
+      'settings.alertsBlockedHelp': 'Alerts were blocked for this site. Allow notifications for UniGuard in your browser settings, then come back here.',
+      'settings.turnOnAlerts': 'Turn on alerts',
+      'settings.alertsSmsInfo': 'Emergency alerts may also be sent by text message to your registered mobile number.',
+      'settings.appVersion': 'App version',
+      'label.yes': 'Yes',
+      'label.no': 'No',
+      'offline.savedOnPhone': 'Saved on this phone',
+      'offline.availableNoSignal': 'Available without a signal',
+      'offline.subtitle': 'UniGuard keeps the essentials on your phone so they still open without a signal.',
+      'offline.lastSaved': 'Last updated',
+      'offline.waitingToSend': 'Reports waiting to send',
+      'offline.worksWithoutInternet': 'Works without internet',
+      'offline.waiting': 'waiting',
+      'offline.ready': 'ready',
+
+      /* ---- fix pack 01 · F6 session restore ---- */
+      'auth.signInAgain': 'Please sign in again.',
+
+      /* ---- fix pack 01 · F7 SOS offline ---- */
+      'sos.waitingForSignal': 'Waiting for signal',
+      'sos.savedOffline': 'No internet connection. Your SOS is saved on this phone and will be sent automatically as soon as you are back online. If you are in danger, call MDRRMO now.',
+      'sos.notSent': 'SOS not sent',
+      'sos.delivered': 'Your SOS was delivered to the MDRRMO.',
+      'action.tryAgainShort': 'Try again',
+
+      /* ---- fix pack 01 · F9 plurals ---- */
+      'incident.corrNone': 'No corroborations yet',
+      'incident.corrOne': 'corroboration',
+      'incident.corrMany': 'corroborations',
+
+      /* ---- fix pack 01 · F11 offline queue ---- */
+      'offline.reloadApp': 'Reload app',
+      'offline.reloadHelp': 'Loads the newest version of UniGuard. Reports waiting to send are kept.',
+      'offline.reloadKeepQueue': 'You have {n} report(s) waiting to send. They will be kept and sent when you\'re back online. Reload the app now?',
+      'offline.reloading': 'Reloading the newest version of UniGuard...',
+      'offline.waitingBadge': 'Waiting to send',
+      'offline.savedWillSend': 'Saved on this phone — will send automatically when you\'re online.',
+      'offline.couldNotSend': 'Could not send',
+      'offline.tapToRetry': 'Could not send — tap to retry',
+      'offline.queueSent': 'Sent. Your report now has a report code.',
+      'offline.queueStillFailing': 'Still could not send. Check the details, or delete it and file it again.',
+      'offline.deleteQueuedTitle': 'Delete this report?',
+      'offline.deleteQueuedMsg': 'This report was never sent. Deleting it removes it from this phone for good.',
+
+      /* ---- fix pack 01 · F12 report pin ---- */
+      'report.pinOutside': 'Your current location is outside Lingayen. Move the pin to where the hazard is.',
+
+      /* ---- fix pack 01 · F12 pin clamp ---- */
+      'report.pinMustBeInside': 'Pin must be inside Lingayen'
     },
 
     fil: {
@@ -1109,12 +1184,12 @@ const UG_I18N = (function () {
       'settings.smsFallbackHint': 'Para sa mga mamamayan walang data',
       'settings.notificationChannels': 'Mga Channel ng Abiso',
       'settings.quietHours': 'Oras ng Katahimikan',
-      'settings.quietHoursHint': 'Ang mga preparedness advisory ay hahawak hanggang matapos ang quiet hours',
+      'settings.quietHoursHint': 'Para sa lahat ng residente ng Lingayen',
       'settings.syncStatus': 'Status ng Sync',
       'settings.connection': 'Koneksyon',
       'settings.lastSync': 'Huling sync',
-      'settings.queuedReports': 'Mga nakapilang ulat',
-      'settings.serviceWorker': 'Service worker',
+      'settings.queuedReports': 'Mga ulat na naghihintay maipadala',
+      'settings.serviceWorker': 'Gumagana kahit walang internet',
       'settings.languageLocalization': 'Wika at Lokalisasyon',
       'settings.defaultLanguage': 'Default na wika para sa broadcast',
       'settings.defaultLanguageHint': 'Ang wika na bubuksan ng advisory composer. Kailangan pa rin ang kabilang wika bago mag-publish.',
@@ -1131,21 +1206,21 @@ const UG_I18N = (function () {
       'settings.showCorroborationHelp': 'Ipinapakita kung ilang residente ang nag-ulat ng parehong panganib sa bawat incident card.',
       'settings.compactTables': 'Compact na density ng table',
       'settings.compactTablesHelp': 'Binabawasan ang row padding sa management tables para mas maraming row ang magkasya sa isang screen.',
-      'settings.pushEnabled': 'Web Push na abiso',
-      'settings.pushEnabledHelp': 'I-broadcast ang mga advisory sa mga naka-subscribe na device. Kailangan ang VAPID key na naka-set sa deploy time.',
-      'settings.smsFallbackToggle': 'SMS fallback para sa emergency advisory',
-      'settings.smsFallbackToggleHelp': 'Kapag hindi available ang push o walang data ang device, ipapasa ang advisory sa SMS gateway.',
-      'settings.emailAlerts': 'Email alert digest',
-      'settings.emailAlertsHelp': 'Magpadala ng pang-araw-araw na digest ng emergency advisory sa rehistradong email ng opisina.',
+      'settings.pushEnabled': 'Push notification para sa mga advisory',
+      'settings.pushEnabledHelp': 'Ipadala ang mga na-publish na advisory bilang push notification sa mga teleponong nag-on ng alerto. Ginagamit ang push notification key (itinakda ng system administrator).',
+      'settings.smsFallbackToggle': 'Text message bilang reserba para sa emergency advisory',
+      'settings.smsFallbackToggleHelp': 'Kapag hindi makatanggap ng push notification ang telepono, ipadala rin ang emergency advisory sa text message.',
+      'settings.emailAlerts': 'Pang-araw-araw na buod sa email',
+      'settings.emailAlertsHelp': 'Mag-email ng pang-araw-araw na buod ng mga emergency advisory sa email address ng opisina ng MDRRMO.',
       'settings.enableQuietHours': 'I-enable ang quiet hours',
-      'settings.enableQuietHoursHelp': 'Ang mga hindi emergency (preparedness) broadcast ay nakapila at ipapadala pagkatapos ng quiet hours. Ang emergency advisory ay palaging ipinapadala agad.',
+      'settings.enableQuietHoursHelp': 'Maghihintay ang mga mensaheng pang-paghahanda hanggang matapos ang quiet hours. Ang emergency alert ay laging ipinapadala agad.',
       'settings.quietStart': 'Simula ng quiet',
       'settings.quietEnd': 'Wakas ng quiet',
       'settings.autoSync': 'Auto-sync kapag online na',
-      'settings.autoSyncHelp': 'Ang mga nakapilang ulat at edit ay awtomatikong naa-upload kapag bumalik ang koneksyon.',
-      'settings.cacheMaps': 'I-cache ang mapa tiles para sa offline',
-      'settings.cacheMapsHelp': 'Nag-iimbak ng base map tiles para mag-render pa rin ang operations mapa walang koneksyon.',
-      'settings.cacheRetention': 'Retention ng cache (araw)',
+      'settings.autoSyncHelp': 'Ang mga ulat at pagbabagong ginawa nang walang internet ay awtomatikong ipapadala pagbalik ng koneksyon.',
+      'settings.cacheMaps': 'I-save ang mapa para magamit kahit walang internet',
+      'settings.cacheMapsHelp': 'Itinatago ang mapa sa device na ito para makita pa rin kahit walang signal.',
+      'settings.cacheRetention': 'Itago ang naka-save na impormasyon nang (araw)',
       'settings.saveProfile': 'I-save ang Profile',
       'settings.saveOffline': 'I-save ang Offline Setting',
       'settings.saveLanguage': 'I-save ang Wika Setting',
@@ -1631,7 +1706,7 @@ const UG_I18N = (function () {
       'admin.auditNoMatch': 'Walang entry na tumugma sa mga filter',
       'admin.auditNoMatchHint': 'I-clear ang mga filter para makita lahat ng entry.',
       'admin.auditNothingRecorded': 'Wala pang naitala',
-      'admin.auditNothingRecordedHint': 'Lalabas dito ang mga pagbabago sa role, advisory, shelter at kilos sa insidente.',
+      'admin.auditNothingRecordedHint': 'Lalabas dito ang mga entry kapag may pagbabago sa account, insidente o advisory. Kung mananatili itong walang laman, hilingin sa administrator na i-apply ang migrations 033 at 045.',
       'admin.auditPreviousNew': 'Nakaraan → Bago',
       'admin.auditOpenRecord': 'Buksan ang record',
       'admin.auditEntriesOf': 'entries',
@@ -1773,7 +1848,82 @@ const UG_I18N = (function () {
       'ben.records': 'Mga Record',
 
       /* ---- reporting ---- */
-      'reporting.moduleG': 'Module G: situation report, incident summary, damage at needs assessment'
+      'reporting.moduleG': 'Module G: situation report, incident summary, damage at needs assessment',
+
+      /* ---- fix pack 01 · F1 email links ---- */
+      'auth.emailConfirmed': 'Kumpirmado na ang iyong email. Maaari ka nang mag-sign in.',
+      'auth.linkExpired': 'Nag-expire na o nagamit na ang link na ito. Mag-sign in, o humingi ng bagong link.',
+      'auth.requestNewLink': 'Humingi ng bagong link',
+
+      /* ---- fix pack 01 · F2 advisories ---- */
+      'error.advisoryNeedsUpdate': 'Hindi mai-publish ang advisory. Kailangang i-update ang system — makipag-ugnayan sa system administrator.',
+
+      /* ---- fix pack 01 · F4 pop-up actions ---- */
+      'toast.changeRequestSent': 'Naipadala na ang iyong request sa Super Admin para suriin.',
+
+      /* ---- fix pack 01 · F5 plain language ---- */
+      'error.network': 'Walang koneksyon sa internet. Tingnan ang iyong signal at subukang muli.',
+      'error.needsUpdate': 'May kailangang i-update sa aming system. Subukang muli mamaya o makipag-ugnayan sa MDRRMO.',
+      'error.sessionEnded': 'Natapos na ang iyong session. Mag-sign in muli.',
+      'error.permission': 'Wala kang pahintulot na gawin iyan.',
+      'error.rateLimit': 'Masyadong maraming pagsubok. Maghintay ng ilang minuto at subukang muli.',
+      'error.duplicate': 'Mayroon na ang record na ito.',
+      'error.generic': 'May nangyaring mali. Subukang muli.',
+      'settings.alertsOnPhone': 'Mga alerto sa teleponong ito',
+      'settings.alertsHelp': 'Makatanggap ng babala at abiso ng paglikas kahit nakasara ang UniGuard.',
+      'settings.alertsOn': 'Naka-on',
+      'settings.alertsOff': 'Naka-off',
+      'settings.alertsBlocked': 'Naka-block sa settings ng browser',
+      'settings.alertsUnsupported': 'Hindi suportado ng browser na ito',
+      'settings.alertsBlockedHelp': 'Na-block ang mga alerto para sa site na ito. Payagan ang notifications para sa UniGuard sa settings ng iyong browser, saka bumalik dito.',
+      'settings.turnOnAlerts': 'I-on ang mga alerto',
+      'settings.alertsSmsInfo': 'Maaari ring ipadala ang emergency alert sa text message sa iyong rehistradong mobile number.',
+      'settings.appVersion': 'Bersyon ng app',
+      'label.yes': 'Oo',
+      'label.no': 'Hindi',
+      'offline.savedOnPhone': 'Naka-save sa teleponong ito',
+      'offline.availableNoSignal': 'Magagamit kahit walang signal',
+      'offline.subtitle': 'Itinatago ng UniGuard ang mahahalagang impormasyon sa iyong telepono para mabuksan pa rin kahit walang signal.',
+      'offline.lastSaved': 'Huling na-update',
+      'offline.waitingToSend': 'Mga ulat na naghihintay maipadala',
+      'offline.worksWithoutInternet': 'Gumagana kahit walang internet',
+      'offline.waiting': 'naghihintay',
+      'offline.ready': 'handa',
+
+      /* ---- fix pack 01 · F6 session restore ---- */
+      'auth.signInAgain': 'Mag-sign in muli.',
+
+      /* ---- fix pack 01 · F7 SOS offline ---- */
+      'sos.waitingForSignal': 'Naghihintay ng signal',
+      'sos.savedOffline': 'Walang koneksyon sa internet. Naka-save ang iyong SOS sa teleponong ito at awtomatikong ipapadala pagbalik ng koneksyon. Kung nasa panganib ka, tumawag na sa MDRRMO.',
+      'sos.notSent': 'Hindi naipadala ang SOS',
+      'sos.delivered': 'Naihatid na ang iyong SOS sa MDRRMO.',
+      'action.tryAgainShort': 'Subukang muli',
+
+      /* ---- fix pack 01 · F9 plurals ---- */
+      'incident.corrNone': 'Wala pang kumpirmasyon',
+      'incident.corrOne': 'kumpirmasyon',
+      'incident.corrMany': 'kumpirmasyon',
+
+      /* ---- fix pack 01 · F11 offline queue ---- */
+      'offline.reloadApp': 'I-reload ang app',
+      'offline.reloadHelp': 'Nilo-load ang pinakabagong bersyon ng UniGuard. Hindi mabubura ang mga ulat na naghihintay maipadala.',
+      'offline.reloadKeepQueue': 'May {n} ulat kang naghihintay maipadala. Itatago ang mga ito at ipapadala pagbalik ng koneksyon. I-reload na ang app?',
+      'offline.reloading': 'Nilo-load ang pinakabagong bersyon ng UniGuard...',
+      'offline.waitingBadge': 'Naghihintay maipadala',
+      'offline.savedWillSend': 'Naka-save sa teleponong ito — awtomatikong ipapadala kapag online ka na.',
+      'offline.couldNotSend': 'Hindi naipadala',
+      'offline.tapToRetry': 'Hindi naipadala — pindutin para subukang muli',
+      'offline.queueSent': 'Naipadala na. May report code na ang iyong ulat.',
+      'offline.queueStillFailing': 'Hindi pa rin maipadala. Suriin ang detalye, o burahin ito at mag-file muli.',
+      'offline.deleteQueuedTitle': 'Burahin ang ulat na ito?',
+      'offline.deleteQueuedMsg': 'Hindi naipadala ang ulat na ito. Kapag binura, tuluyan na itong mawawala sa teleponong ito.',
+
+      /* ---- fix pack 01 · F12 report pin ---- */
+      'report.pinOutside': 'Nasa labas ng Lingayen ang iyong kasalukuyang lokasyon. Ilipat ang pin sa lugar ng panganib.',
+
+      /* ---- fix pack 01 · F12 pin clamp ---- */
+      'report.pinMustBeInside': 'Dapat nasa loob ng Lingayen ang pin'
     }
   };
 

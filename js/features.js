@@ -150,9 +150,17 @@ const UG_FEATURES = (function () {
         (opts.footer ? '<div class="ug-modal-foot">' + opts.footer + '</div>' : '') +
       '</div>';
     document.body.appendChild(wrap);
-    const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); };
+    let closed = false;
+    const close = () => {
+      wrap.remove();
+      document.removeEventListener('keydown', onKey);
+      if (!closed) { closed = true; if (opts.onClose) { try { opts.onClose(); } catch (e) {} } }
+    };
     const onKey = (e) => { if (e.key === 'Escape') close(); };
     document.addEventListener('keydown', onKey);
+    /* the app's delegated [data-act] handler closes the dialog through this
+       before running a footer action, so the Escape listener goes with it */
+    wrap.__ugClose = close;
     wrap.addEventListener('click', (e) => {
       if (e.target === wrap || e.target.closest('[data-modal-close]')) close();
     });

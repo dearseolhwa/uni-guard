@@ -482,6 +482,46 @@ const UG_RELIEF = (function () {
     });
   }
 
+  /* ------------------------------------------------------ distribution detail
+     Opened by "View" on Active Distributions. Same layout as invDetailModal;
+     staff get Verify beneficiary and Edit in the footer (those buttons run
+     through the app's delegated [data-act] handler). */
+  function distDetailModal(id, st) {
+    const r = (UG.DATA.relief || []).find((x) => x.id === id);
+    if (!r) return false;
+    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
+    const li = (arr) => (arr || []).map((x) => '<li>' + esc(x) + '</li>').join('');
+    const phone = String(r.contact_phone || '').replace(/[^\d+]/g, '');
+    const canWaze = typeof r.lat === 'number' && typeof r.lng === 'number' && UG_GEO.classify(r.lat, r.lng) === 'ok';
+    UG_FEATURES.modal({
+      title: r.title || 'Distribution',
+      body:
+        '<div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+          U.badge(r.active === false ? 'closed' : 'open', r.active === false ? 'Inactive' : 'Active') +
+          U.badge('id', r.barangay || '—') + '</div>' +
+        kv('Barangay', r.barangay) +
+        kv('Location', r.location_name) +
+        kv('Address', r.address) +
+        kv('Schedule', fmtDate(r.distribution_at)) +
+        kv('Contact person', r.contact_person) +
+        '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">Contact phone</span>' +
+          (phone ? '<a href="tel:' + esc(phone) + '" style="font-weight:600">' + esc(r.contact_phone) + '</a>' : '<span style="font-weight:600">—</span>') + '</div>' +
+        kv('Status', r.active === false ? 'Inactive' : 'Active') +
+        (r.eligibility && r.eligibility.length ? '<div class="ug-field" style="margin-top:10px"><div class="ug-lab">Eligibility</div><ul class="ug-bullets">' + li(r.eligibility) + '</ul></div>' : '') +
+        (r.required_docs && r.required_docs.length ? '<div class="ug-field"><div class="ug-lab">Required documents</div><ul class="ug-bullets">' + li(r.required_docs) + '</ul></div>' : '') +
+        (r.note ? '<div class="ug-note" style="margin-top:10px">' + esc(r.note) + '</div>' : '') +
+        (canWaze
+          ? '<a class="ug-waze-btn" style="margin-top:12px;display:inline-flex" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.lat, r.lng) + '">' + I('route', 13) + ' Open in Waze</a>' : ''),
+      footer:
+        '<button class="ug-btn" data-modal-close>Close</button>' +
+        (isStaff(st)
+          ? '<button class="ug-btn ug-btn--ghost" data-act="relief-verify" data-id="' + esc(r.id) + '">' + I('users', 13) + 'Verify beneficiary</button>' +
+            '<button class="ug-btn ug-btn--signal" data-act="relief-edit" data-id="' + esc(r.id) + '">' + I('settings', 13) + 'Edit</button>'
+          : '')
+    });
+    return true;
+  }
+
   /* ------------------------------------------------------- distribution records
      Every handover is one row. The "Record distribution" modal decrements the
      inventory and appends a record in one action so stock and ledger never
@@ -541,5 +581,5 @@ const UG_RELIEF = (function () {
 
   return { mRelief, mReliefVerify, dRelief, fmtDate, fmtDateTime, head,
     ensureInventory, lowStockItems, DEFAULT_INVENTORY, DEFAULT_DISTRIBUTIONS_LOG,
-    INV_CATEGORIES, CAT_COLOR, RELIEF_TABS, invDetailModal };
+    INV_CATEGORIES, CAT_COLOR, RELIEF_TABS, invDetailModal, distDetailModal };
 })();

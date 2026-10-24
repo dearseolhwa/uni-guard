@@ -704,7 +704,13 @@ const Repo = (function () {
   }
 
   /* -------------------------------------------------------------- advisories */
+  /* advisories.delivery_mode only accepts 'push' | 'in_app' (migration 048). */
+  function normaliseDeliveryMode(v) {
+    return /^in[-_ ]?app$|^app$/i.test(String(v || '').trim()) ? 'in_app' : 'push';
+  }
+
   async function createAdvisory(input) {
+    input = Object.assign({}, input, { delivery_mode: normaliseDeliveryMode(input.delivery_mode) });
     const c = client();
     if (!c) {
       UG.DATA.advisories.unshift({
@@ -733,10 +739,9 @@ const Repo = (function () {
       published_at: new Date().toISOString(),
       alert_type: input.alert_type || 'general',
       language: input.language || 'en',
-      /* delivery preference — push or in_app only (defaults to push). The
-         column is additive; if the live schema does not have it yet, the
-         insert ignores the unknown field silently. */
-      delivery_mode: input.delivery_mode || 'push'
+      /* delivery preference — 'push' or 'in_app' (column added by
+         migration 048; without it PostgREST rejects the insert). */
+      delivery_mode: input.delivery_mode
     }).select('*').single();
     if (error) fail(error);
 
@@ -750,7 +755,7 @@ const Repo = (function () {
        The DOCX asks for a choice: emergency advisories push, informational
        advisories stay in the inbox without a push. Honoured here so the
        publish path matches what the composer let the user select. */
-    if (input.delivery_mode !== 'in_app' && window.UG_PUSH_DISPATCH !== false) {
+    if (input.delivery_mode === 'push' && window.UG_PUSH_DISPATCH !== false) {
       try {
         await c.functions.invoke('push-dispatch', {
           body: {
@@ -1035,36 +1040,45 @@ const Repo = (function () {
     return data;
   }
 
+  /* Activity Log rows, newest first, in one shape:
+     { id, created_at, actor_id, actor_name, actor_role, actor_unit_role,
+       actor_barangay, action, entity, entity_id, meta }.
+     1. the audit_log_with_actor view (migration 045);
+     2. audit_log with the actor's profile embedded (view missing);
+     3. plain audit_log rows without actor details (is_super_admin missing).
+     Throws (-> error panel) only when every source fails. */
   async function listAudit(limit) {
     const c = client();
     if (!c) return [];
-    /* actor names + role + barangay join through the FK to profiles. We embed
-       the actor's profile row so the Super Admin Activity Log can show role +
-       barangay columns and filter by them. If the embedded select is not
-       available for any reason, fall back to the plain rows. */
-    let data, error;
-    ({ data, error } = await c.from('audit_log')
-      .select('id, created_at, actor_id, action, entity, entity_id, meta, profiles:actor_id ( full_name, role, is_super_admin, barangay, unit_role )')
-      .order('created_at', { ascending: false }).limit(limit || 500));
-    if (error || !data) {
-      ({ data, error } = await c.from('audit_log').select('*').order('created_at', { ascending: false }).limit(limit || 500));
-    }
-    if (error) fail(error);
-    return (data || []).map((a) => {
-      const p = a.profiles || {};
-      /* Derive a human-readable role label for the actor. The Super Admin is
-         an lgu_ldrrmc account with is_super_admin = true. */
-      let actorRole = p.role || '';
-      if (p.role === 'lgu_ldrrmc' && p.is_super_admin === true) actorRole = 'super_admin';
+    const n = limit || 500;
+    const shape = (a, p) => {
+      p = p || {};
+      let actorRole = a.actor_role || p.role || '';
+      if (!a.actor_role && p.role === 'lgu_ldrrmc' && p.is_super_admin === true) actorRole = 'super_admin';
       return {
         id: a.id, created_at: a.created_at, actor_id: a.actor_id,
-        actor_name: p.full_name || a.actor_name || null,
+        actor_name: a.actor_name || p.full_name || null,
         actor_role: actorRole,
-        actor_unit_role: p.unit_role || '',
-        actor_barangay: p.barangay || '',
+        actor_unit_role: a.actor_unit_role || p.unit_role || '',
+        actor_barangay: a.actor_barangay || p.barangay || '',
         action: a.action, entity: a.entity, entity_id: a.entity_id, meta: a.meta
       };
-    });
+    };
+
+    let r = await c.from('audit_log_with_actor').select('*')
+      .order('created_at', { ascending: false }).limit(n);
+    if (!r.error && r.data) return r.data.map((a) => shape(a, null));
+    console.warn('[UniGuard] audit_log_with_actor unavailable, using audit_log', r.error);
+
+    r = await c.from('audit_log')
+      .select('id, created_at, actor_id, action, entity, entity_id, meta, actor:profiles ( full_name, role, is_super_admin, unit_role, barangay )')
+      .order('created_at', { ascending: false }).limit(n);
+    if (!r.error && r.data) return r.data.map((a) => shape(a, a.actor));
+    console.warn('[UniGuard] audit_log with actor embed failed, using plain rows', r.error);
+
+    r = await c.from('audit_log').select('*').order('created_at', { ascending: false }).limit(n);
+    if (r.error) fail(r.error);
+    return (r.data || []).map((a) => shape(a, null));
   }
 
   async function listResponders() {
@@ -1376,7 +1390,7 @@ const Repo = (function () {
       /* offline: queue it like an offline report so it sends when the connection
          returns. SOS is rate-limited in the RPC; the queue retry will surface
          the limit as a toast at that point. */
-      try { await UG_PWA.enqueue(Object.assign({ _kind: 'sos' }, payload)); } catch (e) {}
+      try { await UG_PWA.upsertQueuedSos(Object.assign({ _kind: 'sos', client_sent_at: new Date().toISOString() }, payload)); } catch (e) {}
       return { id: 'PENDING-' + Date.now(), reach: 0, queued: true };
     }
     const { data, error } = await c.rpc('submit_sos', {

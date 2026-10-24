@@ -54,7 +54,16 @@ const MapView = (function () {
       (UG.icon ? UG.icon('route', 13) : '') + ' Navigate with ' + UG_UTIL.esc(label || 'Waze') + '</a>';
   }
 
-  /* container must have an explicit height */
+  /* the Lingayen service box every operational map is clamped to */
+  function serviceBounds() {
+    const B = UG_GEO.MAP_BOUNDS;
+    return window.L.latLngBounds([B.minLat, B.minLng], [B.maxLat, B.maxLng]);
+  }
+  const hasPoint = (p) => !!(p && typeof p.lat === 'number' && typeof p.lng === 'number' && isFinite(p.lat) && isFinite(p.lng));
+
+  /* container must have an explicit height. opts.unbounded skips the Lingayen
+     clamp, for detail maps that show one stored point which may lie outside
+     the area (an SOS sent from a neighbouring town). */
   async function mount(container, opts) {
     opts = opts || {};
     destroy();
@@ -70,31 +79,31 @@ const MapView = (function () {
     const L = window.L;
     container.innerHTML = '';
 
-    /* if a report pin is given, start the map on the pin instead of the town centre */
+    /* if a report pin is given, start the map on the pin instead of the town
+       centre — unless the pin lies outside the service box, where the clamped
+       map could never show it (setReportPin then moves it into Lingayen) */
     const pin = opts.reportPin;
-    const startCenter = opts.center ||
-      ((pin && typeof pin.lat === 'number' && typeof pin.lng === 'number')
-        ? [pin.lat, pin.lng]
-        : UG_GEO.CENTER);
+    const pinInside = hasPoint(pin) && serviceBounds().contains([pin.lat, pin.lng]);
+    const startCenter = opts.center || (pinInside ? [pin.lat, pin.lng] : UG_GEO.CENTER);
 
-    const map = L.map(container, {
+    const mapOpts = {
       center: startCenter,
       zoom: opts.zoom || UG_GEO.ZOOM,
-      minZoom: UG_GEO.MAP_MIN_ZOOM,
       maxZoom: UG_GEO.MAP_MAX_ZOOM,
+      zoomControl: false,
+      attributionControl: true,
+      preferCanvas: true
+    };
+    if (!opts.unbounded) {
       /* keep the operational map scoped to Lingayen and its immediate
          neighbours (Labrador, Binmaley, Bugallon). maxBoundsViscosity=1
          stops the user from dragging the view outside the box, so the map
          can never zoom/pan out to a country-wide view. */
-      maxBounds: L.latLngBounds(
-        [UG_GEO.MAP_BOUNDS.minLat, UG_GEO.MAP_BOUNDS.minLng],
-        [UG_GEO.MAP_BOUNDS.maxLat, UG_GEO.MAP_BOUNDS.maxLng]
-      ),
-      maxBoundsViscosity: 1.0,
-      zoomControl: false,
-      attributionControl: true,
-      preferCanvas: true
-    });
+      mapOpts.minZoom = UG_GEO.MAP_MIN_ZOOM;
+      mapOpts.maxBounds = serviceBounds();
+      mapOpts.maxBoundsViscosity = 1.0;
+    }
+    const map = L.map(container, mapOpts);
 
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19,
@@ -107,7 +116,7 @@ const MapView = (function () {
     if (opts.centers) setCenters(opts.centers);
     if (opts.relief) setRelief(opts.relief);
     if (opts.roadStatus) setRoadStatus(opts.roadStatus);
-    if (opts.reportPin) setReportPin(opts.reportPin, opts.onPinDrop);
+    if (opts.reportPin) setReportPin(opts.reportPin, opts.onPinDrop, opts.onPinOutside);
     if (opts.layers) setLayers(opts.layers);
     setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 100);
     setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 400);
@@ -141,7 +150,7 @@ const MapView = (function () {
         '<div class="p-m">' + UG_UTIL.esc(i.id) + ' &middot; ' + UG_UTIL.esc(i.brgy) + '</div>' +
         '<div class="p-m" style="margin-top:4px">' + UG_UTIL.esc(entry.label) + ' &middot; ' +
         UG_UTIL.esc((UG_THEME.status(i.status) || {}).label || i.status.replace(/_/g, ' ')) + ' &middot; ' +
-        UG_UTIL.esc(i.corr || 0) + ' corroborations</div>' +
+        UG_UTIL.esc(UG_UTIL.corroborationLabel(i.corr)) + '</div>' +
         '</div>'
       );
       marker.on('click', () => {
@@ -229,22 +238,48 @@ const MapView = (function () {
   /* the citizen report form's drag-to-adjust pin: a single draggable marker
      whose drop fires the onPinDrop callback so the parent can write the new
      lat/lng into the report state and reverse-geocode it. */
-  function setReportPin(initial, onDrop) {
+  /* A GPS fix outside Lingayen (or none) starts the pin at the town centre;
+     onOutside() lets the form explain why. The pin can never be dropped
+     outside the service box: it snaps back to its last valid spot. */
+  function setReportPin(initial, onDrop, onOutside) {
     if (!ctx || ctx.fallback) return;
     const L = window.L;
     if (ctx.reportMarker) { try { ctx.reportMarker.remove(); } catch (e) {} }
-    const center = (initial && typeof initial.lat === 'number') ? [initial.lat, initial.lng] : UG_GEO.CENTER;
-    const entry = { color: '#34D6F0', on: '#062B36', short: 'PIN', shape: 'diamond' };
+    const bounds = serviceBounds();
+    const inside = hasPoint(initial) && bounds.contains([initial.lat, initial.lng]);
+    const center = inside ? [initial.lat, initial.lng] : UG_GEO.CENTER;
+    const size = 30;
+    const icon = L.divIcon({
+      className: 'ug-report-pin',
+      html: '<span class="ug-pin-ring" aria-hidden="true"></span>' +
+        '<div class="ug-marker shape-diamond" style="width:' + size + 'px;height:' + size + 'px;background:#34D6F0;color:#062B36">PIN</div>',
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2]
+    });
     const marker = L.marker(center, {
-      icon: shapeIcon(entry, 26),
+      icon: icon,
       draggable: true,
-      autoPan: true
+      autoPan: true,
+      title: 'Drag me',
+      alt: 'Drag me'
     }).addTo(ctx.map);
+    let last = marker.getLatLng();
+    marker.on('dragstart', () => { last = marker.getLatLng(); });
     marker.on('dragend', () => {
       const ll = marker.getLatLng();
+      if (!bounds.contains(ll)) {
+        marker.setLatLng(last);
+        const msg = typeof UG_I18N !== 'undefined' ? UG_I18N.t('report.pinMustBeInside') : 'Pin must be inside Lingayen';
+        try { (window.UG_TOAST || function () {})(msg, 'warning'); } catch (e) {}
+        return;
+      }
+      last = ll;
       if (onDrop) onDrop(ll.lat, ll.lng);
     });
     ctx.reportMarker = marker;
+    if (inside) ctx.map.panTo(center);
+    else ctx.map.setView(UG_GEO.CENTER, UG_GEO.ZOOM);
+    if (hasPoint(initial) && !inside && onOutside) onOutside();
   }
 
   /* ---------------------------------------------------- "My Location" control

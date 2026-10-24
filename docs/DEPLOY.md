@@ -74,12 +74,26 @@ Dashboard → Authentication:
 | ----------------------- | ------------------------------------------------- | ----------------------------------------------- |
 | Email provider          | enabled                                           | accounts and password reset                     |
 | Confirm email           | ON for production, OFF while testing              | the app tells the user to confirm when it is on |
-| Site URL                | your https URL                                    | reset links return here                         |
-| Redirect URLs           | `https://your-host/` and `http://localhost:5173/` | password recovery and email confirmation        |
+| Site URL                | your deployed https URL                           | reset and confirmation links return here        |
+| Redirect URLs           | `https://your-host/**` (+ `http://127.0.0.1:5500/**` for desktop dev only) | password recovery and email confirmation |
 | Minimum password length | 8                                                 | matches the client side hint                    |
 
 Nothing else needs changing. The profile row for every new account is created by
 the `on_auth_user_created` trigger, with the role forced to `citizen`.
+
+> **⚠ Email links (confirmation, invite, password reset) — read before testing on phones**
+>
+> - Dashboard → Authentication → URL Configuration → **Site URL** = the deployed
+>   **https** URL (for example `https://uniguard-lingayen.netlify.app`).
+> - **Redirect URLs** must include `https://<deployed-host>/**` and, for desktop
+>   development only, `http://127.0.0.1:5500/**`.
+> - Testing on phones requires a deployed HTTPS URL (a Netlify drop-deploy is
+>   enough). `127.0.0.1` / `localhost` is the phone itself, so a link pointing there
+>   never works from another device (`ERR_CONNECTION_REFUSED`) even though Supabase
+>   has already confirmed the account. Web Push and service workers need HTTPS anyway.
+> - `env.js` → `APP_PUBLIC_URL` must equal the deployed URL. The app falls back to
+>   the current origin when `APP_PUBLIC_URL` is a loopback address, and logs a
+>   console warning when both are loopback.
 
 ## 3. Application configuration
 

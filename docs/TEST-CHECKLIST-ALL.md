@@ -245,3 +245,25 @@ the interface unless a step says otherwise.
 | 25.3 | Map "My Location" control | aligned with the other map controls; works by touch; drops an accuracy circle |
 | 25.4 | Walk every citizen + console control | nothing is dead; Priority Sort toggles, Command View opens/exits, hotline Verify is gone |
 
+
+## 26. Fix Pack 01 (tester findings, Oct 23 2026)
+
+Run migration `048_fixpack_01.sql` and set `APP_PUBLIC_URL` to the deployed https
+URL first. Test on a real phone against the deployed URL, not `127.0.0.1`.
+
+| # | Role | Step | Expected |
+|---|---|---|---|
+| F1 | Resident (new) | Create an account on the deployed URL, open the confirmation email on a phone, tap the link | The app opens (no connection error) with "Your email is confirmed. You can now sign in." Open an already-used link: "This confirmation link has expired or was already used…" plus a "Request a new link" button. Forgot Password → link still opens the set-new-password screen. |
+| F2 | LGU / Barangay official | Advisories → compose → Delivery **Push notification** → Publish; repeat with **In-app only** | Both publish without a schema-cache error. Push calls `push-dispatch` (Edge Function logs); In-app only does not, but still appears in the residents' inbox. |
+| F3 | Super Admin | Dispatch Units → on a row press Edit, Account, Delete; then click elsewhere on the row | Edit opens the unit editor, Account opens the member roster, Delete asks for confirmation; the rest of the row opens the unit detail. |
+| F4 | LGU / Barangay official / Resident | In pop-ups: hotline Request Change → Edit / Request deletion; shelter Edit Location / Edit; road status Edit; SOS Acknowledge / Mark resolved; inventory Restock / Edit | Each button runs its action and the pop-up closes; Esc and × still close pop-ups; nothing fires twice. Hotline requests show "Your request was sent to the Super Admin for review." A resident's road-status pop-up has no Edit button. |
+| F5 | Resident | Settings → Notifications and Offline; Offline page. Then turn Wi-Fi off and press any network action (e.g. Refresh) | One "Alerts on this phone" card with status and "Turn on alerts"; no VAPID / service worker / cache / gateway wording. The toast reads "No internet connection. Check your signal and try again." |
+| F6 | Any | Sign in → turn the network off → reload the page | Same account opens with the offline banner. Online reload also stays signed in. A disabled account is still signed out on the next online load. |
+| F7 | Resident | Offline: tap SOS several times; then reconnect | One inline "Waiting for signal" status, no stacked toasts, "Call Lingayen MDRRMO" card shown above the SOS button and always tappable. On reconnect the SOS is delivered once, appears in the LGU SOS Log, and the resident sees "Your SOS was delivered to the MDRRMO." Only one offline banner (button "Try again"). |
+| F8 | Barangay official / LGU | Open the Operations Dashboard | Barangay official: no Declare Emergency button. LGU: button present and works. |
+| F9 | LGU | Dashboard → Recent Incidents; map pop-up | "No corroborations yet", "1 corroboration", "N corroborations". |
+| F10 | LGU / Barangay official | Relief & Inventory → Active Distributions → View | Detail pop-up opens (schedule, contact with tap-to-call, eligibility, documents); Verify beneficiary and Edit inside it work. |
+| F11 | Resident | Offline: submit a report → My Reports → Offline page → Reload app → reconnect | The report shows under "Reports waiting to send"; Reload app warns that it will be kept; it is still there after the reload; on reconnect it is sent and becomes a normal report with a code. |
+| F12 | Resident (GPS outside Lingayen) / LGU | Open Report a Hazard; drag the pin; drag it outside the town. LGU: open an SOS sent from outside Lingayen | Pin appears in Lingayen with "Your current location is outside Lingayen…"; dragging works; dropping outside snaps back with "Pin must be inside Lingayen". The SOS detail map shows the real position; the page map returns after closing it. |
+| F13 | Super Admin | Users | Lists every account (at least the Super Admin's own). A failing query shows the error panel with Try Again. |
+| F14 | Super Admin | Edit a hotline, then open Activity Log | The edit appears. If the view from 045 is missing the log still loads from `audit_log`; if every source fails, the error panel shows. |

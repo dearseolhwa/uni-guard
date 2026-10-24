@@ -9,6 +9,27 @@
   const toasts = document.getElementById('ug-toasts');
   const devBar = document.getElementById('ug-demo');
   const isWide = () => window.innerWidth >= 1024;
+  const T = (k) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : k);
+
+  /* Supabase email links (sign-up confirmation, invite, magic link, recovery)
+     come back with their result in the URL. Read it now, before supabase-js
+     consumes the hash: 'confirmed', 'error' (expired / used link) or 'recovery'. */
+  const EMAIL_LINK = (function () {
+    try {
+      const raw = String(location.hash || '').replace(/^#\/?/, '') + '&' + String(location.search || '').replace(/^\?/, '');
+      if (!/(^|&)(type|access_token|code|error|error_code|error_description)=/.test(raw)) return null;
+      const p = new URLSearchParams(raw);
+      const type = p.get('type') || '';
+      if (type === 'recovery') return { kind: 'recovery' };
+      if (p.get('error') || p.get('error_code') || p.get('error_description')) {
+        return { kind: 'error', code: p.get('error_code') || p.get('error') || '' };
+      }
+      if (/^(signup|email|invite|magiclink)$/.test(type) || p.get('access_token') || p.get('code')) {
+        return { kind: 'confirmed', type: type };
+      }
+    } catch (e) { }
+    return null;
+  })();
 
   const blankAuth = () => ({
     screen: 'signin',
@@ -71,18 +92,46 @@
   /* ------------------------------------------------------------------ toast */
   function toast(msg, tone) {
     tone = tone || 'info';
+    /* an Error object, or a raw server / browser message, never reaches the
+       screen as-is: log it, show plain language. Our own sentences pass. */
+    if ((msg && typeof msg === 'object') || UG_UTIL.looksTechnical(msg)) {
+      console.error('[UniGuard]', msg);
+      msg = UG_UTIL.friendlyError(msg);
+    }
     if (!toasts) return;
+    msg = String(msg == null ? '' : msg);
+    const live = Array.prototype.filter.call(toasts.children, (x) => !x.__leaving);
+    /* the same message again: refresh its timer and count it, don't stack */
+    const same = live.find((x) => x.__msg === msg);
+    if (same) {
+      same.__count = (same.__count || 1) + 1;
+      const n = same.querySelector('.ug-toast-count');
+      if (n) n.textContent = '\u00d7' + same.__count;
+      armToast(same);
+      return;
+    }
+    /* at most three on screen; the oldest goes first */
+    while (live.length >= 3) dismissToast(live.shift());
     const el = document.createElement('div');
     el.className = 'ug-toast ug-toast--' + tone;
+    el.__msg = msg;
     const ic = tone === 'emergency' ? 'alert' : tone === 'prepared' ? 'check' : tone === 'warning' ? 'clock' : 'info';
-    el.innerHTML = UG.icon(ic, 16) + '<span>' + UG_UTIL.esc(msg) + '</span>';
+    el.innerHTML = UG.icon(ic, 16) + '<span>' + UG_UTIL.esc(msg) + '</span><span class="ug-toast-count"></span>';
     toasts.appendChild(el);
-    setTimeout(() => {
-      el.style.transition = 'opacity .3s, transform .3s';
-      el.style.opacity = '0';
-      el.style.transform = 'translateY(6px)';
-      setTimeout(() => el.remove(), 320);
-    }, 3200);
+    armToast(el);
+  }
+  function armToast(el) {
+    clearTimeout(el.__timer);
+    el.__timer = setTimeout(() => dismissToast(el), 3200);
+  }
+  function dismissToast(el) {
+    if (!el || el.__leaving) return;
+    el.__leaving = true;
+    clearTimeout(el.__timer);
+    el.style.transition = 'opacity .3s, transform .3s';
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(-6px)';
+    setTimeout(() => el.remove(), 320);
   }
   /* expose the controller hooks the feature modules (settings, relief) reach
      for. These are assigned once on boot; the modules guard with typeof so a
@@ -218,7 +267,13 @@
         const ctx = await MapView.mount(t.el, {
           reportPin: { lat: S.report.lat, lng: S.report.lng },
           zoom: 16,
-          onPinDrop: (lat, lng) => APP_ACTIONS['report-pin-drop']({ lat: String(lat), lng: String(lng) })
+          onPinDrop: (lat, lng) => APP_ACTIONS['report-pin-drop']({ lat: String(lat), lng: String(lng) }),
+          /* GPS fix outside Lingayen: the pin starts in town; show the notice
+             in place (a re-render here would remount the map in a loop) */
+          onPinOutside: () => {
+            S.report.pinOutside = true;
+            qa('[data-pin-outside]').forEach((el) => { el.hidden = false; });
+          }
         });
         continue;
       }
@@ -295,11 +350,19 @@
        database refuses the read for anyone else; skipping it here just avoids
        showing LDRRMO staff an error for a screen they are not offered. */
     if ((route === 'users' || route === 'audit') && !isSuperAdmin()) { render(); return; }
+    /* The screens read UG.DATA.users / UG.DATA.audit, so every load must
+       write there too (it used to fill only S.users / S.audit, which left the
+       Users and Activity Log screens empty although the request succeeded).
+       Each loader runs on its own and reports its own failure via S.error. */
     if (route === 'users') {
       S.loading = true; S.error = null; render();
       try {
         S.users = await Repo.listUsers();
-      } catch (e) { S.error = e.message || 'Could not load accounts'; }
+        UG.DATA.users = S.users;
+      } catch (e) {
+        console.error('[UniGuard] load accounts failed', e);
+        S.error = (e && e.message) || 'Could not load accounts';
+      }
       S.loading = false; render();
       return;
     }
@@ -307,7 +370,11 @@
       S.loading = true; S.error = null; render();
       try {
         S.audit = await Repo.listAudit(200);
-      } catch (e) { S.error = e.message || 'Could not load the audit log'; }
+        UG.DATA.audit = S.audit;
+      } catch (e) {
+        console.error('[UniGuard] load activity log failed', e);
+        S.error = (e && e.message) || 'Could not load the audit log';
+      }
       S.loading = false; render();
       return;
     }
@@ -654,9 +721,17 @@
       }
     },
     resend: async () => {
+      /* from the expired-link notice on the sign-in screen there is no pending
+         email yet, so use the address typed into the form */
+      if (!S.auth.pendingEmail) {
+        const typed = (S.auth.form.email || '').trim();
+        if (!typed) { S.auth.error = 'Enter your email address, then tap Request a new link.'; return render(); }
+        S.auth.pendingEmail = typed;
+      }
       S.auth.loading = true; S.auth.error = ''; S.auth.notice = ''; render();
       try {
         await Auth.resendConfirmation(S.auth.pendingEmail);
+        S.auth.linkExpired = false;
         S.auth.notice = 'Confirmation email sent again to ' + S.auth.pendingEmail + '.';
       } catch (e) {
         S.auth.error = UG_UTIL.authError(e.message);
@@ -734,6 +809,22 @@
       }
     },
 
+    /* boot could not confirm the account (no connection, server error):
+       try again without signing out */
+    'retry-restore': async () => {
+      S.auth.loading = true; S.auth.error = ''; render();
+      try {
+        const session = await Auth.restore();
+        S.auth.loading = false;
+        if (session) { enterApp(session); return; }
+        S.auth.restoreFailed = false;
+      } catch (e) {
+        S.auth.loading = false;
+        S.auth.error = UG_UTIL.friendlyError(e);
+      }
+      render();
+    },
+
     logout: async () => {
       const ok = await UG_FEATURES.confirm({
         title: 'Sign out',
@@ -804,7 +895,7 @@
           '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:center">' +
             '<input class="ug-in" style="flex:1" data-rs-lat placeholder="lat" value="' + val('lat') + '">' +
             '<input class="ug-in" style="flex:1" data-rs-lng placeholder="lng" value="' + val('lng') + '">' +
-            '<button class="ug-btn ug-btn--sm" type="button" data-act="rs-pin">Use my location</button>' +
+            '<button class="ug-btn ug-btn--sm" type="button" data-act="rs-pin" data-keep-modal>Use my location</button>' +
           '</div>' +
           '<div class="ug-help">Tap the map on the Road Status screen and pick “Set pin here”, or type coordinates from it (latitude first). The pin powers the map overlay and navigation.</div></div>' +
         '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Notes</label><textarea class="ug-ta" rows="2" data-rs-note>' + val('note') + '</textarea></div>',
@@ -1052,7 +1143,7 @@
     'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); loadDispatchesFor(d.id); },
     'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); loadDispatchesFor(d.id); },
     'open-sos-detail': (d) => { UG_SOS.sosDetailModal(S, d.id); },
-    'open-road-detail': (d) => { UG_ROADWORK.roadDetailModal(d.id); },
+    'open-road-detail': (d) => { UG_ROADWORK.roadDetailModal(d.id, S); },
 
     'rw-manual-pin': () => {
       /* replaced the single-line "Latitude, longitude" prompt with a proper
@@ -1162,6 +1253,7 @@
       try {
         const p = await UG_FEATURES.locate();
         S.report.lat = p.lat; S.report.lng = p.lng; S.report.accuracy = p.accuracy; S.report.gps = true;
+        S.report.pinOutside = false;   /* the map re-flags it if this fix is outside Lingayen */
         /* reverse-geocode so a citizen can verify the pin against a real address, and
            so the LGU sees something more human-readable than lat/lng on the dispatch view.
            Also try to guess the barangay from it and pre-fill the dropdown — the citizen
@@ -1216,7 +1308,7 @@
     'report-pin-drop': async (d) => {
       const lat = parseFloat(d.lat), lng = parseFloat(d.lng);
       if (!isFinite(lat) || !isFinite(lng)) return;
-      S.report.lat = lat; S.report.lng = lng; S.report.gps = true;
+      S.report.lat = lat; S.report.lng = lng; S.report.gps = true; S.report.pinOutside = false;
       try {
         const geo = await UG_FEATURES.reverseGeocode(lat, lng);
         S.report.address = geo.address || '';
@@ -1971,7 +2063,7 @@
     },
 
     declare: async () => {
-      if (!requireRole(['lgu_ldrrmc'])) { toast('Only LGU / LDRRMC can declare an emergency', 'warning'); return; }
+      if (!requireRole(['lgu_ldrrmc'])) { toast(T('error.permission'), 'warning'); return; }
       const devices = await Repo.subscribedDeviceCount();
       const ok = await UG_FEATURES.confirm({
         title: 'Declare emergency',
@@ -2022,7 +2114,12 @@
           delivery_mode: S.draft.deliveryMode || 'push'
         });
         toast('Broadcast published to ' + S.draft.area + ' residents', 'prepared');
-      } catch (e) { toast(e.message, 'warning'); }
+      } catch (e) {
+        console.error('[UniGuard] publish advisory failed', e);
+        /* a missing column / stale schema cache is a deploy problem, not the officer's */
+        const m = String((e && e.message) || '');
+        toast(/schema cache|column|relation|does not exist/i.test(m) ? T('error.advisoryNeedsUpdate') : m, 'warning');
+      }
       render();
     },
 
@@ -2170,6 +2267,7 @@
 
     reconnect: async () => {
       const r = await UG_PWA.retryNow();
+      if (r.online && Auth.state.needsRevalidate) revalidateSession();
       if (r.online) {
         toast('Back online. Data refreshed' +
           (r.uploaded ? ', ' + r.uploaded + ' queued report' + (r.uploaded > 1 ? 's' : '') + ' uploaded' : '') + '.',
@@ -2200,6 +2298,7 @@
       toast('Reconnecting and syncing the latest data...', 'info');
       const r = await Repo.forceReload();
       if (r && r.ok) {
+        if (Auth.state.needsRevalidate) revalidateSession();
         toast(Repo.state.source === 'supabase' ? 'Back online — live data synced' : 'Data refreshed', 'prepared');
       } else {
         const msg = (r && r.error) || 'Could not reconnect';
@@ -2227,9 +2326,40 @@
       render();
     },
 
+    /* "Reload app" (residents) / "Force Refresh" (staff): reloads the newest
+       build. Reports and SOS waiting to send are kept (UG_PWA.forceRefresh
+       never clears the queue); say so before reloading. */
     'force-refresh': async () => {
-      toast('Clearing the offline cache and reloading the newest build...', 'info');
+      const n = UG_PWA.state.queued || 0;
+      if (n > 0) {
+        const ok = await UG_FEATURES.confirm({
+          title: T('offline.reloadApp'),
+          message: T('offline.reloadKeepQueue').replace('{n}', n),
+          confirmLabel: T('offline.reloadApp')
+        });
+        if (!ok) return;
+      }
+      toast(T('offline.reloading'), 'info');
       await UG_PWA.forceRefresh();
+    },
+
+    /* My Reports: a queued report the server kept refusing */
+    'queue-retry': async () => {
+      if (navigator.onLine === false) { toast(T('error.network'), 'warning'); return; }
+      const sent = await UG_PWA.flushQueue({ retryFailed: true });
+      await refreshQueuedList();
+      toast(sent ? T('offline.queueSent') : T('offline.queueStillFailing'), sent ? 'prepared' : 'warning');
+    },
+    'queue-delete': async (d) => {
+      const ok = await UG_FEATURES.confirm({
+        title: T('offline.deleteQueuedTitle'),
+        message: T('offline.deleteQueuedMsg'),
+        confirmLabel: T('action.delete'),
+        danger: true
+      });
+      if (!ok) return;
+      await UG_PWA.removeFromQueue(Number(d.qid));
+      await refreshQueuedList();
     },
 
     'enable-push': async () => {
@@ -2242,7 +2372,8 @@
         try {
           UG.DATA.subscribedDevices = await Repo.subscribedDeviceCount();
         } catch (e) { /* count is best-effort */ }
-      } catch (e) { toast(e.message, 'warning'); }
+      } catch (e) { toast(e, 'warning'); }
+      if (typeof UG_SETTINGS !== 'undefined' && UG_SETTINGS.refreshPushState) UG_SETTINGS.refreshPushState();
       render();
     },
 
@@ -2262,15 +2393,8 @@
       render();
     },
 
-    'admin-load': async () => {
-      S.loading = true; S.error = null; render();
-      try {
-        if (S.route === 'users') S.users = await Repo.listUsers();
-        if (S.route === 'audit') S.audit = await Repo.listAudit(200);
-        UG.DATA.users = S.users; UG.DATA.audit = S.audit;
-      } catch (e) { S.error = e.message; }
-      S.loading = false; render();
-    },
+    /* "Try Again" on the Users / Activity Log error panel */
+    'admin-load': async () => { await loadRouteData(S.route); },
 
     'admin-create': async () => {
       if (!isSuperAdmin()) { toast('Only the Super Admin can create accounts', 'warning'); return; }
@@ -2879,15 +3003,19 @@
 
     'audit-page': (d) => { S.auditPage = parseInt(d.p, 10) || 1; render(); },
 
+    /* both run from the SOS detail pop-up; reload the log afterwards so the
+       status badge in the list is current */
     'sos-ack': async (d) => {
       try { await Repo.updateSosStatus(d.id, 'acknowledged'); toast('SOS acknowledged — the sender has been notified', 'prepared'); }
       catch (e) { toast(e.message, 'warning'); }
+      try { if (Repo.client()) UG.DATA.sosLog = await Repo.listSos(); } catch (e) { }
       render();
     },
 
     'sos-resolve': async (d) => {
       try { await Repo.updateSosStatus(d.id, 'resolved'); toast('SOS marked resolved', 'prepared'); }
       catch (e) { toast(e.message, 'warning'); }
+      try { if (Repo.client()) UG.DATA.sosLog = await Repo.listSos(); } catch (e) { }
       render();
     },
 
@@ -3108,31 +3236,10 @@
         }
       });
     },
+    /* "View" on Active Distributions: the full record in a pop-up
+       (UG_RELIEF.distDetailModal), with Verify / Edit for staff */
     'relief-view': (d) => {
-      /* Open a read-only detail modal so the LGU can monitor a distribution
-         without editing it. */
-      const r = (UG.DATA.relief || []).find((x) => x.id === d.id);
-      if (!r) { toast('That distribution no longer exists', 'warning'); return; }
-      const esc = UG_UTIL.esc;
-      const fmt = UG_RELIEF.fmtDateTime;
-      const li = (arr) => (arr || []).map((s) => '<li>' + esc(s) + '</li>').join('');
-      const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600">' + esc(v || '—') + '</span></div>';
-      UG_FEATURES.modal({
-        title: r.title || 'Distribution',
-        body:
-          '<div style="margin-bottom:10px;display:flex;gap:8px;align-items:center">' + U.badge(r.active === false ? 'closed' : 'open', r.active === false ? 'Inactive' : 'Active') + U.badge('id', r.barangay || '—') + '</div>' +
-          kv('Location', r.location_name || '—') +
-          kv('Address', r.address || '—') +
-          kv('Distribution at', fmt(r.distribution_at)) +
-          kv('Contact person', r.contact_person || '—') +
-          kv('Contact phone', r.contact_phone || '—') +
-          (r.eligibility && r.eligibility.length ? '<div class="ug-field" style="margin-top:10px"><div class="ug-lab">Eligibility</div><ul class="ug-bullets">' + li(r.eligibility) + '</ul></div>' : '') +
-          (r.required_docs && r.required_docs.length ? '<div class="ug-field"><div class="ug-lab">Required documents</div><ul class="ug-bullets">' + li(r.required_docs) + '</ul></div>' : '') +
-          (r.note ? '<div class="ug-note" style="margin-top:10px">' + esc(r.note) + '</div>' : '') +
-          ((typeof r.lat === 'number' && typeof r.lng === 'number' && UG_GEO.canNavigate(r.lat, r.lng))
-            ? '<a class="ug-waze-btn" style="margin-top:12px;display:inline-flex" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.lat, r.lng) + '">' + UG.icon('route', 13) + ' Open in Waze</a>' : ''),
-        footer: '<button class="ug-btn" data-modal-close>Close</button>'
-      });
+      if (!UG_RELIEF.distDetailModal(d.id, S)) toast('That distribution no longer exists', 'warning');
     },
     'beneficiary-add': async () => {
       const name = await UG_FEATURES.prompt({ title: 'Add authorized beneficiary', label: 'Beneficiary name', placeholder: 'Last, First' });
@@ -3697,7 +3804,7 @@
        an Edit action appended in the footer for authorized users. */
     'rs-detail': (d) => {
       if (typeof UG_ROADWORK !== 'undefined' && UG_ROADWORK.roadDetailModal) {
-        UG_ROADWORK.roadDetailModal(d.id);
+        UG_ROADWORK.roadDetailModal(d.id, S);
       }
     },
     'rs-pin': async () => {
@@ -3721,28 +3828,55 @@
     },
 
     /* SOS — one tap sends GPS + profile to LGU/LDRRMO via the submit_sos RPC. */
+    /* The status of the last SOS is shown inline on the SOS card
+       (S.lastSos.status: 'sent' | 'queued' | 'error'), never as a pile of
+       toasts over the call button. With no connection the SOS is saved on the
+       phone and sent by UG_PWA.flushQueue as soon as the signal returns. */
     'sos-trigger': async () => {
       if (S.sosSending) return;
       if (!S.session) { toast('Sign in to send an SOS', 'warning'); return; }
       S.sosSending = true; S.route = 'sos'; render();
       let pos = null;
       try { pos = await UG_FEATURES.locate(); }
-      catch (e) { toast('GPS unavailable: ' + e.message + ' — sending without coordinates', 'warning'); }
-      try {
-        const res = await Repo.submitSos({
-          lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, accuracy: pos ? pos.accuracy : null
+      catch (e) { pos = null; /* send or queue without coordinates */ }
+      const now = new Date();
+      const base = {
+        lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, accuracy: pos ? pos.accuracy : null,
+        at: now.toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }),
+        noGps: !pos
+      };
+      const queueIt = async () => {
+        await UG_PWA.upsertQueuedSos({
+          _kind: 'sos', lat: base.lat, lng: base.lng, accuracy: base.accuracy, note: '',
+          client_sent_at: now.toISOString()
         });
-        S.lastSos = {
-          id: res && res.id ? res.id : ('PENDING-' + Date.now()),
-          lat: pos ? pos.lat : null, lng: pos ? pos.lng : null,
-          accuracy: pos ? pos.accuracy : null,
-          reach: res && typeof res.reach === 'number' ? res.reach : null,
-          at: new Date().toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })
-        };
-        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); } catch (e) { }
-        toast('SOS sent. Duty officers have been notified.', 'emergency');
+        S.lastSos = Object.assign({ status: 'queued', id: null, reach: null }, base);
+      };
+      try {
+        if (navigator.onLine === false) {
+          await queueIt();
+        } else {
+          const res = await Repo.submitSos({ lat: base.lat, lng: base.lng, accuracy: base.accuracy });
+          if (res && res.queued) {
+            S.lastSos = Object.assign({ status: 'queued', id: null, reach: null }, base);
+          } else {
+            S.lastSos = Object.assign({
+              status: 'sent',
+              id: res && res.id ? res.id : null,
+              reach: res && typeof res.reach === 'number' ? res.reach : null
+            }, base);
+            try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); } catch (e) { }
+          }
+        }
       } catch (e) {
-        toast(e.message || 'Could not send SOS', 'warning');
+        if (UG_UTIL.isNetworkError(e)) {
+          try { await queueIt(); }
+          catch (e2) { S.lastSos = Object.assign({ status: 'error', message: T('error.network') }, base); }
+        } else {
+          /* the server refused it (rate limit, permission): say so in the card */
+          console.error('[UniGuard] SOS rejected', e);
+          S.lastSos = Object.assign({ status: 'error', message: UG_UTIL.friendlyError(e) }, base);
+        }
       }
       S.sosSending = false;
       render();
@@ -3852,7 +3986,7 @@
               proposed_data: proposed,
               reason: reason
             });
-            toast('Request submitted. The Super Admin has been notified. You will see the decision in your notifications.', 'prepared');
+            toast(T('toast.changeRequestSent'), 'prepared');
             if (Repo.loadChangeRequests) await Repo.loadChangeRequests();
             close();
             render();
@@ -3873,7 +4007,22 @@
   );
 
   /* --------------------------------------------------------------- listeners */
-  root.addEventListener('click', (e) => {
+  /* Delegated on document, not #ug-root: pop-ups (UG_FEATURES.modal) and the
+     connectivity strip live on <body>, outside the root, and their [data-act]
+     buttons never reached a root-bound listener. The urgent-alert overlay has
+     its own listener, so its events are skipped here. Bound exactly once. */
+  const bindDelegates = !window.__ugDelegated;
+  window.__ugDelegated = true;
+  const outsideApp = (e) => !!(e.target && e.target.closest && e.target.closest('.ug-urgent-host'));
+  const on = (type, fn, opts) => {
+    if (!bindDelegates) return;
+    document.addEventListener(type, (e) => {
+      if (!e.target || !e.target.closest || outsideApp(e)) return;
+      fn(e);
+    }, opts);
+  };
+
+  on('click', (e) => {
     const t = e.target.closest('[data-act]');
     if (!t) return;
     /* a submit button belongs to the form: let the submit handler run, and do not
@@ -3882,10 +4031,16 @@
     const fn = ALL[t.dataset.act];
     if (!fn) return;
     e.preventDefault();
+    /* a pop-up action usually re-renders or opens the next pop-up, so close
+       this one first (Escape listener included), unless it asks to stay */
+    const dlg = t.closest('.ug-modal');
+    if (dlg && !t.hasAttribute('data-keep-modal')) {
+      if (typeof dlg.__ugClose === 'function') dlg.__ugClose(); else dlg.remove();
+    }
     fn(t.dataset, t);
   });
 
-  root.addEventListener('input', (e) => {
+  on('input', (e) => {
     const el = e.target.closest('[data-field]');
     if (!el) return;
     const f = el.dataset.field, v = el.value;
@@ -3921,7 +4076,7 @@
     if (f === 'rwHours') { S.roadDraft.expected_hours = parseFloat(v); return; }
   });
 
-  root.addEventListener('change', (e) => {
+  on('change', (e) => {
     const el = e.target.closest('[data-field]');
     if (!el) return;
     const f = el.dataset.field, v = el.value;
@@ -3954,7 +4109,7 @@
   /* Barangay combo — search filtering. The existing input listener only acts
      on [data-field], so the search input (which uses data-act instead) needs
      its own handler. */
-  root.addEventListener('input', (e) => {
+  on('input', (e) => {
     const search = e.target.closest('[data-act="search-barangay"]');
     if (!search) return;
     const combo = search.closest('.ug-combo');
@@ -3991,7 +4146,7 @@
      browser so users can leave the field. Captured in capture phase so it
      fires before the Enter-submits-form handler below, which would otherwise
      submit the auth form whenever the user pressed Enter on the search box. */
-  root.addEventListener('keydown', (e) => {
+  on('keydown', (e) => {
     const search = e.target.closest('[data-act="search-barangay"]');
     if (!search) return;
     const combo = search.closest('.ug-combo');
@@ -4022,7 +4177,7 @@
   /* Enter submits the account forms — but not when the focus is on the
      barangay search input (handled above) or on a non-submit button inside
      the form. */
-  root.addEventListener('keydown', (e) => {
+  on('keydown', (e) => {
     if (e.key !== 'Enter') return;
     const form = e.target.closest('[data-form="auth"]');
     if (!form) return;
@@ -4045,7 +4200,7 @@
     else if (a === 'onboarding') AUTH_ACTIONS['complete-onboarding']();
   });
 
-  root.addEventListener('submit', (e) => {
+  on('submit', (e) => {
     const form = e.target.closest('[data-form="auth"]');
     if (!form) return;
     e.preventDefault();
@@ -4062,6 +4217,25 @@
     const id = e.detail && e.detail.id;
     if (!id) return;
     APP_ACTIONS['open-incident']({ id: id });
+  });
+
+  /* a queued SOS reached the server after the connection came back */
+  document.addEventListener('ug:sos-delivered', (e) => {
+    const res = (e.detail && e.detail.result) || {};
+    if (S.lastSos && (S.lastSos.status === 'queued' || S.lastSos.status === 'error')) {
+      S.lastSos = Object.assign({}, S.lastSos, {
+        status: 'sent', message: '', id: res.id || null,
+        reach: typeof res.reach === 'number' ? res.reach : null
+      });
+    }
+    toast(T('sos.delivered'), 'prepared');
+    if (S.session) render();
+  });
+  document.addEventListener('ug:sos-rejected', (e) => {
+    if (S.lastSos && S.lastSos.status === 'queued') {
+      S.lastSos = Object.assign({}, S.lastSos, { status: 'error', message: (e.detail && e.detail.message) || T('error.generic') });
+      if (S.session) render();
+    }
   });
 
   /* the urgent alert overlay (appended to <body>, outside #ug-root) asks the
@@ -4103,6 +4277,47 @@
   Repo.onChange(() => { if (S.session) render(); });
   UG_PWA.onChange(() => { if (S.session) render(); });
 
+  /* My Reports lists the reports still waiting in the offline queue (SOS rows
+     are shown on the SOS card instead). IndexedDB is async, so keep a copy in
+     UG.DATA.queuedReports and refresh it whenever the queue changes. */
+  let queueKey = '';
+  async function refreshQueuedList() {
+    const rows = (await UG_PWA.listQueue()) || [];
+    UG.DATA.queuedReports = rows.filter((r) => r._kind !== 'sos').map((r) => ({
+      qid: r.id, hazard: r.hazard_type, brgy: r.barangay, description: r.description,
+      queued_at: r.queued_at, failed: !!r.failed, last_error: r.last_error || '', sev: r.severity
+    }));
+    if (S.session) render();
+  }
+  UG_PWA.onChange((st) => {
+    const k = (st.queued || 0) + ':' + (st.failed || 0);
+    if (k === queueKey) return;
+    queueKey = k;
+    refreshQueuedList().catch(() => { });
+  });
+
+  /* A session restored from the device cache while offline is confirmed with
+     the server once per reconnection. If it is really gone (or the account
+     was disabled meanwhile) the user lands on the sign-in screen. */
+  let revalidating = false;
+  async function revalidateSession() {
+    if (revalidating || !S.session || !Repo.client()) return;
+    revalidating = true;
+    try {
+      const r = await Auth.revalidate();
+      if (r && r.signedOut) {
+        MapView.destroy();
+        S.session = null;
+        S.auth = blankAuth();
+        S.auth.notice = T('auth.signInAgain');
+        go('home');
+        render();
+      }
+    } catch (e) { /* stay as we are; the next reconnection tries again */ }
+    revalidating = false;
+  }
+  window.addEventListener('online', () => { revalidateSession(); });
+
   /* -------------------------------------------------------------- DEV deep links */
   function applyDevDeepLink() {
     if (!UG_CONFIG.DEV) return false;
@@ -4143,7 +4358,7 @@
           '<span>' + UG_UTIL.esc(msg) +
           (queued ? ' · ' + queued + ' report' + (queued > 1 ? 's' : '') + ' waiting to upload' : '') +
           (lastSync ? ' · last sync ' + UG_UTIL.esc(lastSync) : '') + '.</span>' +
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto" data-act="retry-load">' + UG.icon('wave', 13) + 'Retry</button>';
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto" data-act="retry-load">' + UG.icon('wave', 13) + UG_UTIL.esc(T('action.tryAgainShort')) + '</button>';
         strip.hidden = false;
       } else if (queued) {
         strip.className = 'ug-banner-strip is-sync';
@@ -4180,7 +4395,14 @@
 
     let session = null;
     try { session = await Auth.restore(); }
-    catch (e) { session = null; }
+    catch (e) {
+      /* not a definitive "signed out": keep the session and offer a retry */
+      console.error('[UniGuard] restore failed', e);
+      session = null;
+      S.auth = blankAuth();
+      S.auth.error = UG_UTIL.friendlyError(e);
+      S.auth.restoreFailed = true;
+    }
 
     if (Auth.state.recovery) {
       S.session = null;
@@ -4188,6 +4410,18 @@
       S.auth.screen = 'set-password';
       render();
       return;
+    }
+    /* Back from a confirmation email: drop the token from the address bar
+       (keeping the hash router alive) and say plainly what happened. */
+    let linkMessage = '';
+    if (EMAIL_LINK && EMAIL_LINK.kind !== 'recovery') {
+      try { history.replaceState(null, '', location.pathname + '#'); } catch (e) { }
+      if (EMAIL_LINK.kind === 'confirmed') linkMessage = T('auth.emailConfirmed');
+      if (!session) {
+        S.auth = blankAuth();
+        if (EMAIL_LINK.kind === 'error') { S.auth.error = T('auth.linkExpired'); S.auth.linkExpired = true; }
+        else S.auth.notice = linkMessage;
+      }
     }
     /* Onboarding: if the restored session is for an invited account (official,
        LGU or dispatch team) whose full_name is still the email prefix, show
@@ -4210,7 +4444,7 @@
       render();
       return;
     }
-    if (session) enterApp(session);
+    if (session) enterApp(session, linkMessage || undefined);
     else render();
 
     /* a manifest shortcut or a reload arrives with a route in the hash */

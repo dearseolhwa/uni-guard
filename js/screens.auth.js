@@ -123,6 +123,14 @@ const UG_AUTH = (function () {
       field('password', 'Password', { type: 'password', value: f.password, ph: 'Your password', ac: 'current-password', reveal: true, revealed: a.showPassword }) +
       '<button type="submit" class="ug-btn ug-btn--signal ug-btn--block' + (a.loading ? ' is-disabled' : '') + '" data-act="signin"' +
         (a.loading ? ' disabled' : '') + '>' + I('shield', 16) + (a.loading ? 'Signing in...' : 'Sign In') + '</button>' +
+      (a.restoreFailed
+        ? '<button type="button" class="ug-btn ug-btn--block" style="margin-top:8px" data-act="retry-restore"' + (a.loading ? ' disabled' : '') + '>' +
+          I('wave', 15) + esc(UG_I18N.t('action.tryAgain')) + '</button>'
+        : '') +
+      (a.linkExpired
+        ? '<button type="button" class="ug-btn ug-btn--block" style="margin-top:8px" data-act="resend"' + (a.loading ? ' disabled' : '') + '>' +
+          I('bell', 15) + esc(UG_I18N.t('auth.requestNewLink')) + '</button>'
+        : '') +
       '<div class="ug-auth-actions">' +
         '<button type="button" class="ug-auth-link" data-act="auth-go" data-to="signup">Create Account</button>' +
         '<span class="ug-auth-dot">&middot;</span>' +

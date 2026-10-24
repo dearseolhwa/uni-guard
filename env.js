@@ -10,12 +10,13 @@
 window.UG_ENV = {
   SUPABASE_URL: 'https://irjeupyvczmewcxuvjpu.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlyamV1cHl2Y3ptZXdjeHV2anB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTkwMDMsImV4cCI6MjEwNTM3NTAwM30.2zbcIOVSzmEFr1Z1LPEHPWRe9ca58zp8g7hDG5srMcY',
+  /* MUST be the public https URL in any build tested on phones */
   APP_PUBLIC_URL: 'http://127.0.0.1:5500',
   VAPID_PUBLIC_KEY: 'BOWEew585PRL-nM-2KMaxRBt4xIWq18tScFgap_H4CcV7ZTVnmMGLHtrGnB3uRBg0CUdlhWtsq8TxOEwM0ZYsM4',
 
   /* Shown in the app so you can tell at a glance which build is running.
      Bump it on every deploy. */
-  BUILD: '2026-10-18.3',
+  BUILD: '2026-10-24.1',
 
   /* Keep false in production. Turns on the preview bar and ?role=/?route= links. */
   DEV: false
