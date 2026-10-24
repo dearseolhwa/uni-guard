@@ -958,8 +958,12 @@
     /* ------------------------------------------------------------ dispatch form */
   /* "Barangay Tanod" was renamed to "Barangay Response Team" per LGU request —
      the team is now an organized per-barangay response unit rather than a
-     watchman. The DB constraint (migration 035) accepts the new name. */
-  const DISPATCH_TEAMS = ['MDRRMO Rescue', 'BFP', 'PNP', 'Barangay Response Team', 'Ambulance', 'Rescue Unit'];
+     watchman. The DB constraint (migration 035) accepts the new name.
+     G1 (Oct 24 2026): "MDRRMO Rescue" is removed from the form's pickable
+     list so dispatchers see only "Rescue Unit". The DB check still accepts
+     the old name and routes it through the same Rescue logic
+     (migration 039 maps it to unit_type 'Rescue'); old rows keep rendering. */
+  const DISPATCH_TEAMS = ['BFP', 'PNP', 'Barangay Response Team', 'Ambulance', 'Rescue Unit'];
   const pad2 = (n) => String(n).padStart(2, '0');
   const toLocalInput = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
     'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
@@ -998,7 +1002,21 @@
        report's barangay's own team. */
     const units = UG.DATA.dispatchUnits || [];
     const unitByType = (type) => units.filter((u) => u.unit_type === type && u.active);
-    const teamOpts = DISPATCH_TEAMS.map((t) => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('');
+    /* A3: suggested teams for this hazard, sorted first with a "Suggested"
+       badge in the option text. All teams remain pickable. */
+    const suggested = (typeof UG_HAZARDS !== 'undefined' && UG_HAZARDS.suggestedTeams)
+      ? UG_HAZARDS.suggestedTeams(inc.hazard_type || inc.hazard)
+      : [];
+    const sortedTeams = DISPATCH_TEAMS.slice().sort((a, b) => {
+      const ai = suggested.indexOf(a); const bi = suggested.indexOf(b);
+      const an = ai === -1 ? 99 : ai; const bn = bi === -1 ? 99 : bi;
+      return an - bn;
+    });
+    const teamOpts = sortedTeams.map((t) => {
+      const isSugg = suggested.indexOf(t) !== -1;
+      return '<option value="' + esc(t) + '"' + (isSugg ? ' data-suggested="1"' : '') + '>' +
+        esc(t) + (isSugg ? '  (Suggested)' : '') + '</option>';
+    }).join('');
 
     const defaultEta = toLocalInput(new Date(Date.now() + 30 * 60000));
     const kv = (k, v, attrs) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)">' +
@@ -1616,7 +1634,14 @@
             '<div class="ug-field" style="flex:1"><label class="ug-lab">Contact phone</label><input class="ug-in" data-ce-phone value="' + UG_UTIL.esc(c.contact_phone || '') + '"></div>' +
           '</div>' +
           '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Notes</label>' +
-            '<input class="ug-in" data-ce-note value="' + UG_UTIL.esc(c.note || '') + '"></div>',
+            '<input class="ug-in" data-ce-note value="' + UG_UTIL.esc(c.note || '') + '"></div>' +
+          /* D2: needs_patrol toggle. Already limited by RLS to LGU + the
+             barangay's officials. Stored on evacuation_centers. */
+          '<div class="ug-field" style="margin-bottom:0;margin-top:8px"><label class="ug-lab">Security</label>' +
+            '<label class="ug-rowf ug-gap8" style="gap:8px;align-items:center;font-size:12px">' +
+              '<input type="checkbox" data-ce-patrol' + (c.needs_patrol ? ' checked' : '') + '>' +
+              '<span class="ug-dim">Flag this shelter as needing PNP patrol</span>' +
+            '</label></div>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
           '<button class="ug-btn ug-btn--signal" data-save>Save</button>',
         onMount: (wrap, close) => {
@@ -1626,6 +1651,8 @@
             const cap = parseInt(wrap.querySelector('[data-ce-cap]').value || '0', 10) || 0;
             const fac = wrap.querySelector('[data-ce-fac]').value;
             const facilities = fac ? fac.split(',').map((s) => s.trim()).filter(Boolean) : [];
+            const patrolEl = wrap.querySelector('[data-ce-patrol]');
+            const needsPatrol = patrolEl ? !!patrolEl.checked : !!c.needs_patrol;
             if (!name || !cap) { toast('A name and a capacity are required', 'warning'); return; }
             try {
               await Repo.updateCenter(c.uuid || c.id, {
@@ -1633,7 +1660,9 @@
                 facilities: facilities,
                 contact_person: wrap.querySelector('[data-ce-contact]').value.trim(),
                 contact_phone: wrap.querySelector('[data-ce-phone]').value.trim(),
-                note: wrap.querySelector('[data-ce-note]').value.trim()
+                note: wrap.querySelector('[data-ce-note]').value.trim(),
+                needs_patrol: needsPatrol,
+                needs_patrol_at: needsPatrol ? (c.needs_patrol_at || new Date().toISOString()) : null
               });
               toast('Evacuation centre updated', 'prepared');
               close();
@@ -2285,6 +2314,14 @@
     },
 
     'close-nav': () => { setNav(false); render(); },
+
+    /* PRIORITY 0 fix (Oct 24 2026): the dispatch console's sidebar and
+       topbar both use data-act="logout", but APP_ACTIONS only registered
+       "sign-out". So clicking Sign Out on the dispatch console silently
+       no-op'd (the global click delegate found ALL["logout"] === undefined
+       and returned). Alias "logout" to AUTH_ACTIONS.logout so both names
+       work. */
+    'logout': () => AUTH_ACTIONS.logout(),
 
     'sign-out': () => AUTH_ACTIONS.logout(),
 
@@ -3092,6 +3129,219 @@
         toast('Responder assigned', 'prepared');
       } catch (e) { toast(e.message, 'warning'); }
       render();
+    },
+
+    /* ----------------------------- A1 / A2 / B4 / D2 / D3 (dispatch team features) */
+
+    /* A1: decline a dispatch. Reason required. Available on the dispatch card
+       on the Response Team screen and on the dispatch console. */
+    'dispatch-decline': async (d) => {
+      const res = await UG_FEATURES.prompt({
+        title: 'Decline this dispatch',
+        label: 'Reason', placeholder: 'e.g. No available responders, equipment failure'
+      });
+      if (!res) return;
+      const reason = String(res || '').trim();
+      if (!reason) { toast('A reason is required', 'warning'); return; }
+      try {
+        const c = Repo.client && Repo.client();
+        if (!c) { toast('Offline — cannot decline now', 'warning'); return; }
+        const { error } = await c.rpc('decline_dispatch', {
+          p_dispatch_id: d.id, p_reason: reason
+        });
+        if (error) throw error;
+        toast('Dispatch declined — the dispatcher has been notified', 'prepared');
+        if (d.reportId) { try { await Repo.loadDispatches(d.reportId); } catch (e) {} }
+        render();
+      } catch (e) { toast(e.message || 'Could not decline', 'warning'); }
+    },
+
+    /* A2: open the help-request composer for this dispatch. */
+    'dispatch-help-new': (d) => {
+      const kindOpts = ['general','water_tanker','extra_personnel','beyond_capacity']
+        .map((k) => '<option value="' + k + '">' + k + '</option>').join('');
+      UG_FEATURES.modal({
+        title: 'Request help on this dispatch',
+        body: '<div class="ug-field"><label class="ug-lab">Kind</label>' +
+            '<select class="ug-sel" data-hr-kind>' + kindOpts + '</select></div>' +
+          '<div class="ug-field"><label class="ug-lab">Message</label>' +
+            '<textarea class="ug-ta" rows="3" data-hr-msg placeholder="What do you need?"></textarea></div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-hr-send>Send</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-hr-send]').addEventListener('click', async () => {
+            const kind = wrap.querySelector('[data-hr-kind]').value;
+            const msg = wrap.querySelector('[data-hr-msg]').value.trim();
+            if (!msg) { toast('Write a short message', 'warning'); return; }
+            try {
+              const c = Repo.client && Repo.client();
+              if (!c) { toast('Offline', 'warning'); return; }
+              const { error } = await c.rpc('create_help_request', {
+                p_dispatch_id: d.id, p_kind: kind, p_message: msg
+              });
+              if (error) throw error;
+              toast('Help request sent to the LGU', 'prepared');
+              close();
+              if (d.reportId) { try { await Repo.loadDispatches(d.reportId); } catch (e) {} }
+              render();
+            } catch (e) { toast(e.message || 'Could not send', 'warning'); }
+          });
+        }
+      });
+    },
+
+    /* B4: "Beyond our capacity" — opens a menu with two choices:
+       (a) re-dispatch BFP / PNP / Rescue Unit for the same incident (the
+           existing dispatch form pre-filled), or (b) create a help request
+           of kind 'beyond_capacity' to the LGU. */
+    'dispatch-beyond-capacity': (d) => {
+      const inc = (UG.DATA.incidents || []).find((i) => (i.uuid || i.id) === d.reportId || i.id === d.reportId);
+      UG_FEATURES.modal({
+        title: 'Beyond our capacity',
+        body: '<div class="ug-col" style="gap:10px">' +
+          '<div class="ug-note">Choose how to escalate this dispatch.</div>' +
+          '<button class="ug-btn ug-btn--signal" data-bc-dispatch="' + (inc ? UG_UTIL.esc(inc.uuid || inc.id) : '') + '">Re-dispatch another team</button>' +
+          '<button class="ug-btn ug-btn--ghost" data-bc-help>Send Need Help to the LGU</button>' +
+        '</div>',
+        footer: '<button class="ug-btn" data-modal-close>Close</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-bc-dispatch]').addEventListener('click', () => {
+            close();
+            if (!inc) { toast('Could not find the incident', 'warning'); return; }
+            dispatchModal(inc);
+          });
+          wrap.querySelector('[data-bc-help]').addEventListener('click', async () => {
+            close();
+            try {
+              const c = Repo.client && Repo.client();
+              if (!c) { toast('Offline', 'warning'); return; }
+              const { error } = await c.rpc('create_help_request', {
+                p_dispatch_id: d.id, p_kind: 'beyond_capacity',
+                p_message: 'Beyond our capacity — please send additional help.'
+              });
+              if (error) throw error;
+              toast('Need Help sent to the LGU', 'prepared');
+              if (d.reportId) { try { await Repo.loadDispatches(d.reportId); } catch (e) {} }
+              render();
+            } catch (e) { toast(e.message || 'Could not send', 'warning'); }
+          });
+        }
+      });
+    },
+
+    /* D2: toggle needs_patrol on an evacuation center. The LGU and the
+       barangay's officials are already writers through RLS; this just
+       flips the boolean. */
+    'center-toggle-patrol': async (d) => {
+      const c = (UG.DATA.centers || []).find((x) => (x.uuid || x.id) === d.id || x.id === d.id);
+      if (!c) return;
+      try {
+        await Repo.updateCenter(c.uuid || c.id, {
+          needs_patrol: !c.needs_patrol,
+          needs_patrol_at: !c.needs_patrol ? new Date().toISOString() : null
+        });
+        toast(c.needs_patrol ? 'Patrol request cleared' : 'Marked as needing patrol', 'prepared');
+      } catch (e) { toast(e.message, 'warning'); }
+    },
+
+    /* D3: request / confirm a relief escort. */
+    'relief-escort-request': async (d) => {
+      const res = await UG_FEATURES.prompt({
+        title: 'Request a PNP escort for this distribution',
+        label: 'Note', placeholder: 'Convoy size, route, schedule'
+      });
+      if (!res) return;
+      try {
+        const c = Repo.client && Repo.client();
+        if (!c) { toast('Offline', 'warning'); return; }
+        const { error } = await c.rpc('request_relief_escort', {
+          p_distribution_id: d.id, p_note: String(res || '')
+        });
+        if (error) throw error;
+        toast('Escort requested from the PNP', 'prepared');
+        render();
+      } catch (e) { toast(e.message || 'Could not request', 'warning'); }
+    },
+    'relief-escort-confirm': async (d) => {
+      try {
+        const c = Repo.client && Repo.client();
+        if (!c) { toast('Offline', 'warning'); return; }
+        const { error } = await c.rpc('confirm_relief_escort', { p_distribution_id: d.id });
+        if (error) throw error;
+        toast('Escort confirmed', 'prepared');
+        render();
+      } catch (e) { toast(e.message || 'Could not confirm', 'warning'); }
+    },
+
+    /* A2 LGU console: update a help request status forward-only. */
+    'help-request-update': async (d) => {
+      try {
+        const c = Repo.client && Repo.client();
+        if (!c) { toast('Offline', 'warning'); return; }
+        const { error } = await c.rpc('update_help_request', {
+          p_id: d.id, p_status: d.next
+        });
+        if (error) throw error;
+        toast('Help request ' + d.next, 'prepared');
+        render();
+      } catch (e) { toast(e.message || 'Could not update', 'warning'); }
+    },
+
+    /* D1: post a road closure from a PNP dispatch (opens a small form). */
+    'dispatch-road-closure': (d) => {
+      UG_FEATURES.modal({
+        title: 'Post a road closure from this dispatch',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Road name</label>' +
+            '<input class="ug-in" data-rc-road placeholder="e.g. Rizal St"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Diversion route / note</label>' +
+            '<textarea class="ug-ta" rows="2" data-rc-note placeholder="Detour via Mabini St, two lanes blocked"></textarea></div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">From</label><input class="ug-in" data-rc-from placeholder="Purok 1"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">To</label><input class="ug-in" data-rc-to placeholder="Highway junction"></div>' +
+          '</div>' +
+          '<div class="ug-field"><label class="ug-lab">Estimated reopen (optional)</label>' +
+            '<input class="ug-in" type="datetime-local" data-rc-eta></div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-rc-save>Post closure</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-rc-save]').addEventListener('click', async () => {
+            const road = wrap.querySelector('[data-rc-road]').value.trim();
+            const note = wrap.querySelector('[data-rc-note]').value.trim();
+            if (!road) { toast('A road name is required', 'warning'); return; }
+            const segFrom = wrap.querySelector('[data-rc-from]').value.trim();
+            const segTo = wrap.querySelector('[data-rc-to]').value.trim();
+            const etaVal = wrap.querySelector('[data-rc-eta]').value;
+            const eta = etaVal ? new Date(etaVal).toISOString() : null;
+            try {
+              const c = Repo.client && Repo.client();
+              if (!c) { toast('Offline', 'warning'); return; }
+              const { error } = await c.rpc('post_road_closure', {
+                p_dispatch_id: d.id,
+                p_road_name: road,
+                p_note: note,
+                p_lat: null, p_lng: null,
+                p_segment_from: segFrom, p_segment_to: segTo,
+                p_estimated_reopen: eta
+              });
+              if (error) throw error;
+              toast('Road closure posted', 'prepared');
+              close();
+              render();
+            } catch (e) { toast(e.message || 'Could not post', 'warning'); }
+          });
+        }
+      });
+    },
+    'dispatch-road-reopen': async (d) => {
+      try {
+        const c = Repo.client && Repo.client();
+        if (!c) { toast('Offline', 'warning'); return; }
+        const { error } = await c.rpc('reopen_road_closure', { p_dispatch_id: d.id });
+        if (error) throw error;
+        toast('Road reopened', 'prepared');
+        render();
+      } catch (e) { toast(e.message || 'Could not reopen', 'warning'); }
     },
 
     /* -------------------------------------------- relief / guides / faqs / roadwork / sos */
@@ -4031,13 +4281,24 @@
     const fn = ALL[t.dataset.act];
     if (!fn) return;
     e.preventDefault();
-    /* a pop-up action usually re-renders or opens the next pop-up, so close
-       this one first (Escape listener included), unless it asks to stay */
+    /* PRIORITY 0 fix (Oct 24 2026): the old delegate closed the modal
+       BEFORE running the action, so any action that read modal form
+       fields (e.g. dispatch-help-new's onMount handler reads
+       [data-hr-kind] and [data-hr-msg]) found them already removed
+       from the DOM. Run the action FIRST (it can read the form, call
+       close() itself when done, or call render() which leaves the
+       modal in place because modals live on <body>, not inside
+       #ug-root). Then auto-close the modal unless the button opted
+       out with data-keep-modal. The action's own directly-attached
+       listeners (e.g. footer Save buttons) ran during the target
+       phase, before this delegated handler, so they are unaffected. */
     const dlg = t.closest('.ug-modal');
-    if (dlg && !t.hasAttribute('data-keep-modal')) {
-      if (typeof dlg.__ugClose === 'function') dlg.__ugClose(); else dlg.remove();
+    try { fn(t.dataset, t); }
+    finally {
+      if (dlg && !t.hasAttribute('data-keep-modal')) {
+        if (typeof dlg.__ugClose === 'function') dlg.__ugClose(); else dlg.remove();
+      }
     }
-    fn(t.dataset, t);
   });
 
   on('input', (e) => {
@@ -4466,11 +4727,32 @@
   window.addEventListener('unhandledrejection', (e) => reportClientError(
     (e.reason && e.reason.message) || String(e.reason), { type: 'unhandledrejection' }));
 
-  window.UG_App = {
-    S: S, render: render, toast: toast, actions: ALL,
-    /* small handle used by the dispatch module to drive navigation and
-       re-render without reaching into app.js private state */
-    go: function (route) { try { go(route); } catch (e) {} }
+  /* expose the controller hooks the feature modules (settings, relief,
+     dispatch, reporting, roadwork) reach for. These are assigned once on
+     boot; the modules guard with typeof so a missed assignment never throws.
+
+     CRITICAL (PRIORITY 0 fix, Oct 24 2026): the dispatch module references
+     `window.UG_APP` (all caps) in 62+ places, but only `window.UG_App`
+     (mixed case) was being exposed — so every dispatch click silently
+     no-op'd: no re-render, no route change, no toast. The mixed-case name
+     is kept as an alias so reporting.js and roadwork.js keep working, but
+     the canonical name is now `window.UG_APP`. The bridge is exposed here
+     (after render / go / toast / loadRouteData are all defined) so the
+     dispatch module's `app()` helper can rely on it. */
+  window.UG_APP = {
+    S: S,
+    render: render,
+    toast: toast,
+    go: go,
+    loadRouteData: loadRouteData,
+    actions: ALL,
+    /* `go(route)` writes the hash so back/forward and reload land on the
+       same route. The wrapper used to swallow errors with try/catch,
+       which hid routing bugs; it now rethrows so a broken route surfaces
+       immediately. */
+    goLoud: function (route) { go(route); }
   };
+  /* alias for the mixed-case name reporting.js / roadwork.js already use */
+  window.UG_App = window.UG_APP;
   boot();
 })();

@@ -322,6 +322,18 @@ const UG_ADMIN = (function () {
    * roster (responders + status), equipment (barangay-owned) and a
    * read-only dispatch directory. Reuses the UG_ADMIN data shape and the
    * existing responder + dispatch helpers in Repo.
+   *
+   * Oct 24 2026 additions:
+   *   B1 — each dispatch row now has an inline roster picker using the
+   *        existing assign-responder action (only this barangay's
+   *        available responders). The trigger sync_responder_duty still
+   *        sets On duty on assignment and back to Available on close
+   *        (release_on_close).
+   *   A1 — a "Can't respond" button on each open dispatch.
+   *   A2 — a status chip + a "Need help" button on each open dispatch.
+   *   B4 — a "Beyond our capacity" button on each open dispatch.
+   *   D2 — shelter patrol list (LGU/official sees the toggle; the PNP
+   *        console reads it).
    */
   function responseTeam(st) {
     const me = st.session || {};
@@ -338,13 +350,48 @@ const UG_ADMIN = (function () {
     const responders = (UG.DATA.responders || [])
       .filter((r) => isLgu || r.barangay_id === myBrgyId || r.barangay_id == null);
 
-    const dispatchRow = (d) => '<tr>' +
-      '<td class="t-num">' + esc(UG_UTIL.absTime(d.dispatched_at) || '') + '</td>' +
-      '<td>' + esc(d.team) + '</td>' +
-      '<td class="ug-dimmer" style="font-size:11px">' + esc(d.instructions || '') + '</td>' +
-      '<td>' + esc(d.dispatched_by_name || '') + '</td>' +
-      '<td>' + esc(d.dispatch_status || (d.done_at ? 'done' : 'sent')) + '</td>' +
-    '</tr>';
+    /* B1: available responders for this barangay, for the inline picker.
+       Only 'available' responders can be assigned; the sync_responder_duty
+       trigger sets them On duty on assignment. */
+    const availResponders = responders.filter((r) => (r.status || 'available') === 'available');
+
+    const dispatchRow = (d) => {
+      const open = d.dispatch_status && !['done','declined'].includes(d.dispatch_status);
+      const statusBadge = U.badge(
+        d.dispatch_status === 'declined' ? 'closed'
+          : d.dispatch_status === 'on_hold' ? 'warning'
+          : d.dispatch_status === 'done' ? 'prepared'
+          : 'open',
+        d.dispatch_status || (d.done_at ? 'done' : 'sent')
+      );
+      /* B1: the inline assign-responder picker */
+      const opts = ['<option value="">Assign a responder…</option>']
+        .concat(availResponders.map((r) => '<option value="' + esc(r.id) + '">' + esc(r.name || '') + '</option>'))
+        .join('');
+      const roster = open
+        ? '<div class="ug-rowf" style="gap:6px;margin-top:6px">' +
+            '<select class="ug-sel-inline" style="flex:1;max-width:none" data-field="assignResponder" data-dispatch="' + esc(d.id) + '">' + opts + '</select>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="assign-responder" data-id="' + esc(d.report_id || '') + '">Assign</button>' +
+          '</div>'
+        : '';
+      /* A1 / A2 / B4 actions */
+      const canAct = open && (me.role === 'barangay_official' || isLgu);
+      const actions = canAct
+        ? '<div class="ug-rowf ug-gap6" style="gap:6px;margin-top:6px;flex-wrap:wrap">' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-decline" data-id="' + esc(d.id) + '" data-report-id="' + esc(d.report_id || '') + '">Can\'t respond</button>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-help-new" data-id="' + esc(d.id) + '" data-report-id="' + esc(d.report_id || '') + '">Need help</button>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-beyond-capacity" data-id="' + esc(d.id) + '" data-report-id="' + esc(d.report_id || '') + '">Beyond capacity</button>' +
+          '</div>'
+        : '';
+      return '<tr>' +
+        '<td class="t-num">' + esc(UG_UTIL.absTime(d.dispatched_at) || '') + '</td>' +
+        '<td>' + esc(d.team) + '</td>' +
+        '<td class="ug-dimmer" style="font-size:11px">' + esc(d.instructions || '') + '</td>' +
+        '<td>' + esc(d.dispatched_by_name || '') + '</td>' +
+        '<td>' + statusBadge + '</td>' +
+        '<td style="min-width:240px">' + roster + actions + '</td>' +
+      '</tr>';
+    };
 
     const responderRow = (r) => '<tr>' +
       '<td><div style="font-weight:600">' + esc(r.name || '') + '</div>' +
@@ -361,23 +408,44 @@ const UG_ADMIN = (function () {
       '<td class="t-right"><a class="ug-btn ug-btn--sm ug-btn--signal" href="tel:' + esc(String(u.contact_number).replace(/[^+\d]/g, '')) + '">' + I('phone', 13) + 'Call</a></td>' +
     '</tr>').join('');
 
+    /* D2: shelters needing patrol (LGU + the barangay's officials can
+       toggle the flag through the existing center-edit modal; everyone
+       reads the list. PNP sees it on its own console — we expose it
+       here too for the Response Team to coordinate. */
+    const patrolShelters = (UG.DATA.centers || [])
+      .filter((c) => c.needs_patrol === true);
+    const patrolRow = (c) => '<tr>' +
+      '<td><div style="font-weight:600">' + esc(c.name || '') + '</div>' +
+        '<div class="ug-dimmer" style="font-size:10.5px">' + esc(c.brgy || c.barangay || '') + '</div></td>' +
+      '<td class="t-num">' + (c.needs_patrol_at ? esc(UG_UTIL.absTime(c.needs_patrol_at) || '') : '—') + '</td>' +
+      '<td class="t-right"><button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="center-detail" data-id="' + esc(c.uuid || c.id) + '">Open</button></td>' +
+    '</tr>';
+
     return '<div class="ug-col" style="gap:18px">' +
       head('Barangay Response Team', 'Incoming dispatches, roster and equipment for ' + (isLgu ? 'every barangay' : 'Barangay ' + brgyName) + '.') +
-      (disp.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>When</th><th>Team</th><th>Instructions</th><th>By</th><th>Status</th></tr></thead><tbody>' + disp.map(dispatchRow).join('') + '</tbody></table></div>'
+      (disp.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>When</th><th>Team</th><th>Instructions</th><th>By</th><th>Status</th><th>Action</th></tr></thead><tbody>' + disp.map(dispatchRow).join('') + '</tbody></table></div>'
         : statePanel('empty', 'No Response Team dispatches yet', 'When your barangay\'s Response Team is dispatched, the alert lands here.')) +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Name / unit</th><th>Contact</th><th>Status</th><th class="t-right">Action</th></tr></thead><tbody>' +
         (responders.length ? responders.map(responderRow).join('') : '<tr><td colspan="4" style="text-align:center;padding:20px">No responders yet</td></tr>') + '</tbody></table></div>' +
+      (patrolShelters.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Shelter needing patrol</th><th>Flagged</th><th class="t-right">Action</th></tr></thead><tbody>' + patrolShelters.map(patrolRow).join('') + '</tbody></table></div>' : '') +
       (units ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Unit</th><th>Type</th><th>Contact</th><th>Status</th><th class="t-right">Action</th></tr></thead><tbody>' + units + '</tbody></table></div>' : '') +
     '</div>';
   }
 
   /* ---------------------------------------------------------- LGU Dispatch Units
    * The LGU's municipality-wide dispatch unit console: list units, manage
-   * accounts (via admin-users), and the support request inbox.
+   * accounts (via admin-users), the support request inbox, the dispatch
+   * help-request inbox (A2, Oct 24 2026) and the relief escort list (D3).
    */
   function dispatchUnits(st) {
     const allUnits = UG.DATA.dispatchUnits || [];
     const requests = UG.DATA.unitRequests || [];
+    /* A2: dispatch_help_requests (per-dispatch "Need Help" messages from a
+       unit or barangay official). The LGU moves them sent -> acknowledged
+       -> resolved. */
+    const helpReqs = UG.DATA.dispatchHelpRequests || [];
+    /* D3: relief distributions with an active escort status. */
+    const escortRows = (UG.DATA.relief || []).filter((r) => r.escort_status && r.escort_status !== 'none');
     /* search filter: match name, type, address or contact */
     const q = (st.unitSearch || '').trim().toLowerCase();
     const units = q
@@ -417,6 +485,28 @@ const UG_ADMIN = (function () {
       '<td>' + esc(r.status) + '</td>' +
       '<td class="t-right">' + (r.status === 'pending' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="admin-decide-request" data-id="' + esc(r.id) + '" data-decision="approved">' + esc(T('action.approve')) + '</button> <button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-decide-request" data-id="' + esc(r.id) + '" data-decision="declined">' + esc(T('action.decline')) + '</button>' : '') + '</td>' +
     '</tr>';
+    /* A2 row: a dispatch help request */
+    const helpRow = (h) => '<tr>' +
+      '<td class="t-num">' + esc(UG_UTIL.absTime(h.created_at) || '') + '</td>' +
+      '<td><span class="ug-badge ug-badge--id">' + esc(h.kind) + '</span></td>' +
+      '<td class="ug-dimmer" style="font-size:11px">' + esc(h.message || '') + '</td>' +
+      '<td>' + esc(h.status || 'sent') + '</td>' +
+      '<td class="t-right">' +
+        (h.status === 'sent' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="help-request-update" data-id="' + esc(h.id) + '" data-next="acknowledged">Acknowledge</button>' : '') +
+        (h.status === 'acknowledged' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="help-request-update" data-id="' + esc(h.id) + '" data-next="resolved">Resolve</button>' : '') +
+      '</td>' +
+    '</tr>';
+    /* D3 row: a relief distribution with escort requested/confirmed */
+    const escortRow = (r) => '<tr>' +
+      '<td><div style="font-weight:600">' + esc(r.title || '') + '</div>' +
+        '<div class="ug-dimmer" style="font-size:10.5px">' + esc(r.barangay || '') + '</div></td>' +
+      '<td>' + U.badge(r.escort_status === 'confirmed' ? 'prepared' : 'warning', r.escort_status) + '</td>' +
+      '<td class="ug-dimmer" style="font-size:11px">' + esc(r.escort_note || '') + '</td>' +
+      '<td>' + esc(r.escort_unit_id || '—') + '</td>' +
+      '<td class="t-right">' + (r.escort_status === 'requested'
+        ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="relief-escort-confirm" data-id="' + esc(r.id) + '">Confirm escort</button>'
+        : '') + '</td>' +
+    '</tr>';
     return '<div class="ug-col" style="gap:18px">' +
       head(T('admin.dispatchUnitsTitle'), T('admin.dispatchUnitsSub'),
         /* a new unit invites its first admin account, so it is a Super Admin action */
@@ -433,6 +523,16 @@ const UG_ADMIN = (function () {
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
       '<thead><tr><th>' + esc(T('label.when')) + '</th><th>' + esc(T('label.unit')) + '</th><th>' + esc(T('label.kind')) + '</th><th>' + esc(T('label.details')) + '</th><th>' + esc(T('label.status')) + '</th><th class="t-right">' + esc(T('label.action')) + '</th></tr></thead>' +
       '<tbody>' + (requests.length ? requests.map(requestRow).join('') : '<tr><td colspan="6" style="text-align:center;padding:20px">' + esc(T('admin.noSupportRequests')) + '</td></tr>') + '</tbody></table></div>' +
+      /* A2 inbox */
+      head('Dispatch help requests', 'Need Help messages from a unit or a barangay official.') +
+      '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
+      '<thead><tr><th>When</th><th>Kind</th><th>Message</th><th>Status</th><th class="t-right">Action</th></tr></thead>' +
+      '<tbody>' + (helpReqs.length ? helpReqs.map(helpRow).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px">No help requests</td></tr>') + '</tbody></table></div>' +
+      /* D3 escort list */
+      head('Relief escorts', 'Distributions with a PNP escort requested or confirmed.') +
+      '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
+      '<thead><tr><th>Distribution</th><th>Escort</th><th>Note</th><th>Unit</th><th class="t-right">Action</th></tr></thead>' +
+      '<tbody>' + (escortRows.length ? escortRows.map(escortRow).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px">No active escorts</td></tr>') + '</tbody></table></div>' +
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">' + T('admin.dispatchUnitsHint') + '</div></div>' +
     '</div>';
   }

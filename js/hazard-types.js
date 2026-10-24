@@ -18,21 +18,70 @@
  * "Other" look rather than failing, so existing reports keep working.
  */
 const UG_HAZARDS = (function () {
+  /* ----------------------------------------------------------------+ A3 + B2
+   * A3: `teams: [...]` is the suggested-responder list for each hazard key.
+   *     The dispatch form (js/app.js dispatchModal) reads it to mark
+   *     "Suggested" teams and sort them first. All teams remain pickable.
+   *
+   *     Default mapping (PDF Oct 24 2026, to confirm with the LDRRMO):
+   *       fire, power_line            -> BFP, Barangay Response Team
+   *       flood, river_overflow,
+   *       drainage_blockage,
+   *       storm_surge, coastal_erosion -> Barangay Response Team, Rescue Unit
+   *       strong_wind, fallen_tree     -> Barangay Response Team
+   *       landslide, earthquake        -> Rescue Unit, Ambulance,
+   *                                      Barangay Response Team
+   *       vehicular_accident           -> PNP, Ambulance
+   *       road_damage                  -> PNP, Barangay Response Team
+   *       other                        -> (none)
+   *
+   * B2: `checklist: [...]` is the static first-response checklist per
+   *     hazard key for the Barangay Response Team. Ticks are saved into
+   *     field_data.checklist_done[] and copied into the after-action report
+   *     by submit_after_action. Other teams do not use this list.
+   */
   const LIST = [
-    { key: 'flood',               label: 'Flood',                              group: 'water',   icon: 'flood' },
-    { key: 'river_overflow',      label: 'River Overflow',                     group: 'water',   icon: 'flood' },
-    { key: 'drainage_blockage',   label: 'Drainage Blockage',                  group: 'water',   icon: 'drain' },
-    { key: 'storm_surge',         label: 'Storm Surge',                        group: 'coastal', icon: 'wave' },
-    { key: 'coastal_erosion',     label: 'Coastal Erosion',                    group: 'coastal', icon: 'wave' },
-    { key: 'strong_wind',         label: 'Strong Wind / Typhoon Damage',       group: 'wind',    icon: 'wind' },
-    { key: 'fallen_tree',         label: 'Fallen Tree',                        group: 'wind',    icon: 'tree' },
-    { key: 'landslide',           label: 'Landslide / Soil Erosion',           group: 'earth',   icon: 'landslide' },
-    { key: 'earthquake',          label: 'Earthquake',                         group: 'earth',   icon: 'quake' },
-    { key: 'road_damage',         label: 'Road Damage',                        group: 'infra',   icon: 'road' },
-    { key: 'vehicular_accident',  label: 'Vehicular Accident',                 group: 'infra',   icon: 'car' },
-    { key: 'fire',                label: 'Fire',                               group: 'fire',    icon: 'flame' },
-    { key: 'power_line',          label: 'Electrical / Power Line Hazard',     group: 'fire',    icon: 'bolt' },
-    { key: 'other',               label: 'Others',                            group: 'other',   icon: 'help', requiresText: true }
+    { key: 'flood',               label: 'Flood',                              group: 'water',   icon: 'flood',
+      teams: ['Barangay Response Team', 'Rescue Unit'],
+      checklist: ['Warn low-lying households','Monitor water level','Pre-position boats and life vests','Clear drainage paths','Assist evacuation to higher ground'] },
+    { key: 'river_overflow',      label: 'River Overflow',                     group: 'water',   icon: 'flood',
+      teams: ['Barangay Response Team', 'Rescue Unit'],
+      checklist: ['Warn households near the riverbank','Monitor river gauge','Pre-position boats','Assist evacuation','Watch for flash flood'] },
+    { key: 'drainage_blockage',   label: 'Drainage Blockage',                  group: 'water',   icon: 'drain',
+      teams: ['Barangay Response Team', 'Rescue Unit'],
+      checklist: ['Identify the blocked section','Warn motorists and pedestrians','Coordinate with the LGU engineering','Clear debris if safe','Monitor for rising water'] },
+    { key: 'storm_surge',         label: 'Storm Surge',                        group: 'coastal', icon: 'wave',
+      teams: ['Barangay Response Team', 'Rescue Unit'],
+      checklist: ['Warn coastal households','Order preemptive evacuation','Pre-position boats','Monitor tide and wind','Assist vulnerable residents'] },
+    { key: 'coastal_erosion',     label: 'Coastal Erosion',                    group: 'coastal', icon: 'wave',
+      teams: ['Barangay Response Team', 'Rescue Unit'],
+      checklist: ['Warn households on the shoreline','Mark unsafe structures','Coordinate with the LGU engineering','Assist relocation','Document the scarp'] },
+    { key: 'strong_wind',         label: 'Strong Wind / Typhoon Damage',       group: 'wind',    icon: 'wind',
+      teams: ['Barangay Response Team'],
+      checklist: ['Warn households','Secure loose roofing and signs','Clear debris from roads','Check on elderly and PWDs','Monitor official advisories'] },
+    { key: 'fallen_tree',         label: 'Fallen Tree',                        group: 'wind',    icon: 'tree',
+      teams: ['Barangay Response Team'],
+      checklist: ['Cordon off the area','Check for downed power lines','Clear the roadway','Notify LGU engineering if heavy equipment needed','Photograph before and after'] },
+    { key: 'landslide',           label: 'Landslide / Soil Erosion',           group: 'earth',   icon: 'landslide',
+      teams: ['Rescue Unit', 'Ambulance', 'Barangay Response Team'],
+      checklist: ['Cordon off the area','Search for buried persons','Stabilise the slope if safe','Assist evacuation upslope','Document the scarp'] },
+    { key: 'earthquake',          label: 'Earthquake',                         group: 'earth',   icon: 'quake',
+      teams: ['Rescue Unit', 'Ambulance', 'Barangay Response Team'],
+      checklist: ['Drop, cover, hold during shaking','Check on neighbours','Search for trapped persons','Mark unsafe structures','Coordinate with the LGU'] },
+    { key: 'road_damage',         label: 'Road Damage',                        group: 'infra',   icon: 'road',
+      teams: ['PNP', 'Barangay Response Team'],
+      checklist: ['Cordon off the damaged section','Warn motorists','Notify the LGU engineering','Document with photos','Set up a detour if needed'] },
+    { key: 'vehicular_accident',  label: 'Vehicular Accident',                 group: 'infra',   icon: 'car',
+      teams: ['PNP', 'Ambulance'],
+      checklist: ['Cordon off the area','Check for injuries','Call for an ambulance if needed','Document the scene','Direct traffic around the scene'] },
+    { key: 'fire',                label: 'Fire',                               group: 'fire',    icon: 'flame',
+      teams: ['BFP', 'Barangay Response Team'],
+      checklist: ['Warn nearby households','Evacuate downwind','Check for trapped persons','Assist the BFP with crowd control','Account for residents'] },
+    { key: 'power_line',          label: 'Electrical / Power Line Hazard',     group: 'fire',    icon: 'bolt',
+      teams: ['BFP', 'Barangay Response Team'],
+      checklist: ['Cordon off the area','Keep people at least 10 m away','Notify the utility company','Do not touch the line','Photograph the scene'] },
+    { key: 'other',               label: 'Others',                            group: 'other',   icon: 'help', requiresText: true,
+      teams: [], checklist: [] }
   ];
 
   const BY_KEY = {};
@@ -79,5 +128,18 @@ const UG_HAZARDS = (function () {
   }
   function iconFor(hazardTypeText) { return classify(hazardTypeText).icon; }
 
-  return { LIST, OTHER, options, byKey, classify, displayLabel, colorFor, iconFor };
+  /* A3 — suggested teams for a hazard key. Always returns an array (empty
+     when the hazard has no suggestion or the hazard is unknown). */
+  function suggestedTeams(hazardTypeText) {
+    const h = classify(hazardTypeText);
+    return (h && Array.isArray(h.teams)) ? h.teams.slice() : [];
+  }
+
+  /* B2 — first-response checklist for the Barangay Response Team. */
+  function checklistFor(hazardTypeText) {
+    const h = classify(hazardTypeText);
+    return (h && Array.isArray(h.checklist)) ? h.checklist.slice() : [];
+  }
+
+  return { LIST, OTHER, options, byKey, classify, displayLabel, colorFor, iconFor, suggestedTeams, checklistFor };
 })();

@@ -46,8 +46,10 @@ const UG_DISPATCH = (function () {
       requests: [],
       notices: [],
       capacity: null,
-      directory: { hotlines: [], captains: [] },
-      notifications: []
+      directory: { hotlines: [], captains: [], patrolShelters: [], escortList: [] },
+      notifications: [],
+      helpRequests: [],
+      acceptingHospitals: []
     }
   };
 
@@ -66,7 +68,50 @@ const UG_DISPATCH = (function () {
   function rpc(name, args) {
     const c = client();
     if (!c) return Promise.resolve({ local: true });
-    return c.rpc(name, args);
+    /* PRIORITY 0 / defect 4: Supabase returns { data, error }. The old
+       code awaited the whole object, which is truthy even when error is
+       set, so server errors silently no-op'd (no toast, no re-render).
+       Now we reject on .error so the calling action's catch block fires
+       and surfaces the message. */
+    return c.rpc(name, args).then((res) => {
+      if (!res) return res;
+      if (res.error) {
+        const e = res.error;
+        const msg = (e && (e.message || e.details || e.code)) || ('RPC failed: ' + name);
+        throw new Error(String(msg));
+      }
+      return res.data !== undefined ? res.data : res;
+    });
+  }
+
+  /* ----------------------------------------------------- app bridge helper
+   * PRIORITY 0 fix (Oct 24 2026): the old code did
+   *   app().render();
+   * 62 times. window.UG_APP was never assigned (app.js only exposed
+   * window.UG_App, mixed case), so every dispatch click silently
+   * no-op'd. This helper fails LOUDLY the first time the bridge is
+   * missing: console.error + a visible toast (via window.UG_TOAST,
+   * which IS exposed). Subsequent failures return a noop bridge so
+   * catch blocks that call app().toast(...) do not recurse or throw. */
+  let __bridgeMissingWarned = false;
+  const NOOP_BRIDGE = {
+    render: () => {},
+    go: () => {},
+    toast: () => {},
+    loadRouteData: () => Promise.resolve(),
+    actions: {}
+  };
+  function app() {
+    if (window.UG_APP) return window.UG_APP;
+    if (!__bridgeMissingWarned) {
+      __bridgeMissingWarned = true;
+      const msg = 'Dispatch bridge missing: window.UG_APP is undefined. The console cannot re-render or toast. Reload the page; if this persists, the app.js boot did not finish.';
+      try { console.error('[UniGuard dispatch]', msg); } catch (e) {}
+      if (typeof window.UG_TOAST === 'function') {
+        try { window.UG_TOAST(msg, 'warning'); } catch (e) {}
+      }
+    }
+    return NOOP_BRIDGE;
   }
 
   function table(name) {
@@ -155,6 +200,36 @@ const UG_DISPATCH = (function () {
     return data || [];
   }
 
+  /* A2: dispatch help requests addressed to the caller's unit (the unit's
+     own rows) — barangay-official rows are not visible here (the official
+     uses the Response Team screen). */
+  async function loadHelpRequests() {
+    const c = client(); if (!c) return [];
+    const unit = state.data.unit; if (!unit) return [];
+    const { data } = await c.from('dispatch_help_requests')
+      .select('*').eq('unit_id', unit.id).order('created_at', { ascending: false });
+    state.data.helpRequests = data || [];
+    return data || [];
+  }
+
+  /* F2: the shared hospital picker. Active Hospital units whose
+     hospital_capacity.accepting = true. Used by the ambulance run (F3),
+     E3 rescue tally destinations and the E4 patient-notice button. */
+  async function loadAcceptingHospitals() {
+    const c = client(); if (!c) return [];
+    const { data } = await c.from('dispatch_units')
+      .select('id,name,unit_type,hospital_capacity!inner(accepting,available,er_beds,icu_beds)')
+      .eq('unit_type', 'Hospital')
+      .eq('active', true)
+      .eq('hospital_capacity.accepting', true)
+      .order('name', { ascending: true });
+    state.data.acceptingHospitals = (data || []).map((h) => ({
+      id: h.id, name: h.name,
+      available: h.hospital_capacity ? h.hospital_capacity.available : null
+    }));
+    return state.data.acceptingHospitals;
+  }
+
   async function loadDirectory() {
     const c = client(); if (!c) return;
     const { data: hotlines } = await c.from('emergency_hotlines')
@@ -164,6 +239,16 @@ const UG_DISPATCH = (function () {
     const { data: captains } = await c.from('barangays')
       .select('id, name, captain_name, captain_phone');
     state.data.directory.captains = (captains || []).filter((b) => b.captain_phone);
+    /* D2 + D3: PNP-only lists. Loaded for every dispatch_team user but
+       only surfaced on the PNP console. */
+    const { data: patrols } = await c.from('evacuation_centers')
+      .select('id, name, barangay, barangay_id, needs_patrol, needs_patrol_at')
+      .eq('needs_patrol', true);
+    state.data.directory.patrolShelters = patrols || [];
+    const { data: escorts } = await c.from('relief_distributions')
+      .select('*')
+      .neq('escort_status', 'none');
+    state.data.directory.escortList = escorts || [];
   }
 
   async function loadNotifications() {
@@ -182,13 +267,13 @@ const UG_DISPATCH = (function () {
         loadEquipment(), loadPersonnel(), loadDispatches(),
         loadRequests(), loadNotices(), loadDirectory(), loadNotifications()
       ]);
-      await Promise.all([loadEvents(), loadCapacity()]);
+      await Promise.all([loadEvents(), loadCapacity(), loadHelpRequests(), loadAcceptingHospitals()]);
       state.lastSync = new Date().toISOString();
     } catch (e) {
       state.error = e.message || 'Could not load your unit data';
     }
     state.loading = false;
-    if (window.UG_APP && UG_APP.render) UG_APP.render();
+    app().render();
   }
 
   async function loadRoute(route) {
@@ -199,7 +284,7 @@ const UG_DISPATCH = (function () {
     if (route === 'requests') await loadRequests();
     if (route === 'hospital') await Promise.all([loadCapacity(), loadNotices()]);
     if (route === 'analytics') await loadDispatches();
-    if (window.UG_APP && UG_APP.render) UG_APP.render();
+    app().render();
   }
 
   /* -------------------------------------------------------------- render helpers */
@@ -349,9 +434,46 @@ const UG_DISPATCH = (function () {
     if (state.loading) return pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.') + statePanel('loading', 'Loading');
     if (state.error)   return pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.') + statePanel('error', 'Could not load', state.error);
     const list = state.data.dispatches || [];
-    const open = list.filter((d) => d.dispatch_status !== 'done');
+    const open = list.filter((d) => d.dispatch_status !== 'done' && d.dispatch_status !== 'declined');
     if (!list.length) return pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.') +
       emptyState('truck', 'No dispatches yet', 'When an LGU or barangay official dispatches your unit, the dispatch lands here.');
+
+    /* PNP-specific sections: shelters needing patrol (D2) + relief
+       distributions with an escort requested (D3). PNP can confirm the
+       escort; patrol is read-only here (the toggle lives with LGU and
+       barangay officials). */
+    const unit = state.data.unit;
+    const isPnp = unit && unit.unit_type === 'PNP';
+    let pnpSection = '';
+    if (isPnp) {
+      const patrolShelters = (state.data.directory.patrolShelters || []);
+      const escortList = (state.data.directory.escortList || []);
+      if (patrolShelters.length || escortList.length) {
+        pnpSection = '<div class="ug-col" style="gap:14px">' +
+          (patrolShelters.length
+            ? card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">Shelters needing patrol (D2)</div>' +
+                '<div class="ug-card ug-card--flat" style="margin-top:4px"><div class="ug-card-b ug-col" style="gap:6px">' +
+                  patrolShelters.map((c) => '<div class="ug-rowf ug-between" style="gap:8px;font-size:12px">' +
+                    '<span>' + esc(c.name || '') + ' <span class="ug-dimmer">· ' + esc(c.brgy || c.barangay || '') + '</span></span>' +
+                    '<span class="ug-dimmer ug-mono" style="font-size:10.5px">' + (c.needs_patrol_at ? absTime(c.needs_patrol_at) : '') + '</span>' +
+                  '</div>').join('') +
+                '</div></div></div>')
+            : '') +
+          (escortList.length
+            ? card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">Relief escorts (D3)</div>' +
+                '<div class="ug-card ug-card--flat" style="margin-top:4px"><div class="ug-card-b ug-col" style="gap:6px">' +
+                  escortList.map((r) => '<div class="ug-rowf ug-between" style="gap:8px;font-size:12px;align-items:center">' +
+                    '<span style="flex:1;min-width:0">' + esc(r.title || '') + ' <span class="ug-dimmer">· ' + esc(r.barangay || '') + '</span></span>' +
+                    '<span>' + badge(r.escort_status === 'confirmed' ? 'prepared' : 'warning', r.escort_status) + '</span>' +
+                    (r.escort_status === 'requested'
+                      ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="relief-escort-confirm" data-id="' + esc(r.id) + '">Confirm escort</button>'
+                      : '') +
+                  '</div>').join('') +
+                '</div></div></div>')
+            : '') +
+        '</div>';
+      }
+    }
 
     const row = (d) => {
       const r = d.report || {};
@@ -368,6 +490,7 @@ const UG_DISPATCH = (function () {
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.',
         '<span class="ug-chip is-on">' + open.length + ' active</span>') +
+      pnpSection +
       '<div class="ug-wgrid-3">' + list.slice(0, 12).map(row).join('') + '</div>' +
       (list.length > 12 ? '<button class="ug-btn ug-btn--ghost" data-act="dispatch-nav" data-route="analytics">View all</button>' : '') +
       '</div>';
@@ -379,18 +502,136 @@ const UG_DISPATCH = (function () {
     if (!d) return pageHead('Dispatch detail', '') + emptyState('truck', 'No dispatch selected', 'Open one from the list.');
     const r = d.report || {};
     const events = (state.data.events || []).filter((e) => e.dispatch_id === d.id);
-    const next = d.dispatch_status === 'sent' ? 'acknowledged'
-      : d.dispatch_status === 'acknowledged' ? 'en_route'
-      : d.dispatch_status === 'en_route' ? 'on_scene'
-      : d.dispatch_status === 'on_scene' ? 'done' : null;
-    const stepLabel = (s) => ({ sent: 'Acknowledge', acknowledged: 'En route', en_route: 'On scene', on_scene: 'Done', done: 'Done' })[s] || s;
+    const team = d.team;
+    const status = d.dispatch_status;
+
+    /* Per-team next-step labels. Each entry is [nextAction, buttonLabel]. */
+    const STEP = {
+      sent: ['acknowledged', 'Acknowledge'],
+      acknowledged: ['en_route', 'En route'],
+      en_route: ['on_scene', 'On scene'],
+      on_scene: (function () {
+        if (team === 'BFP') return ['under_control', 'Under control'];
+        if (team === 'Ambulance') return ['transporting', 'Transporting'];
+        if (team === 'Rescue Unit' || team === 'MDRRMO Rescue') return null; // needs a note for on_hold
+        return ['done', 'Done'];
+      })(),
+      under_control: ['fire_out', 'Fire out'],
+      fire_out: ['done', 'Done'],
+      on_hold: ['resume', 'Resume'],
+      transporting: ['arrived_hospital', 'Arrived at hospital'],
+      arrived_hospital: ['done', 'Done'],
+      done: null,
+      declined: null
+    };
+    const nextPair = STEP[status] || null;
+    const next = nextPair ? nextPair[0] : null;
+    const nextLabel = nextPair ? nextPair[1] : '';
+
+    const stepLabel = (s) => ({
+      sent: 'Sent', acknowledged: 'Acknowledged', en_route: 'En route',
+      on_scene: 'On scene', done: 'Done', declined: 'Declined',
+      under_control: 'Under control', fire_out: 'Fire out',
+      on_hold: 'On hold', resume: 'Resumed',
+      transporting: 'Transporting', arrived_hospital: 'Arrived at hospital'
+    })[s] || s;
 
     const eventsList = events.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Note</th></tr></thead><tbody>' +
-      events.map((e) => '<tr><td class="t-num">' + absTime(e.created_at) + '</td><td>' + esc(e.actor_name) + '</td><td>' + esc(e.action) + '</td><td class="ug-dimmer" style="font-size:11px">' + esc(e.note) + '</td></tr>').join('') +
+      events.map((e) => '<tr><td class="t-num">' + absTime(e.created_at) + '</td><td>' + esc(e.actor_name) + '</td><td>' + esc(stepLabel(e.action) || e.action) + '</td><td class="ug-dimmer" style="font-size:11px">' + esc(e.note) + '</td></tr>').join('') +
       '</tbody></table></div>' : '';
-    const afterAction = d.after_action ? card('<div class="ug-col" style="gap:6px"><div style="font-size:12px;font-weight:700">' + esc('After-action report') + '</div>' +
+
+    const afterAction = d.after_action ? card('<div class="ug-col" style="gap:6px"><div style="font-size:12px;font-weight:700">After-action report</div>' +
       '<div class="ug-note" style="font-size:11.5px;white-space:pre-wrap">' + esc(d.after_action) + '</div>' +
-      '<div class="ug-dimmer" style="font-size:10px">Filed ' + ago(d.after_action_at) + '</div></div>') : '';
+      '<div class="ug-dimmer" style="font-size:10px">Filed ' + ago(d.after_action_at) + '</div>' +
+      (d.after_action_meta && Object.keys(d.after_action_meta).length
+        ? '<div class="ug-dimmer ug-mono" style="font-size:10px;margin-top:4px">' + esc(JSON.stringify(d.after_action_meta)) + '</div>'
+        : '') +
+      '</div>') : '';
+
+    /* -- per-team field panels (E1 rescue details, E3 rescue tally,
+       B2/B3 barangay checklist + evac tally, F3 hospital picker for
+       ambulance). All write through update_dispatch_field_data, which
+       whitelists keys per team server-side. */
+    let fieldPanel = '';
+    let hospitalBlock = '';
+    const fd = (typeof d.field_data === 'object' && d.field_data) ? d.field_data : {};
+
+    /* F3 / F2: ambulance run — choose an accepting hospital on Transporting.
+       Also surfaced for Rescue Unit (E3 destinations). */
+    const hospitals = state.data.acceptingHospitals || [];
+    const hospitalOpts = '<option value="">Select an accepting hospital</option>' +
+      hospitals.map((h) => '<option value="' + esc(h.id) + '"' + (fd.hospital_id === h.id ? ' selected' : '') + '>' + esc(h.name) + (h.available != null ? ' (' + h.available + ' avail.)' : '') + '</option>').join('');
+
+    if (team === 'Rescue Unit' || team === 'MDRRMO Rescue') {
+      const rd = fd.rescue_details || {};
+      const rt = fd.rescue_tally || { rescued: 0, injured: 0, missing: 0, destinations: [] };
+      fieldPanel = card('<div class="ug-col" style="gap:10px"><div style="font-size:13px;font-weight:700">Rescue details & tally</div>' +
+        '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Stranded count</label><input class="ug-in" type="number" min="0" data-fd-rd-stranded value="' + esc(rd.stranded_count || 0) + '"></div>' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Location</label><input class="ug-in" type="text" data-fd-rd-location value="' + esc(rd.location || '') + '"></div>' +
+        '</div>' +
+        '<div class="ug-field"><label class="ug-lab">Special needs</label><input class="ug-in" type="text" data-fd-rd-needs value="' + esc(rd.special_needs || '') + '"></div>' +
+        '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Rescued</label><input class="ug-in" type="number" min="0" data-fd-rt-rescued value="' + esc(rt.rescued || 0) + '"></div>' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Injured</label><input class="ug-in" type="number" min="0" data-fd-rt-injured value="' + esc(rt.injured || 0) + '"></div>' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Missing</label><input class="ug-in" type="number" min="0" data-fd-rt-missing value="' + esc(rt.missing || 0) + '"></div>' +
+        '</div>' +
+        '<div class="ug-field"><label class="ug-lab">Destination hospital</label><select class="ug-sel" data-fd-hospital>' + hospitalOpts + '</select></div>' +
+        '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-field-save" data-id="' + esc(d.id) + '">Save field data</button>' +
+        '</div>');
+      /* E4: send a patient notice to the chosen hospital. */
+      hospitalBlock = card('<div class="ug-col" style="gap:10px"><div style="font-size:13px;font-weight:700">Send patient notice (E4)</div>' +
+        '<div class="ug-dim" style="font-size:11px">Sends a notice to the chosen hospital with this dispatch\'s report_id.</div>' +
+        '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+          '<div class="ug-field" style="flex:1"><label class="ug-lab">Patients</label><input class="ug-in" type="number" min="1" data-pn-patients value="1"></div>' +
+          '<div class="ug-field" style="flex:2"><label class="ug-lab">Condition</label><input class="ug-in" type="text" data-pn-cond placeholder="e.g. Trauma, stable"></div>' +
+        '</div>' +
+        '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-send-patient-notice" data-id="' + esc(d.id) + '">' + I('truck', 14) + 'Send notice</button>' +
+        '</div>');
+    }
+
+    if (team === 'Ambulance') {
+      hospitalBlock = card('<div class="ug-col" style="gap:10px"><div style="font-size:13px;font-weight:700">Hospital (F2 / F3)</div>' +
+        '<div class="ug-field"><label class="ug-lab">Accepting hospital</label><select class="ug-sel" data-fd-hospital>' + hospitalOpts + '</select></div>' +
+        '<div class="ug-dim" style="font-size:11px">Required before Transporting. Save first, then press Transporting.</div>' +
+        '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-field-save" data-id="' + esc(d.id) + '">Save hospital</button>' +
+          '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-send-patient-notice" data-id="' + esc(d.id) + '">' + I('truck', 14) + 'Send patient notice</button>' +
+        '</div></div>');
+    }
+
+    /* A1: Can't respond; A2: Need help. Available only from sent/acknowledged
+       per the RPC. */
+    const canDecline = (status === 'sent' || status === 'acknowledged');
+    const declineHelp = canDecline ? '<div class="ug-rowf ug-gap8" style="gap:8px;margin-top:8px">' +
+      '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-decline" data-id="' + esc(d.id) + '" data-report-id="' + esc(d.report_id || (d.report && d.report.id) || '') + '">Can\'t respond</button>' +
+      '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-help-new" data-id="' + esc(d.id) + '" data-report-id="' + esc(d.report_id || (d.report && d.report.id) || '') + '">Need help</button>' +
+      (team === 'BFP'
+        ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-help-water" data-id="' + esc(d.id) + '" data-report-id="' + esc(d.report_id || (d.report && d.report.id) || '') + '">Water tanker</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-help-personnel" data-id="' + esc(d.id) + '" data-report-id="' + esc(d.report_id || (d.report && d.report.id) || '') + '">Extra personnel</button>'
+        : '') +
+      '</div>' : '';
+
+    /* D1: PNP-only road closure button (when the dispatch is open and the
+       unit is a PNP unit). */
+    const isPnp = state.data.unit && state.data.unit.unit_type === 'PNP';
+    const roadBlock = (isPnp && status !== 'done' && status !== 'declined')
+      ? card('<div class="ug-col" style="gap:10px"><div style="font-size:13px;font-weight:700">Road closure (D1)</div>' +
+        '<div class="ug-dim" style="font-size:11px">Post a closure from this dispatch into the existing Road Status list.</div>' +
+        '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+          '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="dispatch-road-closure" data-id="' + esc(d.id) + '">Post closure</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-road-reopen" data-id="' + esc(d.id) + '">Reopen</button>' +
+        '</div></div>')
+      : '';
+
+    const statusCard = card('<div class="ug-col" style="gap:10px"><div style="font-size:13px;font-weight:700">Status</div>' +
+      '<div class="ug-rowf ug-gap8" style="gap:8px">' + badge(status, stepLabel(status)) + '</div>' +
+      '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+        (next ? '<input class="ug-in" type="text" data-act="dispatch-note" data-id="' + esc(d.id) + '" placeholder="' + (next === 'on_hold' ? 'Reason (required)' : 'Note (optional)') + '" style="flex:1;max-width:none">' : '') +
+        (next ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-respond" data-id="' + esc(d.id) + '" data-next="' + next + '">' + esc(nextLabel) + '</button>' : '') +
+      '</div>' +
+      '<div class="ug-dim" style="font-size:11px">Each step is one click. The reporter is notified on every status change.</div>' +
+      declineHelp + '</div>');
 
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Dispatch ' + (d.id || '').slice(0, 8), 'Incident ' + (r.code || '') + ' · ' + (r.barangay || ''),
@@ -403,20 +644,49 @@ const UG_DISPATCH = (function () {
             (d.eta ? '<span class="ug-dim">ETA ' + absTime(d.eta) + '</span>' : '') + '</div>' +
           '<div class="ug-dimmer" style="font-size:10.5px">Dispatched by ' + esc(d.dispatched_by_name || '') + ' · ' + ago(d.dispatched_at) + '</div>' +
           '<div class="ug-note" style="font-size:11.5px;white-space:pre-wrap;margin-top:6px">' + esc(d.instructions || '') + '</div></div>') +
-        card('<div class="ug-col" style="gap:10px"><div style="font-size:13px;font-weight:700">Status</div>' +
-          '<div class="ug-rowf ug-gap8" style="gap:8px">' + badge(d.dispatch_status, stepLabel(d.dispatch_status)) + '</div>' +
-          '<div class="ug-rowf ug-gap8" style="gap:8px">' +
-            (next ? '<input class="ug-in" type="text" data-act="dispatch-note" data-id="' + esc(d.id) + '" placeholder="Note (optional)" style="flex:1;max-width:none">' : '') +
-            (next ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-respond" data-id="' + esc(d.id) + '" data-next="' + next + '">' + stepLabel(next) + '</button>' : '') +
-          '</div>' +
-          '<div class="ug-dim" style="font-size:11px">Each step is one click. On scene and Done notify the reporter.</div></div>') +
+        statusCard +
       '</div>' +
+      fieldPanel +
+      hospitalBlock +
+      roadBlock +
       eventsList +
       afterAction +
-      (d.dispatch_status === 'done' && !d.after_action ? card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">File an after-action report</div>' +
-        '<textarea class="ug-ta" rows="4" data-act="dispatch-aa" data-id="' + esc(d.id) + '" placeholder="What was done, time spent, equipment used, casualties or patients, outcome"></textarea>' +
-        '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-aa-submit" data-id="' + esc(d.id) + '">' + I('check', 14) + 'Submit after-action</button></div>') : '') +
+      (d.dispatch_status === 'done' && !d.after_action
+        ? card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">File an after-action report</div>' +
+            /* A4: per-team form fields, populated into p_meta on submit. */
+            afterActionForm(d) +
+          '</div>')
+        : '') +
     '</div>';
+  }
+
+  /* A4 — the per-team after-action form. The free-text summary stays. Each
+     team gets its own numeric fields; everything is validated server-side
+     in submit_after_action against the team's whitelist. */
+  function afterActionForm(d) {
+    const team = d.team;
+    const fd = (typeof d.field_data === 'object' && d.field_data) ? d.field_data : {};
+    const common =
+      '<div class="ug-field"><label class="ug-lab">Summary</label>' +
+        '<textarea class="ug-ta" rows="4" data-act="dispatch-aa" data-id="' + esc(d.id) + '" placeholder="What was done, time spent, equipment used, casualties or patients, outcome"></textarea></div>' +
+      '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+        '<div class="ug-field" style="flex:1"><label class="ug-lab">People assisted</label><input class="ug-in" type="number" min="0" data-aa-people value="' + esc((fd.rescue_tally && (fd.rescue_tally.rescued || 0)) || (fd.evac_tally && Array.isArray(fd.evac_tally) ? fd.evac_tally.reduce((s, e) => s + (e.people || 0), 0) : 0) || 0) + '"></div>' +
+        '<div class="ug-field" style="flex:1"><label class="ug-lab">Follow-up needed</label><select class="ug-sel" data-aa-follow><option value="false">No</option><option value="true">Yes</option></select></div>' +
+      '</div>' +
+      '<div class="ug-field"><label class="ug-lab">Follow-up note</label><input class="ug-in" type="text" data-aa-follow-note placeholder="What needs following up?"></div>';
+
+    let teamFields = '';
+    if (team === 'BFP') {
+      teamFields = '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+        '<div class="ug-field" style="flex:1"><label class="ug-lab">Families displaced</label><input class="ug-in" type="number" min="0" data-aa-families></div>' +
+        '<div class="ug-field" style="flex:1"><label class="ug-lab">People injured</label><input class="ug-in" type="number" min="0" data-aa-injured></div>' +
+      '</div>';
+    }
+    /* equipment_used + times are auto-prefilled server-side; the form
+       does not ask for them. */
+
+    return common + teamFields +
+      '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-aa-submit" data-id="' + esc(d.id) + '" data-team="' + esc(team) + '">' + I('check', 14) + 'Submit after-action</button>';
   }
 
   function sEquipment(st) {
@@ -480,13 +750,25 @@ const UG_DISPATCH = (function () {
     if (state.error)   return pageHead('Hospital', '') + statePanel('error', 'Could not load', state.error);
     const cap = state.data.capacity || { er_beds: 0, icu_beds: 0, available: 0, accepting: true };
     const notices = state.data.notices || [];
-    const noticeRow = (n) => '<tr>' +
-      '<td class="t-num">' + absTime(n.created_at) + '</td>' +
-      '<td class="t-num">' + esc(n.patients || 1) + '</td>' +
-      '<td>' + esc(n.condition || '') + '</td>' +
-      '<td>' + badge(n.status, n.status) + '</td>' +
-      '<td class="t-right">' + (n.status === 'sent' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="dispatch-ack-notice" data-id="' + esc(n.id) + '">Ack</button>' : '') + '</td>' +
-    '</tr>';
+    /* F1: show Acknowledge, Arrived and Cancel buttons. The RPC allows
+       'arrived' or 'cancelled' only from 'sent' or 'acknowledged'. */
+    const noticeRow = (n) => {
+      const canAck = (n.status === 'sent' || n.status === 'acknowledged');
+      const actBtns = canAck
+        ? '<div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
+            (n.status === 'sent' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="dispatch-ack-notice" data-id="' + esc(n.id) + '" data-next="acknowledged">Acknowledge</button>' : '') +
+            '<button class="ug-btn ug-btn--sm" data-act="dispatch-ack-notice" data-id="' + esc(n.id) + '" data-next="arrived">Arrived</button>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-ack-notice" data-id="' + esc(n.id) + '" data-next="cancelled">Cancel</button>' +
+          '</div>'
+        : '';
+      return '<tr>' +
+        '<td class="t-num">' + absTime(n.created_at) + '</td>' +
+        '<td class="t-num">' + esc(n.patients || 1) + '</td>' +
+        '<td>' + esc(n.condition || '') + '</td>' +
+        '<td>' + badge(n.status, n.status) + '</td>' +
+        '<td class="t-right">' + actBtns + '</td>' +
+      '</tr>';
+    };
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Hospital capacity', 'ER / ICU beds, ambulance, accepting / divert, incoming-patient notices.',
         '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-capacity-edit">' + I('settings', 14) + 'Update</button>') +
@@ -618,17 +900,34 @@ const UG_DISPATCH = (function () {
 
   /* ----------------------------------------------------------------- actions */
   const actions = {
-    'dispatch-nav': (d) => { state.route = d.route; if (window.UG_APP && UG_APP.go) UG_APP.go('dispatch'); loadRoute(d.route); },
+    'dispatch-nav': async (d) => {
+      /* PRIORITY 0 fix: the old version called UG_APP.go('dispatch') which
+         wrote #dispatch to the hash and reset S.route to 'dispatch',
+         clobbering the sub-route we just set (e.g. 'equipment' became
+         'dispatch'). Now we update the hash to match the actual sub-route
+         (so back/forward and reload land on the same screen), render
+         immediately so the user sees the loading state, await loadRoute,
+         then render again. */
+      state.route = d.route;
+      try { window.history.replaceState(null, '', '#' + d.route); } catch (e) {}
+      app().render();
+      try {
+        await loadRoute(d.route);
+      } catch (e) {
+        app().toast(e.message || ('Could not load ' + d.route), 'warning');
+      }
+      app().render();
+    },
     'dispatch-refresh': () => loadAll(),
-    'dispatch-open': (d) => { state.openDispatchId = d.id; state.route = 'dispatch-detail'; if (window.UG_APP && UG_APP.render) UG_APP.render(); },
+    'dispatch-open': (d) => { state.openDispatchId = d.id; state.route = 'dispatch-detail'; app().render(); },
     'dispatch-respond': async (d) => {
       try {
         const note = (document.querySelector('[data-act="dispatch-note"][data-id="' + d.id + '"]') || {}).value || '';
         await rpc('dispatch_respond', { p_dispatch_id: d.id, p_action: d.next, p_note: note });
-        if (window.UG_APP && UG_APP.toast) UG_APP.toast('Status updated to ' + d.next, 'prepared');
+        app().toast('Status updated to ' + d.next, 'prepared');
         await loadDispatches(); await loadEvents();
-        if (window.UG_APP && UG_APP.render) UG_APP.render();
-      } catch (e) { if (window.UG_APP && UG_APP.toast) UG_APP.toast(e.message || 'Could not update', 'warning'); }
+        app().render();
+      } catch (e) { app().toast(e.message || 'Could not update', 'warning'); }
     },
     'dispatch-check': (d) => { state.openEquipmentId = d.id; openCheckModal(d.id); },
     'dispatch-status': (d) => openStatusModal(d.id),
@@ -636,41 +935,264 @@ const UG_DISPATCH = (function () {
       try {
         await rpc('set_personnel_duty', { p_personnel_id: d.id, p_on_duty: d.next === 'true' });
         await loadPersonnel();
-        if (window.UG_APP && UG_APP.render) UG_APP.render();
-      } catch (e) { if (window.UG_APP && UG_APP.toast) UG_APP.toast(e.message, 'warning'); }
+        app().render();
+      } catch (e) { app().toast(e.message, 'warning'); }
     },
     'dispatch-ack-notice': async (d) => {
       try {
-        await rpc('ack_patient_notice', { p_notice_id: d.id, p_status: 'acknowledged' });
+        const next = d.next || 'acknowledged';
+        await rpc('ack_patient_notice', { p_notice_id: d.id, p_status: next });
+        app().toast('Patient notice ' + next, 'prepared');
         await loadNotices();
-        if (window.UG_APP && UG_APP.render) UG_APP.render();
-      } catch (e) { if (window.UG_APP && UG_APP.toast) UG_APP.toast(e.message, 'warning'); }
+        app().render();
+      } catch (e) { app().toast(e.message, 'warning'); }
     },
     'dispatch-aa-submit': async (d) => {
       const ta = document.querySelector('[data-act="dispatch-aa"][data-id="' + d.id + '"]');
       const text = ta ? ta.value : '';
-      if (!text || !text.trim()) { if (window.UG_APP && UG_APP.toast) UG_APP.toast('Write a short summary', 'warning'); return; }
+      if (!text || !text.trim()) { app().toast('Write a short summary', 'warning'); return; }
+      /* A4: build the per-team meta object from the form fields. */
+      const num = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return 0;
+        const v = parseInt(el.value, 10);
+        return isNaN(v) ? 0 : v;
+      };
+      const val = (sel) => {
+        const el = document.querySelector(sel);
+        return el ? el.value : '';
+      };
+      const meta = {
+        people_assisted: num('[data-aa-people]'),
+        follow_up_needed: val('[data-aa-follow]') === 'true',
+        follow_up_note: val('[data-aa-follow-note]')
+      };
+      if (d.team === 'BFP') {
+        meta.families_displaced = num('[data-aa-families]');
+        meta.people_injured = num('[data-aa-injured]');
+      }
       try {
-        await rpc('submit_after_action', { p_dispatch_id: d.id, p_text: text, p_meta: {} });
-        if (window.UG_APP && UG_APP.toast) UG_APP.toast('After-action submitted', 'prepared');
+        await rpc('submit_after_action', { p_dispatch_id: d.id, p_text: text, p_meta: meta });
+        app().toast('After-action submitted', 'prepared');
         await loadDispatches();
-        if (window.UG_APP && UG_APP.render) UG_APP.render();
-      } catch (e) { if (window.UG_APP && UG_APP.toast) UG_APP.toast(e.message, 'warning'); }
+        app().render();
+      } catch (e) { app().toast(e.message, 'warning'); }
+    },
+    /* Update field_data on the dispatch (B2 checklist, B3 evac tally,
+       E1 rescue details, E3 rescue tally, F3 hospital_id). */
+    'dispatch-field-save': async (d) => {
+      const num = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return 0;
+        const v = parseInt(el.value, 10);
+        return isNaN(v) ? 0 : v;
+      };
+      const val = (sel) => {
+        const el = document.querySelector(sel);
+        return el ? el.value : '';
+      };
+      const patch = {};
+      const dispatch = (state.data.dispatches || []).find((x) => x.id === d.id);
+      if (!dispatch) return;
+      const team = dispatch.team;
+
+      /* Rescue unit: rescue_details + rescue_tally */
+      if (team === 'Rescue Unit' || team === 'MDRRMO Rescue') {
+        patch.rescue_details = {
+          stranded_count: num('[data-fd-rd-stranded]'),
+          location: val('[data-fd-rd-location]'),
+          special_needs: val('[data-fd-rd-needs]')
+        };
+        patch.rescue_tally = {
+          rescued: num('[data-fd-rt-rescued]'),
+          injured: num('[data-fd-rt-injured]'),
+          missing: num('[data-fd-rt-missing]'),
+          destinations: []
+        };
+        const hospId = val('[data-fd-hospital]');
+        if (hospId) {
+          patch.rescue_tally.destinations.push({ kind: 'hospital', ref_id: hospId, count: patch.rescue_tally.rescued });
+        }
+      }
+      /* Ambulance: hospital_id only */
+      if (team === 'Ambulance') {
+        const hospId = val('[data-fd-hospital]');
+        if (hospId) patch.hospital_id = hospId;
+      }
+
+      if (!Object.keys(patch).length) {
+        app().toast('Nothing to save', 'warning');
+        return;
+      }
+      try {
+        await rpc('update_dispatch_field_data', { p_dispatch_id: d.id, p_patch: patch });
+        app().toast('Field data saved', 'prepared');
+        await loadDispatches();
+        app().render();
+      } catch (e) { app().toast(e.message, 'warning'); }
+    },
+    /* E4: send a patient notice from the dispatch card. */
+    'dispatch-send-patient-notice': async (d) => {
+      const dispatch = (state.data.dispatches || []).find((x) => x.id === d.id);
+      if (!dispatch) return;
+      const fd = (typeof dispatch.field_data === 'object' && dispatch.field_data) ? dispatch.field_data : {};
+      const hospitalId = fd.hospital_id;
+      if (!hospitalId) {
+        app().toast('Pick an accepting hospital first', 'warning');
+        return;
+      }
+      const patEl = document.querySelector('[data-pn-patients]');
+      const condEl = document.querySelector('[data-pn-cond]');
+      const patients = patEl ? Math.max(1, parseInt(patEl.value, 10) || 1) : 1;
+      const condition = condEl ? condEl.value : '';
+      try {
+        await rpc('send_patient_notice', {
+          p_unit_id: hospitalId,
+          p_report_id: dispatch.report_id || (dispatch.report && dispatch.report.id) || null,
+          p_patients: patients,
+          p_condition: condition,
+          p_eta: null
+        });
+        app().toast('Patient notice sent', 'prepared');
+      } catch (e) { app().toast(e.message, 'warning'); }
+    },
+    /* A1: decline — self-contained (UG_APP is never assigned; we cannot
+       forward). The same RPC is also reachable from the Response Team
+       screen via app.js's APP_ACTIONS, but that path runs for the
+       barangay_official/LGU; this one runs for the dispatch_team user. */
+    'dispatch-decline': async (d) => {
+      if (!window.UG_FEATURES || !UG_FEATURES.prompt) return;
+      const res = await UG_FEATURES.prompt({
+        title: 'Decline this dispatch',
+        label: 'Reason', placeholder: 'e.g. No available responders, equipment failure'
+      });
+      if (!res) return;
+      const reason = String(res || '').trim();
+      if (!reason) { app().toast('A reason is required', 'warning'); return; }
+      try {
+        await rpc('decline_dispatch', { p_dispatch_id: d.id, p_reason: reason });
+        app().toast('Dispatch declined — the dispatcher has been notified', 'prepared');
+        await loadDispatches(); await loadEvents();
+        app().render();
+      } catch (e) { app().toast(e.message || 'Could not decline', 'warning'); }
+    },
+    /* A2: help request composer. */
+    'dispatch-help-new': (d) => {
+      if (!window.UG_FEATURES || !UG_FEATURES.modal) return;
+      const kindOpts = ['general','water_tanker','extra_personnel','beyond_capacity']
+        .map((k) => '<option value="' + k + '">' + k + '</option>').join('');
+      UG_FEATURES.modal({
+        title: 'Request help on this dispatch',
+        body: '<div class="ug-field"><label class="ug-lab">Kind</label>' +
+            '<select class="ug-sel" data-hr-kind>' + kindOpts + '</select></div>' +
+          '<div class="ug-field"><label class="ug-lab">Message</label>' +
+            '<textarea class="ug-ta" rows="3" data-hr-msg placeholder="What do you need?"></textarea></div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-hr-send>Send</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-hr-send]').addEventListener('click', async () => {
+            const kind = wrap.querySelector('[data-hr-kind]').value;
+            const msg = wrap.querySelector('[data-hr-msg]').value.trim();
+            if (!msg) { app().toast('Write a short message', 'warning'); return; }
+            try {
+              await rpc('create_help_request', {
+                p_dispatch_id: d.id, p_kind: kind, p_message: msg
+              });
+              app().toast('Help request sent to the LGU', 'prepared');
+              close();
+              await loadHelpRequests();
+              app().render();
+            } catch (e) { app().toast(e.message || 'Could not send', 'warning'); }
+          });
+        }
+      });
+    },
+    /* C2 / A2: water tanker + extra personnel shortcuts (BFP-only). */
+    'dispatch-help-water': async (d) => {
+      try {
+        await rpc('create_help_request', {
+          p_dispatch_id: d.id, p_kind: 'water_tanker',
+          p_message: 'Requesting a water tanker on this dispatch.'
+        });
+        app().toast('Water tanker request sent to the LGU', 'prepared');
+        await loadHelpRequests();
+        app().render();
+      } catch (e) { app().toast(e.message, 'warning'); }
+    },
+    'dispatch-help-personnel': async (d) => {
+      try {
+        await rpc('create_help_request', {
+          p_dispatch_id: d.id, p_kind: 'extra_personnel',
+          p_message: 'Requesting extra personnel on this dispatch.'
+        });
+        app().toast('Personnel request sent to the LGU', 'prepared');
+        await loadHelpRequests();
+        app().render();
+      } catch (e) { app().toast(e.message, 'warning'); }
+    },
+    /* D1: PNP-only road closure — self-contained modal. */
+    'dispatch-road-closure': (d) => {
+      if (!window.UG_FEATURES || !UG_FEATURES.modal) return;
+      UG_FEATURES.modal({
+        title: 'Post a road closure from this dispatch',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Road name</label>' +
+            '<input class="ug-in" data-rc-road placeholder="e.g. Rizal St"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Diversion route / note</label>' +
+            '<textarea class="ug-ta" rows="2" data-rc-note placeholder="Detour via Mabini St, two lanes blocked"></textarea></div>' +
+          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">From</label><input class="ug-in" data-rc-from placeholder="Purok 1"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">To</label><input class="ug-in" data-rc-to placeholder="Highway junction"></div>' +
+          '</div>' +
+          '<div class="ug-field"><label class="ug-lab">Estimated reopen (optional)</label>' +
+            '<input class="ug-in" type="datetime-local" data-rc-eta></div>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-rc-save>Post closure</button>',
+        onMount: (wrap, close) => {
+          wrap.querySelector('[data-rc-save]').addEventListener('click', async () => {
+            const road = wrap.querySelector('[data-rc-road]').value.trim();
+            const note = wrap.querySelector('[data-rc-note]').value.trim();
+            if (!road) { app().toast('A road name is required', 'warning'); return; }
+            const segFrom = wrap.querySelector('[data-rc-from]').value.trim();
+            const segTo = wrap.querySelector('[data-rc-to]').value.trim();
+            const etaVal = wrap.querySelector('[data-rc-eta]').value;
+            const eta = etaVal ? new Date(etaVal).toISOString() : null;
+            try {
+              await rpc('post_road_closure', {
+                p_dispatch_id: d.id, p_road_name: road, p_note: note,
+                p_lat: null, p_lng: null,
+                p_segment_from: segFrom, p_segment_to: segTo,
+                p_estimated_reopen: eta
+              });
+              app().toast('Road closure posted', 'prepared');
+              close();
+              app().render();
+            } catch (e) { app().toast(e.message || 'Could not post', 'warning'); }
+          });
+        }
+      });
+    },
+    'dispatch-road-reopen': async (d) => {
+      try {
+        await rpc('reopen_road_closure', { p_dispatch_id: d.id });
+        app().toast('Road reopened', 'prepared');
+        app().render();
+      } catch (e) { app().toast(e.message || 'Could not reopen', 'warning'); }
     },
     'dispatch-csv': () => exportCsv(),
     'dispatch-request-new': () => openRequestModal(),
     'dispatch-capacity-edit': () => openCapacityModal(),
     'dispatch-notif-read': async (d) => {
       const c = client(); if (!c) return;
-      try { await c.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', d.id); await loadNotifications(); if (window.UG_APP && UG_APP.render) UG_APP.render(); }
-      catch (e) { if (window.UG_APP && UG_APP.toast) UG_APP.toast(e.message, 'warning'); }
+      try { await c.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', d.id); await loadNotifications(); app().render(); }
+      catch (e) { app().toast(e.message, 'warning'); }
     },
     'dispatch-notif-read-all': async () => {
       const c = client(); if (!c) return;
       const ids = (state.data.notifications || []).filter((n) => !n.read_at).map((n) => n.id);
       if (!ids.length) return;
-      try { await c.from('notifications').update({ read_at: new Date().toISOString() }).in('id', ids); await loadNotifications(); if (window.UG_APP && UG_APP.render) UG_APP.render(); }
-      catch (e) { if (window.UG_APP && UG_APP.toast) UG_APP.toast(e.message, 'warning'); }
+      try { await c.from('notifications').update({ read_at: new Date().toISOString() }).in('id', ids); await loadNotifications(); app().render(); }
+      catch (e) { app().toast(e.message, 'warning'); }
     }
   };
 
@@ -694,11 +1216,11 @@ const UG_DISPATCH = (function () {
                 p_level: wrap.querySelector('[data-ck-level]').value, p_notes: wrap.querySelector('[data-ck-notes]').value,
                 p_photo: null, p_items: []
               });
-              if (window.UG_APP && UG_APP.toast) UG_APP.toast('Check recorded', 'prepared');
+              app().toast('Check recorded', 'prepared');
               await loadEquipment();
-              if (window.UG_APP && UG_APP.render) UG_APP.render();
+              app().render();
               close();
-            } catch (e) { if (window.UG_APP && UG_APP.toast) UG_APP.toast(e.message, 'warning'); }
+            } catch (e) { app().toast(e.message, 'warning'); }
           });
         }
       });
@@ -723,9 +1245,9 @@ const UG_DISPATCH = (function () {
                 p_condition: null, p_notes: wrap.querySelector('[data-st-notes]').value
               });
               await loadEquipment();
-              if (window.UG_APP && UG_APP.render) UG_APP.render();
+              app().render();
               close();
-            } catch (e) { if (window.UG_APP && UG_APP.toast) UG_APP.toast(e.message, 'warning'); }
+            } catch (e) { app().toast(e.message, 'warning'); }
           });
         }
       });
@@ -747,11 +1269,11 @@ const UG_DISPATCH = (function () {
                 p_unit_id: state.data.unit.id, p_kind: wrap.querySelector('[data-rq-kind]').value,
                 p_details: wrap.querySelector('[data-rq-details]').value
               });
-              if (window.UG_APP && UG_APP.toast) UG_APP.toast('Request sent to the LGU', 'prepared');
+              app().toast('Request sent to the LGU', 'prepared');
               await loadRequests();
-              if (window.UG_APP && UG_APP.render) UG_APP.render();
+              app().render();
               close();
-            } catch (e) { if (window.UG_APP && UG_APP.toast) UG_APP.toast(e.message, 'warning'); }
+            } catch (e) { app().toast(e.message, 'warning'); }
           });
         }
       });
@@ -780,11 +1302,11 @@ const UG_DISPATCH = (function () {
                 p_available: parseInt(wrap.querySelector('[data-cap-avail]').value, 10) || 0,
                 p_accepting: wrap.querySelector('[data-cap-accepting]').value === 'true'
               });
-              if (window.UG_APP && UG_APP.toast) UG_APP.toast('Capacity updated', 'prepared');
+              app().toast('Capacity updated', 'prepared');
               await loadCapacity();
-              if (window.UG_APP && UG_APP.render) UG_APP.render();
+              app().render();
               close();
-            } catch (e) { if (window.UG_APP && UG_APP.toast) UG_APP.toast(e.message, 'warning'); }
+            } catch (e) { app().toast(e.message, 'warning'); }
           });
         }
       });
@@ -793,7 +1315,7 @@ const UG_DISPATCH = (function () {
 
   function exportCsv() {
     const rows = state.data.dispatches || [];
-    if (!rows.length) { if (window.UG_APP && UG_APP.toast) UG_APP.toast('No data to export', 'warning'); return; }
+    if (!rows.length) { app().toast('No data to export', 'warning'); return; }
     const head = ['dispatched_at', 'ack_at', 'on_scene_at', 'done_at', 'dispatch_status', 'team', 'instructions', 'report_code', 'report_barangay'];
     const lines = [head.join(',')].concat(rows.map((d) => head.map((k) => {
       let v = d[k]; if (k.startsWith('report_')) v = d.report ? d.report[k.replace('report_', '')] : '';

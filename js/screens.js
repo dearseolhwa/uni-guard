@@ -160,6 +160,9 @@ const UG = (() => {
     dispatchUnits: [],
     dispatchEquipment: [],
     unitRequests: [],
+    /* A2 (Oct 24 2026) — dispatch help requests; Repo.loadHelpRequests (LGU
+       only) overwrites this when Supabase is reachable. */
+    dispatchHelpRequests: [],
     /* change requests (master prompt · Emergency Hotlines approval).
        Repo.loadChangeRequests overwrites this when Supabase is reachable. */
     changeRequests: [],
@@ -852,17 +855,37 @@ const UG_SCREENS = (() => {
       '</div></div>' +
     '</div>';
   }
-    /* dispatch records for one incident: team, instructions, ETA, who and when */
+    /* dispatch records for one incident: team, instructions, ETA, who and
+       when, and (since Oct 24 2026) the dispatch_status label so the
+       reporter and the LGU see the new statuses (declined, on_hold,
+       under_control, fire_out, transporting, arrived_hospital). */
   function dispatchRecords(i) {
     const list = (U.DATA.dispatches || {})[i.uuid || i.id] || [];
     if (!list.length) return '';
+    const stepLabel = (s) => ({
+      sent: 'Sent', acknowledged: 'Acknowledged', en_route: 'En route',
+      on_scene: 'On scene', done: 'Done', declined: 'Declined',
+      under_control: 'Under control', fire_out: 'Fire out',
+      on_hold: 'On hold', resume: 'Resumed',
+      transporting: 'Transporting', arrived_hospital: 'Arrived at hospital'
+    })[s] || s || 'Sent';
     return '<div class="ug-card"><div class="ug-card-h"><h3>Response Dispatch</h3>' +
       '<span class="ug-dimmer ug-mono" style="font-size:10px">' + list.length + (list.length === 1 ? ' TEAM' : ' TEAMS') + '</span></div>' +
       '<div class="ug-card-b ug-col" style="gap:12px">' + list.map((r) =>
         '<div class="ug-col" style="gap:5px;padding-bottom:12px;border-bottom:1px solid var(--ug-line)">' +
           '<div class="ug-rowf ug-between" style="gap:8px"><span style="font-size:13px;font-weight:700">' + I('truck', 14) + ' ' + esc(r.team) + '</span>' +
-            '<span class="ug-badge ug-badge--dispatched">ETA ' + esc(UG_UTIL.absTime(r.eta) || '—') + '</span></div>' +
+            '<span class="ug-rowf ug-gap6" style="gap:6px;align-items:center">' +
+              (r.decline_reason ? '<span class="ug-badge ug-badge--closed">' + esc(stepLabel(r.dispatch_status)) + '</span>' : '') +
+              '<span class="ug-badge ug-badge--' + (r.dispatch_status === 'declined' ? 'closed'
+                : r.dispatch_status === 'on_hold' ? 'warning'
+                : r.dispatch_status === 'done' ? 'prepared'
+                : r.dispatch_status === 'fire_out' || r.dispatch_status === 'arrived_hospital' ? 'prepared'
+                : 'dispatched') + '">' + esc(stepLabel(r.dispatch_status)) + '</span>' +
+              '<span class="ug-badge ug-badge--dispatched">ETA ' + esc(UG_UTIL.absTime(r.eta) || '—') + '</span>' +
+            '</span></div>' +
           '<div class="ug-dim" style="font-size:12px;line-height:1.5">' + esc(r.instructions) + '</div>' +
+          (r.decline_reason ? '<div class="ug-dimmer" style="font-size:11px">Decline reason: ' + esc(r.decline_reason) + '</div>' : '') +
+          (r.hold_reason ? '<div class="ug-dimmer" style="font-size:11px">Hold reason: ' + esc(r.hold_reason) + '</div>' : '') +
           '<div class="ug-dimmer ug-mono" style="font-size:10.5px">Dispatched by ' + esc(r.dispatched_by_name || '—') +
             ' · ' + esc(UG_UTIL.absTime(r.dispatched_at) || '') + '</div>' +
         '</div>').join('') + '</div></div>';
