@@ -63,7 +63,13 @@ select v.unit_type, v.label, v.checklist::jsonb
     ('Barangay', 'Rope',           '["Length","Knot integrity","Cleanliness"]'::text),
     ('Barangay', 'Stretcher',      '["Frame","Straps","Wheels"]'::text),
     ('Barangay', 'Radio',           '["Battery","Channel","Speaker","Antenna"]'::text),
-    ('Barangay', 'First-Aid Kit',   '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text)
+    ('Barangay', 'First-Aid Kit',   '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text),
+    -- B5 (Oct 24 2026) — additional Barangay Response Team equipment
+    ('Barangay', 'Life Vests',  '["Count","Buckles","Straps","Tear check"]'::text),
+    ('Barangay', 'Sandbags',    '["Stock count","Tie integrity","Mould check"]'::text),
+    ('Barangay', 'Flashlights', '["Battery","Beam test","Spare batteries","Count"]'::text),
+    ('Barangay', 'Megaphone',   '["Battery","Volume test","Microphone","Siren"]'::text),
+    ('Barangay', 'Generator',   '["Fuel level","Oil level","Start test","Output V"]'::text)
   ) as v(unit_type, label, checklist)
 on conflict (unit_type, label) do nothing;
 
