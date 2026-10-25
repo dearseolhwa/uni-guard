@@ -224,7 +224,7 @@ const UG = (() => {
       '<div class="s-val">' + esc(k.value) + '</div>' +
       '<div class="s-delta ' + k.dir + '">' + (k.dir === 'up' ? '&#9650;' : k.dir === 'down' ? '&#9660;' : '&#8226;') + ' ' + esc(k.delta) + '</div>';
     if (k.nav) {
-      return '<button class="ug-stat" data-act="nav" data-route="' + esc(k.nav) + '" style="text-align:left;cursor:pointer;width:100%;background:transparent;border:0;color:inherit;padding:0;font:inherit" title="Open ' + esc(k.label) + '">' + inner + '</button>';
+      return '<button class="ug-stat" data-act="nav" data-route="' + esc(k.nav) + '" style="text-align:left;cursor:pointer;width:100%;font:inherit;color:inherit" title="Open ' + esc(k.label) + '">' + inner + '</button>';
     }
     return '<div class="ug-stat">' + inner + '</div>';
   }
@@ -921,7 +921,7 @@ const UG_SCREENS = (() => {
     const chips = [['all', 'All'], ['emergency', 'Emergency'], ['warning', 'Warning'], ['advisory', 'Advisory'], ['prepared', 'Preparedness']];
     const list = U.DATA.advisories.filter(a => f === 'all' || a.severity === f);
     return '<div class="ug-col" style="gap:14px">' +
-      '<div><div class="ug-lab">Official broadcasts</div><h2 style="font-size:19px;margin-top:3px">Advisories and Alerts</h2></div>' +
+      '<div><div class="ug-lab">' + esc(T('advisories.compose')) + '</div><h2 style="font-size:19px;margin-top:3px">' + esc(T('title.advisories')) + '</h2></div>' +
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' + chips.map(c =>
         '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('sev-filter', attr({ v: c[0] })) + '>' + c[1] + '</button>').join('') + '</div>' +
       (list.length ? list.map(a =>
@@ -1007,7 +1007,7 @@ const UG_SCREENS = (() => {
     const chips = [['all', 'All'], ['open', 'Open'], ['full', 'Full'], ['closed', 'Closed']];
     const list = scoped.filter(c => f === 'all' || c.status === f);
     return '<div class="ug-col" style="gap:14px">' +
-      '<div><div class="ug-lab">Evacuation Center Directory</div><h2 style="font-size:19px;margin-top:3px">Shelters Near You</h2></div>' +
+      '<div><div class="ug-lab">' + esc(T('title.centers')) + '</div><h2 style="font-size:19px;margin-top:3px">' + esc(T('nav.centers')) + '</h2></div>' +
       /* scope toggle — mirrors the citizen desktop screen so a resident can
          see just their own barangay's shelters with one tap. */
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' +
@@ -1042,7 +1042,7 @@ const UG_SCREENS = (() => {
   /* ---- hotlines (feature 8) ---- */
   function mHotlines(st){
     return '<div class="ug-col" style="gap:14px">' +
-      '<div><div class="ug-lab">Emergency Hotline Directory</div><h2 style="font-size:19px;margin-top:3px">Who to Call</h2>' +
+      '<div><div class="ug-lab">' + esc(T('hotlines.title')) + '</div><h2 style="font-size:19px;margin-top:3px">' + esc(T('hotlines.title')) + '</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">One list for barangay and city offices. Cached on your device for offline use.</p></div>' +
       '<div class="ug-card"><div class="ug-rows">' + U.DATA.hotlines.map(h =>
         '<div class="ug-row"><span class="r-dot" style="background:' + (h.type === 'emergency' ? 'var(--ug-emergency)' : h.type === 'medical' ? 'var(--ug-prepared)' : 'var(--ug-advisory)') + '"></span>' +
@@ -1329,7 +1329,7 @@ const UG_SCREENS = (() => {
         '</div></div>'
       : '';
     return '<div class="ug-col" style="gap:14px">' +
-      pageHead('Operations Dashboard', 'Real-time monitoring and incident command overview for ' + U.DATA.city + '.',
+      pageHead(T('title.dashboard'), T('dashboard.subtitle') + ' ' +  + U.DATA.city + '.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('nav', attr({ route: 'analytics' })) + '>' + I('layers', 15) + 'Analytics</button>' +
         /* only LGU / LDRRMC may declare (RPC declare_emergency, migration 009) */
         (st.session && st.session.role === 'lgu_ldrrmc'
@@ -1344,7 +1344,7 @@ const UG_SCREENS = (() => {
           '<div class="ug-rowf ug-gap8" style="gap:6px">' +
             '<span class="ug-chip is-on">' + I('radar', 13) + 'Realtime</span>' +
             '<button class="ug-chip' + (st.mapPanelOpen ? ' is-on' : '') + '" data-act="map-layers-panel" aria-expanded="' + !!st.mapPanelOpen + '">' + I('layers', 13) + 'Layers</button></div></div>' +
-          '<div class="ug-map" data-map="live" data-toggles="chip" style="height:260px">' + U.mapSVG({ animated: true }) +
+          '<div class="ug-map" data-map="live" data-toggles="chip" style="min-height:260px;flex:1">' + U.mapSVG({ animated: true }) +
             '<div class="map-scale">1 : 25 000</div></div></div>' +
         '<div class="ug-card ug-col" style="min-height:0"><div class="ug-card-h" style="padding:14px 16px">' +
           '<div><h3>Recent Incidents</h3><span class="ug-dimmer" style="font-size:10.5px">Tap a row for the full detail view</span></div>' +
@@ -1493,7 +1493,7 @@ const UG_SCREENS = (() => {
           (bf !== 'All' ? '<button class="ug-chip"' + A('inc-brgy-clear') + '>Clear</button>' : '')
       : '';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Incident Queue', 'Track every report through reported, verified, response dispatched and resolved.',
+      pageHead(T('title.incidents'), 'Track every report through reported, verified, response dispatched and resolved.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm' + (priority ? ' is-active' : '') + '" style="' + (priority ? 'border-color:var(--ug-signal);color:var(--ug-signal)' : '') + '"' + A('sort-toggle') + '>' + I('sort', 15) + (priority ? 'Priority Sort: On' : 'Priority Sort') + '</button>' +
         '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('nav', attr({ route: 'command' })) + '>' + I('grid', 15) + 'Command View</button>') +
       (escalatedCount > 0 ? '<div class="ug-card ug-card--flat" style="border-left:3px solid var(--ug-emergency)"><div class="ug-card-b ug-col" style="gap:8px">' +
@@ -1887,7 +1887,7 @@ const UG_SCREENS = (() => {
   function dCommand(st){
     const active = U.DATA.incidents.filter(i => i.status === 'reported' || i.status === 'verified' || i.status === 'dispatched');
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Command View', 'Focused operational view: live map, open incidents and the pipeline. Scope: ' + esc(sess(st).scope || ''),
+      pageHead(T('title.command'), 'Focused operational view: live map, open incidents and the pipeline. Scope: ' +  + esc(sess(st).scope || ''),
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('nav', attr({ route: 'incidents' })) + '>' + I('x', 15) + 'Exit Command View</button>') +
       '<div class="ug-card" style="padding:0;overflow:hidden"><div class="ug-map" data-map="live" style="height:400px">' + U.mapSVG({ animated: true }) + '</div></div>' +
       '<div class="ug-dgrid-main">' +

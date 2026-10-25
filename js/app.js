@@ -827,7 +827,7 @@
 
     logout: async () => {
       const ok = await UG_FEATURES.confirm({
-        title: 'Sign out',
+        title: T('action.signout'),
         message: 'Sign out of UniGuard on this device?',
         confirmLabel: 'Sign out'
       });
@@ -1181,7 +1181,7 @@
          location. */
       const d = S.roadDraft || {};
       UG_FEATURES.modal({
-        title: 'Set road work location',
+        title: T('roadwork.roadPin'),
         body:
           '<div class="ug-field"><label class="ug-lab">Barangay</label>' +
             '<input class="ug-in" data-rw-modal-brgy value="' + UG_UTIL.esc(d.barangay || '') + '" placeholder="e.g. Poblacion" list="rw-brgy-list">' +
@@ -1309,7 +1309,7 @@
     /* manual coordinate fallback for when GPS AND the map are impractical */
     'manual-coords': async () => {
       const manual = await UG_FEATURES.prompt({
-        title: 'Enter coordinates',
+        title: T('action.type'),
         label: 'Latitude, longitude',
         placeholder: UG_GEO.EXAMPLE,
         help: 'Example: 16.0206, 120.2306 — latitude first.'
@@ -1467,6 +1467,12 @@
     },
 
     advance: async (d) => {
+      /* Client-side role check: only barangay_official and lgu_ldrrmc may
+         advance a report's status. The server-side advance_report_status
+         RPC also enforces this (migration 046), but the client check gives
+         a clean rejection instead of a raw server error for citizens who
+         somehow trigger the action. */
+      if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can change an incident status', 'warning'); return; }
       /* Super Admin must not verify reports (Section 1 of the spec). The
          advance action moves reported → verified (i.e. verifies it), so block
          the Super Admin from using it. Edit-report is the Super Admin's
@@ -1486,7 +1492,7 @@
       if (order[next] === 'dispatched') { dispatchModal(inc); return; }
       const label = UG.STAGES[next].label;
       const ok = await UG_FEATURES.confirm({
-        title: 'Advance status',
+        title: T('action.update'),
         message: 'Move ' + inc.id + ' to "' + label + '"?',
         detail: '<div class="ug-kv"><dt>From</dt><dd>' + UG_UTIL.esc(inc.status) + '</dd><dt>To</dt><dd>' + UG_UTIL.esc(label) + '</dd></div>',
         confirmLabel: 'Move to ' + label
@@ -1500,6 +1506,7 @@
     },
 
     reject: async (d) => {
+      if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can reject a report', 'warning'); return; }
       const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
       if (!inc) return;
       const reason = await UG_FEATURES.prompt({
@@ -1813,7 +1820,7 @@
       const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
       if (!h) return;
       UG_FEATURES.modal({
-        title: 'Edit hotline',
+        title: T('action.edit') + ' hotline',
         body:
           '<div class="ug-field"><label class="ug-lab">Agency</label>' +
           '<input class="ug-in" data-hl-agency value="' + UG_UTIL.esc(h.agency) + '"></div>' +
@@ -1848,7 +1855,7 @@
       const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
       if (!h) return;
       const ok = await UG_FEATURES.confirm({
-        title: 'Delete hotline', message: 'Remove ' + h.agency + ' from the directory on every device? This cannot be undone.',
+        title: T('action.delete') + ' hotline', message: 'Remove ' + h.agency + ' from the directory on every device? This cannot be undone.',
         confirmLabel: 'Delete', danger: true
       });
       if (!ok) return;

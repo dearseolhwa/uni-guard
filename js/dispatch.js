@@ -333,14 +333,14 @@ const UG_DISPATCH = (function () {
 
   /* ----------------------------------------------------- the desktop frame layout */
   const DNAV = [
-    ['dispatch',  'Incoming Dispatches', 'truck'],
-    ['equipment', 'Equipment & Readiness', 'shield'],
-    ['roster',    'Roster & Shifts',       'users'],
-    ['hospital',  'Hospital',              'shelter', 'Hospital'],
-    ['requests',  'Support Requests',      'inbox'],
-    ['analytics', 'Unit Analytics',        'layers'],
-    ['contacts',  'Directory',             'phone'],
-    ['notifications', 'Notifications',    'bell'],
+    ['dispatch',  T('nav.dispatch'), 'truck'],
+    ['equipment', T('nav.equipment'), 'shield'],
+    ['roster',    T('nav.roster'),       'users'],
+    ['hospital',  T('nav.hospital'),              'shelter', 'Hospital'],
+    ['requests',  T('nav.requests'),      'inbox'],
+    ['analytics', T('nav.unit-analytics'),        'layers'],
+    ['contacts',  T('nav.contacts'),             'phone'],
+    ['notifications', T('nav.notifications'),    'bell'],
   ];
 
   function unitTypeLabel(t) {
@@ -371,7 +371,7 @@ const UG_DISPATCH = (function () {
           '<span class="ug-av">' + esc((session && session.initials) || '?') + '</span>' +
           '<span class="ug-col" style="gap:0;min-width:0"><span style="font-size:12px;font-weight:600">' + esc(session && session.name) + '</span>' +
           '<span class="ug-dimmer" style="font-size:10px">' + esc(session && session.scope) + '</span>' +
-          '<span class="ug-dimmer" style="font-size:10px">' + (unit ? unitTypeLabel(unit.unit_type) : '') + (unit && dutyCount ? ' · ' + dutyCount + ' on duty' : '') + '</span></span></div>' +
+          '<span class="ug-dimmer" style="font-size:10px">' + (unit ? unitTypeLabel(unit.unit_type) : '') + (unit && dutyCount ? ' · ' + dutyCount + ' ' + esc(T('dispatch.onDuty')) : '') + '</span></span></div>' +
         '<button class="ug-nav" data-act="logout">' + I('logout', 18) + '<span>' + esc(T('action.signout')) + '</span></button>' +
         '<div class="ug-mono" style="font-size:9px;color:var(--ug-ink-3);padding:2px 9px 4px">build ' + esc((typeof UG_CONFIG !== 'undefined' && UG_CONFIG.BUILD) || 'dev') + '</div>' +
       '</div>' +
@@ -386,7 +386,7 @@ const UG_DISPATCH = (function () {
         '<span style="font-family:var(--ug-display);font-weight:700;font-size:13.5px">' + esc(title) + '</span>' +
         '<span class="ug-dimmer" style="font-size:10.5px">' + esc(sub) + '</span></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px;margin-left:auto">' +
-        '<span class="ug-chip ug-top-live is-on">' + I('wave', 13) + 'Live</span>' +
+        '<span class="ug-chip ug-top-live is-on">' + I('wave', 13) + esc(T('state.online')) + '</span>' +
         '<button class="ug-ico-btn" aria-label="Notifications" data-act="dispatch-nav" data-route="notifications">' + I('bell', 17) + (unread ? '<span class="dot"></span>' : '') + '</button>' +
         '<button class="ug-ico-btn" aria-label="Sign out" data-act="logout">' + I('logout', 17) + '</button>' +
         '<div class="ug-rowf ug-gap10" style="gap:9px;padding-left:6px;border-left:1px solid var(--ug-line);margin-left:4px">' +
@@ -400,15 +400,15 @@ const UG_DISPATCH = (function () {
 
   const DTITLES = (function () {
     const map = {
-      dispatch: ['UniGuard Dispatch Console', ''],
-      'dispatch-detail': ['Dispatch detail', ''],
-      equipment: ['Equipment & readiness', 'Track each piece of equipment and run the shift checklist.'],
-      roster: ['Roster & shifts', 'Who is on duty, shift times, roles.'],
-      hospital: ['Hospital capacity', 'ER/ICU beds, ambulance, accepting / divert, incoming-patient notices.'],
-      requests: ['Support requests', 'Ask the LGU for fuel, extra personnel, equipment or mutual aid.'],
-      analytics: ['Unit analytics', 'Response time, monthly count, equipment usage.'],
-      contacts: ['Directory', 'BFP, PNP, rescue units, hospitals and barangay captains.'],
-      notifications: ['Notifications', 'Every push alert delivered to this unit.']
+      dispatch: [T('title.dispatch'), ''],
+      'dispatch-detail': [T('title.dispatchDetail'), ''],
+      equipment: [T('title.equipment'), T('dispatch.equipmentSub')],
+      roster: [T('title.roster'), T('dispatch.rosterSub')],
+      hospital: [T('title.hospital'), T('dispatch.hospitalSub')],
+      requests: [T('title.requests'), T('dispatch.requestsSub')],
+      analytics: [T('title.unitAnalytics'), T('dispatch.analyticsSub')],
+      contacts: [T('title.contacts'), T('dispatch.directorySub')],
+      notifications: [T('title.notifications'), T('dispatch.notificationsSub')]
     };
     return function (route) { return map[route] || map.dispatch; };
   })();
@@ -431,12 +431,12 @@ const UG_DISPATCH = (function () {
   }
 
   function sIncoming(st) {
-    if (state.loading) return pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.') + statePanel('loading', 'Loading');
-    if (state.error)   return pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.') + statePanel('error', 'Could not load', state.error);
+    if (state.loading) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('loading', T('state.loading'));
+    if (state.error)   return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('error', T('toast.couldNotLoad'), state.error);
     const list = state.data.dispatches || [];
     const open = list.filter((d) => d.dispatch_status !== 'done' && d.dispatch_status !== 'declined');
-    if (!list.length) return pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.') +
-      emptyState('truck', 'No dispatches yet', 'When an LGU or barangay official dispatches your unit, the dispatch lands here.');
+    if (!list.length) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) +
+      emptyState('truck', T('dispatch.noDispatches'), T('dispatch.noDispatchesHint'));
 
     /* PNP-specific sections: shelters needing patrol (D2) + relief
        distributions with an escort requested (D3). PNP can confirm the
@@ -480,7 +480,7 @@ const UG_DISPATCH = (function () {
       return '<button class="ug-card" style="text-align:left;cursor:pointer" data-act="dispatch-open" data-id="' + esc(d.id) + '">' +
         '<div class="ug-card-b ug-col" style="gap:8px">' +
         '<div class="ug-rowf ug-between" style="gap:8px">' +
-          '<span style="font-size:13px;font-weight:700">' + esc(r.code || '') + ' · ' + esc(r.hazard_type || 'Hazard') + '</span>' +
+          '<span style="font-size:13px;font-weight:700">' + esc(r.code || '') + ' · ' + esc(r.hazard_type || T('label.type')) + '</span>' +
           '<span>' + badge(d.dispatch_status, d.dispatch_status) + '</span>' +
         '</div>' +
         '<div class="ug-dim" style="font-size:11.5px">' + esc(r.barangay || '') + (d.eta ? ' · ETA ' + absTime(d.eta) : '') + '</div>' +
@@ -499,7 +499,7 @@ const UG_DISPATCH = (function () {
   function sDispatchDetail(st) {
     const id = state.openDispatchId;
     const d = (state.data.dispatches || []).find((x) => x.id === id);
-    if (!d) return pageHead('Dispatch detail', '') + emptyState('truck', 'No dispatch selected', 'Open one from the list.');
+    if (!d) return pageHead(T('title.dispatchDetail'), '') + emptyState('truck', T('dispatch.noDispatches'), T('dispatch.noDispatchesHint'));
     const r = d.report || {};
     const events = (state.data.events || []).filter((e) => e.dispatch_id === d.id);
     const team = d.team;
@@ -507,20 +507,20 @@ const UG_DISPATCH = (function () {
 
     /* Per-team next-step labels. Each entry is [nextAction, buttonLabel]. */
     const STEP = {
-      sent: ['acknowledged', 'Acknowledge'],
-      acknowledged: ['en_route', 'En route'],
-      en_route: ['on_scene', 'On scene'],
+      sent: ['acknowledged', T('dispatch.acknowledge')],
+      acknowledged: ['en_route', T('dispatch.enRoute')],
+      en_route: ['on_scene', T('dispatch.onScene')],
       on_scene: (function () {
         if (team === 'BFP') return ['under_control', 'Under control'];
         if (team === 'Ambulance') return ['transporting', 'Transporting'];
-        if (team === 'Rescue Unit' || team === 'MDRRMO Rescue') return null; // needs a note for on_hold
-        return ['done', 'Done'];
+        if (team === 'Rescue Unit' || team === 'MDRRMO Rescue') return ['on_hold', 'On hold'];
+        return ['done', T('dispatch.done')];
       })(),
       under_control: ['fire_out', 'Fire out'],
-      fire_out: ['done', 'Done'],
+      fire_out: ['done', T('dispatch.done')],
       on_hold: ['resume', 'Resume'],
       transporting: ['arrived_hospital', 'Arrived at hospital'],
-      arrived_hospital: ['done', 'Done'],
+      arrived_hospital: ['done', T('dispatch.done')],
       done: null,
       declined: null
     };
@@ -529,8 +529,8 @@ const UG_DISPATCH = (function () {
     const nextLabel = nextPair ? nextPair[1] : '';
 
     const stepLabel = (s) => ({
-      sent: 'Sent', acknowledged: 'Acknowledged', en_route: 'En route',
-      on_scene: 'On scene', done: 'Done', declined: 'Declined',
+      sent: T('dispatch.acknowledge'), acknowledged: T('dispatch.acknowledge'), en_route: T('dispatch.enRoute'),
+      on_scene: T('dispatch.onScene'), done: T('dispatch.done'), declined: 'Declined',
       under_control: 'Under control', fire_out: 'Fire out',
       on_hold: 'On hold', resume: 'Resumed',
       transporting: 'Transporting', arrived_hospital: 'Arrived at hospital'
@@ -635,7 +635,7 @@ const UG_DISPATCH = (function () {
 
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Dispatch ' + (d.id || '').slice(0, 8), 'Incident ' + (r.code || '') + ' · ' + (r.barangay || ''),
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-nav" data-route="dispatch">' + I('chevron', 13) + 'Back</button>') +
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-nav" data-route="dispatch">' + I('chevron', 13) + esc(T('dispatch.back')) + '</button>') +
       '<div class="ug-wgrid-2">' +
         card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">' + esc(r.code || '') + ' · ' + esc(r.hazard_type || '') + '</div>' +
           '<div class="ug-dim" style="font-size:12px">' + esc(r.description || '') + '</div>' +
@@ -690,8 +690,8 @@ const UG_DISPATCH = (function () {
   }
 
   function sEquipment(st) {
-    if (state.loading) return pageHead('Equipment & readiness', '') + statePanel('loading');
-    if (state.error)   return pageHead('Equipment & readiness', '') + statePanel('error', 'Could not load', state.error);
+    if (state.loading) return pageHead(T('title.equipment'), '') + statePanel('loading');
+    if (state.error)   return pageHead(T('title.equipment'), '') + statePanel('error', T('toast.couldNotLoad'), state.error);
     const rows = state.data.equipment || [];
     /* 050: unit_admin can add/edit/remove. Regular members only see the
        Check + Status buttons (record_equipment_check + set_equipment_status
@@ -699,8 +699,8 @@ const UG_DISPATCH = (function () {
     const canManage = !!(st.session && st.session.role === 'dispatch_team' && st.session.unit_role === 'unit_admin');
     if (!rows.length) return pageHead('Equipment & readiness', 'Track each piece and run the shift checklist.',
         canManage ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="equipment-add" data-owner-unit="' + esc((state.data.unit && state.data.unit.id) || '') + '">' + I('plus', 14) + 'Add equipment</button>' : '') +
-      emptyState('shield', 'No equipment yet',
-        canManage ? 'Use "Add equipment" to register a piece of equipment for your unit.' : 'Your unit admin can add equipment here.');
+      emptyState('shield', T('dispatch.noEquipment'),
+        canManage ? 'Use "Add equipment" to register a piece of equipment for your unit.' : T('dispatch.noEquipmentHint'));
     const overdue = rows.filter((r) => !r.last_checked_at || (Date.now() - Date.parse(r.last_checked_at)) > 86400000).length;
     const row = (r) => {
       const overdueClass = !r.last_checked_at || (Date.now() - Date.parse(r.last_checked_at)) > 86400000 ? ' style="border-left:3px solid var(--ug-warning)"' : '';
@@ -734,13 +734,13 @@ const UG_DISPATCH = (function () {
   }
 
   function sRoster(st) {
-    if (state.loading) return pageHead('Roster & shifts', '') + statePanel('loading');
-    if (state.error)   return pageHead('Roster & shifts', '') + statePanel('error', 'Could not load', state.error);
+    if (state.loading) return pageHead(T('title.roster'), '') + statePanel('loading');
+    if (state.error)   return pageHead(T('title.roster'), '') + statePanel('error', T('toast.couldNotLoad'), state.error);
     const rows = state.data.personnel || [];
     const unit = state.data.unit;
     const canInvite = unit && (st.session && st.session.unit_role === 'unit_admin');
     const inviteBtn = canInvite ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="admin-invite-unit-member" data-unit-id="' + esc(unit && unit.id) + '">' + I('plus', 14) + 'Invite member</button>' : '';
-    if (!rows.length) return pageHead('Roster & shifts', 'Who is on duty, shift times, roles.', inviteBtn) +
+    if (!rows.length) return pageHead(T('title.roster'), T('dispatch.rosterSub'), inviteBtn) +
       emptyState('users', 'No personnel yet', canInvite ? 'Use Invite member to send an email to a new unit member.' : 'Ask your unit admin to add personnel.');
     const onDuty = rows.filter((p) => p.on_duty).length;
     const row = (p) => '<tr>' +
@@ -749,10 +749,10 @@ const UG_DISPATCH = (function () {
       '<td>' + esc(p.phone || '') + '</td>' +
       '<td>' + badge(p.on_duty ? 'on' : 'off', p.on_duty ? 'On duty' : 'Off duty') + '</td>' +
       '<td class="t-num">' + (p.shift_start ? absTime(p.shift_start) : '—') + '</td>' +
-      '<td class="t-right"><button class="ug-btn ug-btn--sm' + (p.on_duty ? '' : ' ug-btn--signal') + '" data-act="dispatch-duty" data-id="' + esc(p.id) + '" data-next="' + (p.on_duty ? 'false' : 'true') + '">' + (p.on_duty ? 'Clock out' : 'Clock in') + '</button></td>' +
+      '<td class="t-right"><button class="ug-btn ug-btn--sm' + (p.on_duty ? '' : ' ug-btn--signal') + '" data-act="dispatch-duty" data-id="' + esc(p.id) + '" data-next="' + (p.on_duty ? 'false' : 'true') + '">' + (p.on_duty ? esc(T('action.clockOut')) : esc(T('action.clockIn'))) + '</button></td>' +
     '</tr>';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Roster & shifts', 'Who is on duty, shift times, roles.',
+      pageHead(T('title.roster'), T('dispatch.rosterSub'),
         '<span class="ug-chip is-on">' + onDuty + ' on duty</span>' + inviteBtn) +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
       '<thead><tr><th>Name / role</th><th>Phone</th><th>Status</th><th>Shift start</th><th class="t-right">Action</th></tr></thead>' +
@@ -760,8 +760,8 @@ const UG_DISPATCH = (function () {
   }
 
   function sHospital(st) {
-    if (state.loading) return pageHead('Hospital', '') + statePanel('loading');
-    if (state.error)   return pageHead('Hospital', '') + statePanel('error', 'Could not load', state.error);
+    if (state.loading) return pageHead(T('nav.hospital'), '') + statePanel('loading');
+    if (state.error)   return pageHead(T('nav.hospital'), '') + statePanel('error', T('toast.couldNotLoad'), state.error);
     const cap = state.data.capacity || { er_beds: 0, icu_beds: 0, available: 0, accepting: true };
     const notices = state.data.notices || [];
     /* F1: show Acknowledge, Arrived and Cancel buttons. The RPC allows
@@ -784,13 +784,13 @@ const UG_DISPATCH = (function () {
       '</tr>';
     };
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Hospital capacity', 'ER / ICU beds, ambulance, accepting / divert, incoming-patient notices.',
+      pageHead(T('title.hospital'), T('dispatch.hospitalSub'),
         '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-capacity-edit">' + I('settings', 14) + 'Update</button>') +
       '<div class="ug-rowf ug-gap10" style="gap:10px">' +
         readout(cap.er_beds, 'ER beds', 'var(--ug-signal)') +
         readout(cap.icu_beds, 'ICU beds', 'var(--ug-signal)') +
         readout(cap.available, 'Available', 'var(--ug-prepared)') +
-        readout(cap.accepting ? 'Accepting' : 'Divert', 'Status', cap.accepting ? 'var(--ug-prepared)' : 'var(--ug-emergency)') +
+        readout(cap.accepting ? T('label.accepting') : T('label.divert'), 'Status', cap.accepting ? 'var(--ug-prepared)' : 'var(--ug-emergency)') +
       '</div>' +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
       '<thead><tr><th>When</th><th>Patients</th><th>Condition</th><th>Status</th><th class="t-right">Action</th></tr></thead>' +
@@ -799,8 +799,8 @@ const UG_DISPATCH = (function () {
   }
 
   function sRequests(st) {
-    if (state.loading) return pageHead('Support requests', '') + statePanel('loading');
-    if (state.error)   return pageHead('Support requests', '') + statePanel('error', 'Could not load', state.error);
+    if (state.loading) return pageHead(T('title.requests'), '') + statePanel('loading');
+    if (state.error)   return pageHead(T('title.requests'), '') + statePanel('error', T('toast.couldNotLoad'), state.error);
     const rows = state.data.requests || [];
     const open = rows.filter((r) => r.status === 'pending' || r.status === 'approved');
     const row = (r) => '<tr>' +
@@ -811,7 +811,7 @@ const UG_DISPATCH = (function () {
       '<td class="t-num">' + (r.decided_at ? absTime(r.decided_at) : '—') + '</td>' +
     '</tr>';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Support requests', 'Ask the LGU for fuel, extra personnel, equipment or mutual aid.',
+      pageHead(T('title.requests'), T('dispatch.requestsSub'),
         '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-request-new">' + I('plus', 14) + 'New request</button>') +
       (open.length ? '<span class="ug-chip is-on">' + open.length + ' open</span>' : '') +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
@@ -822,7 +822,7 @@ const UG_DISPATCH = (function () {
 
   function sAnalytics(st) {
     const dispatches = state.data.dispatches || [];
-    if (!dispatches.length) return pageHead('Unit analytics', '') + emptyState('layers', 'No dispatches yet', 'Your response time and monthly count appear here once you have an active dispatch.');
+    if (!dispatches.length) return pageHead(T('title.unitAnalytics'), '') + emptyState('layers', T('dispatch.noAnalyticsYet'), T('dispatch.noAnalyticsHint'));
     const acks = dispatches.filter((d) => d.ack_at).length;
     const avgAck = acks ? (dispatches.reduce((s, d) => s + (Date.parse(d.ack_at) - Date.parse(d.dispatched_at)) / 60000, 0) / acks).toFixed(1) : '—';
     const scenes = dispatches.filter((d) => d.on_scene_at && d.ack_at).length;
@@ -832,7 +832,7 @@ const UG_DISPATCH = (function () {
       const m = new Date(); return new Date(d.dispatched_at).getMonth() === m.getMonth() && new Date(d.dispatched_at).getFullYear() === m.getFullYear();
     }).length;
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Unit analytics', 'Response time, monthly count, equipment usage.',
+      pageHead(T('title.unitAnalytics'), T('dispatch.analyticsSub'),
         '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-csv">' + I('download', 14) + 'Export CSV</button>') +
       '<div class="ug-rowf ug-gap10" style="gap:10px">' +
         readout(dispatches.length, 'Total dispatches', 'var(--ug-signal)') +
@@ -857,7 +857,7 @@ const UG_DISPATCH = (function () {
     const dir = state.data.directory || {};
     const hotlines = dir.hotlines || [];
     const captains = dir.captains || [];
-    const callLink = (num) => '<a class="ug-btn ug-btn--sm ug-btn--signal" href="tel:' + esc(String(num).replace(/[^+\d]/g, '')) + '">' + I('phone', 13) + 'Call</a>';
+    const callLink = (num) => '<a class="ug-btn ug-btn--sm ug-btn--signal" href="tel:' + esc(String(num).replace(/[^+\d]/g, '')) + '">' + I('phone', 13) + esc(T('action.call')) + '</a>';
     const row = (h) => '<tr><td><div style="font-weight:600">' + esc(h.agency_name) + '</div>' +
       '<div class="ug-dimmer" style="font-size:10.5px">' + esc(h.scope || '') + '</div></td>' +
       '<td>' + esc(h.category || 'Other') + '</td>' +
@@ -868,7 +868,7 @@ const UG_DISPATCH = (function () {
       '<td class="t-num">' + esc(c.captain_phone || '—') + '</td>' +
       '<td class="t-right">' + (c.captain_phone ? callLink(c.captain_phone) : '') + '</td></tr>';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Directory', 'BFP, PNP, rescue units, hospitals and barangay captains. Tap to call.') +
+      pageHead(T('title.contacts'), T('dispatch.directorySub')) +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
       '<thead><tr><th>Agency</th><th>Category</th><th>Number</th><th class="t-right">Action</th></tr></thead>' +
       '<tbody>' + hotlines.map(row).join('') + '</tbody></table></div>' +
@@ -880,16 +880,16 @@ const UG_DISPATCH = (function () {
 
   function sNotifications(st) {
     const rows = state.data.notifications || [];
-    if (!rows.length) return pageHead('Notifications', '') + emptyState('bell', 'No notifications yet', 'Alerts delivered to this unit appear here.');
+    if (!rows.length) return pageHead(T('title.notifications'), '') + emptyState('bell', T('dispatch.noNotifications'), T('dispatch.noNotificationsHint'));
     const row = (n) => '<tr>' +
       '<td class="t-num">' + absTime(n.created_at) + '</td>' +
       '<td>' + esc(n.title) + '</td>' +
       '<td class="ug-dim" style="font-size:11.5px">' + esc(n.body) + '</td>' +
-      '<td>' + (n.read_at ? badge('open', 'Read') : badge('warning', 'Unread')) + '</td>' +
+      '<td>' + (n.read_at ? badge('open', T('label.read')) : badge('warning', T('label.unread'))) + '</td>' +
       '<td class="t-right">' + (n.read_at ? '' : '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-notif-read" data-id="' + esc(n.id) + '">Mark read</button>') + '</td>' +
     '</tr>';
     return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Notifications', 'Every push alert delivered to this unit.',
+      pageHead(T('title.notifications'), T('dispatch.notificationsSub'),
         '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-notif-read-all">Mark all read</button>') +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
       '<thead><tr><th>When</th><th>Title</th><th>Body</th><th>Status</th><th class="t-right">Action</th></tr></thead>' +

@@ -55,9 +55,9 @@ const UG_ADMIN = (function () {
 
   /* --------------------------------------------------------------- users */
   function users(st) {
-    if (!isSuper(st)) return superOnly('User Management');
-    if (st.loading) return '<div class="ug-col" style="gap:16px">' + head('User Management', 'Create and manage accounts, roles and barangay assignments.') + statePanel('loading') + '</div>';
-    if (st.error) return '<div class="ug-col" style="gap:16px">' + head('User Management', 'Create and manage accounts, roles and barangay assignments.') +
+    if (!isSuper(st)) return superOnly(T('admin.usersTitle'));
+    if (st.loading) return '<div class="ug-col" style="gap:16px">' + head(T('admin.usersTitle'), T('admin.usersSub')) + statePanel('loading') + '</div>';
+    if (st.error) return '<div class="ug-col" style="gap:16px">' + head(T('admin.usersTitle'), T('admin.usersSub')) +
       statePanel('error', 'Could not load accounts', st.error,
         '<button class="ug-btn ug-btn--sm" data-act="admin-load" style="margin-top:10px">Try Again</button>') + '</div>';
 
@@ -98,7 +98,7 @@ const UG_ADMIN = (function () {
       : statePanel('empty', 'No accounts yet', 'Accounts appear here as residents register and officials are created.');
 
     return '<div class="ug-col" style="gap:16px">' +
-      head('User Management', 'Officials and LGU staff are created and promoted here. Residents self-register.',
+      head(T('admin.usersTitle'), T('admin.usersSub'),
         '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="admin-export-users">' + I('download', 15) + 'Export PDF</button>' +
         '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="admin-create">' + I('plus', 15) + 'Create Official</button>') +
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap8" style="gap:8px;align-items:flex-end">' +
@@ -450,7 +450,7 @@ const UG_ADMIN = (function () {
     };
 
     return '<div class="ug-col" style="gap:18px">' +
-      head('Barangay Response Team', 'Incoming dispatches, roster and equipment for ' + (isLgu ? 'every barangay' : 'Barangay ' + brgyName) + '.') +
+      head(T('admin.responseTeamTitle'), 'Incoming dispatches, roster and equipment for ' + (isLgu ? 'every barangay' : 'Barangay ' + brgyName) + '.') +
       (disp.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>When</th><th>Team</th><th>Instructions</th><th>By</th><th>Status</th><th>Action</th></tr></thead><tbody>' + disp.map(dispatchRow).join('') + '</tbody></table></div>'
         : statePanel('empty', 'No Response Team dispatches yet', 'When your barangay\'s Response Team is dispatched, the alert lands here.')) +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Name / unit</th><th>Contact</th><th>Status</th><th class="t-right">Action</th></tr></thead><tbody>' +
