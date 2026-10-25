@@ -464,3 +464,225 @@ the app.js boot did not finish.
 If you see this toast during a real session, it means `app.js` did not
 finish booting (a JS error earlier in the bundle, a missing script tag,
 or a CDN failure). Open the browser console for the actual error.
+
+## 29. Support Requests — New request button end-to-end (Oct 24 2026)
+
+This section walks through the full chain: the New request button on the
+Support Requests page, the modal, the RPC, the table, the LGU decision,
+and the round-trip back to the unit. Run migration 040 first (then 049
+if you have not already). After deploying, sign in as the roles below.
+
+### Setup
+
+- One BFP unit_admin account (`bfp-admin@example.com`) linked to the
+  Lingayen BFP unit (profiles.dispatch_unit_id set).
+- One BFP member account (`bfp-member@example.com`) linked to the same
+  unit.
+- One LGU account (`lgu@example.com`).
+- A second unit (PNP) with one member (`pnp-member@example.com`).
+
+### Send a request — unit_admin
+
+| # | Step | Expected |
+|---|---|---|
+| 29.1 | Sign in as `bfp-admin`. Click Support Requests in the sidebar. | The screen renders with the "New request" button in the top-right. The empty state shows if there are no requests yet. |
+| 29.2 | Press "New request" | A modal opens with: Kind dropdown (labels: Fuel, Personnel, Equipment, Mutual aid, Other), Details textarea (placeholder "What do you need? Be specific — the LGU sees this message."), and a 0/1000 counter under the textarea. |
+| 29.3 | Pick "Mutual aid" in the Kind dropdown | The option label is "Mutual aid" (readable). The underlying value sent to the RPC is `mutual_aid` (the DB value). |
+| 29.4 | Leave Details empty and press Send | A warning toast: "Write a short description of what you need before sending." The textarea gets focus. The modal stays open. No RPC is sent. |
+| 29.5 | Type 1001 characters in Details | The counter turns red at >1000; on Send a warning toast: "Keep the details under 1000 characters (you have 1001)." No RPC is sent. |
+| 29.6 | Type a 1-sentence description (e.g. "Need 200L diesel for the fire truck") and press Send | The Send button disables and shows "Sending…" while the RPC is in flight. |
+| 29.7 | Wait for the RPC to resolve | A success toast "Request sent to the LGU" appears. The modal closes. The new row appears in the table (When = now, Kind = "Mutual aid", Details = your text, Status = pending, Decided = —). The "N open" chip at the top increases by 1. |
+| 29.8 | Open the browser DevTools Network tab and inspect the `create_unit_request` request | The payload is `{ p_unit_id, p_kind: 'mutual_aid', p_details: '…' }`. The response is `{ data: { id, status: 'pending' }, error: null }`. |
+
+### Send a request — member
+
+| # | Step | Expected |
+|---|---|---|
+| 29.9 | Sign out and back in as `bfp-member`. Open Support Requests. | Same screen. The "New request" button is visible (members can request support too — RPC allows role 'dispatch_team' that owns the unit). |
+| 29.10 | Send another request (different kind, e.g. "Equipment" + "Need 50m of 2.5 inch hose") | Same flow as 29.6-29.7. The row appears above the previous one (newest first). |
+
+### LGU approves / declines
+
+| # | Step | Expected |
+|---|---|---|
+| 29.11 | Sign in as the LGU. Open Dispatch Units → Support request inbox. | Both BFP requests appear (newest first). Each row has Approve and Decline buttons. |
+| 29.12 | Press Approve on the first request | The status badge becomes "approved". The Decided column shows the current time. The Approve/Decline buttons disappear (the row is no longer pending). A toast "Request approved" appears. |
+| 29.13 | Press Decline on the second request | Same as 29.12, status becomes "declined". |
+| 29.14 | Sign back in as `bfp-admin` (or `bfp-member`). Open Support Requests. | The two requests show their new statuses (approved / declined) and the Decided time. Each unit member also gets a notification ("Support request approved" / "Support request declined") on their Notifications screen. |
+| 29.15 | In the browser DevTools Network tab, inspect the `decide_unit_request` request | The payload is `{ p_request_id, p_decision: 'approved' or 'declined', p_note: '' }`. |
+
+### Negative tests
+
+| # | Step | Expected |
+|---|---|---|
+| 29.16 | Sign in as `pnp-member`. Open Support Requests. | The PNP member sees ONLY their own unit's requests — NOT the BFP requests. (RLS: `unit_requests_read` policy filters to `is_lgu() or (is_dispatch() and unit_id = my_unit_id())`.) |
+| 29.17 | Try to call `create_unit_request` via REST with a different unit's `p_unit_id` (e.g. PNP member sends `p_unit_id` of the BFP unit) | Rejected: "Not your unit". |
+| 29.18 | Sign in as a `dispatch_team` account with NO `dispatch_unit_id` (an admin account that was created but not yet linked to a unit). Open Support Requests and press "New request" | A warning toast: "Your account is not linked to a dispatch unit. Ask the LGU or Super Admin to assign one before sending a support request." The modal does NOT open. (This is the friendly-fail guard added in this fix.) |
+| 29.19 | In the browser console, run `delete window.UG_FEATURES.modal; document.querySelector('[data-act="dispatch-request-new"]').click();` | A warning toast: "Could not open the New support request (UI module not loaded). Reload the page; if this persists, contact the LGU." The console shows `[UniGuard dispatch] UG_FEATURES.modal is missing — cannot open New support request`. (This is the fails-safely guard added in this fix.) |
+| 29.20 | Open the dev tools Network tab; revoke the JWT (or sign out in another tab); press Send on a request | A warning toast with the server's error message (e.g. "JWT expired"). The Send button re-enables so the user can retry. (This is the rpc() helper's .error-rejection fix from the P0 work — server errors no longer silently no-op.) |
+
+### Known gap — unit_admin "done" button (reported, not built)
+
+Migration 040 allows a `unit_admin` to mark an approved request as `'done'`
+when they consider it delivered. The `decide_unit_request` RPC accepts
+`p_decision = 'done'` for this case. **The Support Requests screen does
+not render a "Mark done" button** on approved rows. This is reported as
+a known gap; the user instructions said "If the button is missing, report
+it rather than inventing a feature", so it was NOT added in this pass.
+
+A future iteration can add a "Mark done" button on rows with
+`status === 'approved'` that calls `decide_unit_request` with
+`p_decision: 'done'`. The RPC + RLS + audit hook already support it; only
+the UI is missing.
+
+### What was verified
+
+- `node --check` on every edited JS file (all OK).
+- Headless bundle eval (jsdom) of all 29 JS files — no module-load errors.
+- Headless data-act audit (`scripts/p1_audit.js`): renders every dispatch
+  route with fake state and confirms every `data-act` in the rendered
+  HTML has a matching handler in the merged ALL map. Output above shows
+  no orphaned buttons (the only "orphan" is `dispatch-note`, which is a
+  text input — a selector target for `dispatch-respond`, not a button).
+
+### What still needs a live Supabase project + browser
+
+- The full RPC round-trip (steps 29.7, 29.11-29.15): the RPC signatures
+  were verified by reading migrations 038, 040, 049 — but the actual
+  Supabase response (notifications fan-out, RLS filter, audit row
+  written) needs a live database.
+- The notification fan-out: migration 040 inserts notifications for
+  every active LGU user; confirming the unit member receives one needs
+  two browser sessions (or one session + the Supabase Studio Table
+  Editor).
+- The RLS read filter (step 29.16): confirmed in migration 038 lines
+  424-429; verifying it needs two accounts on a live project.
+
+## 30. Equipment management — Add / Edit / Retire / Remove (Oct 25 2026)
+
+Run migration `050_equipment_management.sql` first. Bumps `sw.js` to
+`uniguard-v15` so browsers fetch the new files.
+
+Three roles can manage equipment:
+- **unit_admin** on the dispatch console's Equipment & Readiness screen.
+- **barangay_official** on the Barangay Response Team screen (their own
+  barangay's equipment).
+- **LGU** on the Dispatch Units screen (any unit's equipment, via the
+  new "Equipment" button on each unit row).
+
+A regular unit member MUST NOT see the Add / Edit / Retire / Remove
+buttons — they can still run Check + Status as they do today.
+
+### Add — unit_admin
+
+| # | Step | Expected |
+|---|---|---|
+| 30.1 | Sign in as a BFP unit_admin. Open Equipment & Readiness. | The screen has an "Add equipment" button in the top-right (visible to unit_admin only). The empty state says "Use \"Add equipment\" to register a piece of equipment for your unit." |
+| 30.2 | Press "Add equipment" | A modal opens: Type dropdown (filtered to the BFP catalog: Fire Truck, Water Tanker, Aerial Ladder, etc., plus "Other (custom)"); Identifier input; Starting condition dropdown (default "unknown"); Notes textarea. |
+| 30.3 | Pick "Other (custom)" in the Type dropdown | A "Custom label" input appears below the Type dropdown. |
+| 30.4 | Pick "Fire Truck" instead | The Custom-label input hides again. |
+| 30.5 | Leave Identifier empty and press Add | A warning toast: the modal stays open, no RPC sent. (The RPC also rejects server-side; the JS pre-check is for friendly UX.) |
+| 30.6 | Fill Identifier "Fire Truck #2", pick condition "ready", notes "Newly registered", press Add | The Add button disables and shows "Adding…" while the RPC is in flight. |
+| 30.7 | Wait for the RPC to resolve | A success toast "Equipment added" appears. The modal closes. The new row appears in the table (Equipment = "Fire Truck #2", Status = available, Condition = ready, Last check = never). The "N items" chip increases by 1. |
+| 30.8 | In the browser DevTools Network tab, inspect the `add_equipment` request | The payload is `{ p_owner_unit_id, p_owner_barangay_id: null, p_catalog_id, p_custom_label, p_identifier, p_condition, p_notes }`. The response is `{ data: { id, status: 'available' }, error: null }`. |
+
+### Add — barangay_official
+
+| # | Step | Expected |
+|---|---|---|
+| 30.9 | Sign in as a barangay_official. Open Barangay Response Team. | A new "Equipment" section appears between the responders table and the patrol shelters. It shows the barangay's equipment rows (Boats, life vests, etc.). An "Add equipment" button is visible. |
+| 30.10 | Press "Add equipment" | Same modal as 30.2, but the Type dropdown shows Barangay catalog rows (Boat, Rope, Stretcher, Radio, First-Aid Kit, Life Vests, Sandbags, Flashlights, Megaphone, Generator). |
+| 30.11 | Pick "Life Vests", fill identifier "LV-01", press Add | The row appears in the barangay's Equipment table. The `add_equipment` RPC is called with `p_owner_barangay_id` set and `p_owner_unit_id` null. |
+
+### Add — LGU (per-unit)
+
+| # | Step | Expected |
+|---|---|---|
+| 30.12 | Sign in as the LGU. Open Dispatch Units. | Each unit row now has an "Equipment" button next to Edit / Account / Delete. |
+| 30.13 | Press "Equipment" on the BFP unit row | A modal opens listing the BFP unit's equipment. An "Add equipment" button is at the bottom. |
+| 30.14 | Press "Add equipment" inside that modal | The same Add form opens, pre-set to the BFP unit (the Type dropdown filters to BFP catalog rows). Send as in 30.6. |
+| 30.15 | After the Add modal closes | The per-unit equipment modal's list refreshes — the new row appears without closing the modal. |
+
+### Edit
+
+| # | Step | Expected |
+|---|---|---|
+| 30.16 | Press "Edit" on any equipment row | A modal opens: Type (read-only, shows the catalog label), Custom label (only when type is "Other"), Identifier, Condition, Notes. A help line says "Owner cannot be changed. Retire + add a new row to change ownership." |
+| 30.17 | Change the Identifier, condition, notes; press Save | The Save button disables and shows "Saving…" while the `update_equipment` RPC runs. |
+| 30.18 | After success | A "Equipment updated" toast; the modal closes; the row's columns update. |
+| 30.19 | In the Network tab | The payload is `{ p_equipment_id, p_identifier, p_custom_label, p_condition, p_notes }`. The owner (`p_owner_unit_id` / `p_owner_barangay_id`) is NOT in the payload — the RPC does not accept it. |
+
+### Retire vs Remove
+
+| # | Step | Expected |
+|---|---|---|
+| 30.20 | Press "Retire / remove" on a row that has never been dispatched | A modal opens showing the dispatch history count (0). Two buttons: "Retire (status = unavailable)" and "Remove permanently". |
+| 30.21 | Press "Remove permanently" | The `remove_equipment` RPC is called with `p_retire: false`. The row disappears from the table. A "Equipment removed" toast appears. |
+| 30.22 | Dispatch an equipment item to a report (so it gets a `dispatch_equipment_use` row), then mark the dispatch Done. Press "Retire / remove" on that item. | The modal shows "has been used in 1 dispatch(es). Permanently deleting it would erase that history. Retire it instead — it stays in the list, marked unavailable, and the history is preserved." The "Remove permanently" button is hidden. |
+| 30.23 | Press "Retire (status = unavailable)" | The `remove_equipment` RPC is called with `p_retire: true`. The row stays in the table but its Status badge becomes "unavailable". A "Equipment retired" toast appears. |
+| 30.24 | Try to call `remove_equipment` with `p_retire: false` on an item that has dispatch history (via REST, bypassing the UI) | Rejected: "This equipment has been used in 1 dispatch(es). Retire it instead (status = unavailable) so the dispatch history is preserved." |
+
+### Blocked removal while deployed
+
+| # | Step | Expected |
+|---|---|---|
+| 30.25 | Dispatch an equipment item (it becomes status = 'deployed'). On the Equipment screen, press "Retire / remove" on that item. | A modal opens: "Cannot remove · <identifier>. This equipment is currently deployed to a dispatch. Release it from the dispatch (or mark the dispatch Done) before removing or retiring it." Only a Close button is shown. |
+| 30.26 | Mark the dispatch Done (the equipment is released — status returns to 'available'). Press "Retire / remove" again. | The normal Retire / Remove modal opens (steps 30.20-30.23). |
+
+### Regular member
+
+| # | Step | Expected |
+|---|---|---|
+| 30.27 | Sign in as a BFP unit member (not unit_admin). Open Equipment & Readiness. | The "Add equipment" button is NOT visible. The empty state says "Your unit admin can add equipment here." Each row's Edit and Retire/Remove buttons are also hidden. The Check and Status buttons ARE visible (the member can still run readiness checks as before). |
+| 30.28 | Try to call `add_equipment` via REST as the member | Rejected: "Only a unit admin can add equipment". |
+| 30.29 | Try to call `update_equipment` via REST as the member | Rejected: "Only the LGU or this unit's admin may edit this equipment". |
+
+### Cross-unit scope
+
+| # | Step | Expected |
+|---|---|---|
+| 30.30 | Sign in as the BFP unit_admin. Try to call `add_equipment` with `p_owner_unit_id` set to the PNP unit's id (via REST). | Rejected: "You can only add equipment to your own unit". |
+| 30.31 | Sign in as the barangay_official of Barangay A. Try to call `add_equipment` with `p_owner_barangay_id` set to Barangay B's id. | Rejected: "You can only add equipment to your own barangay". |
+
+### Dispatch form — multi-select (optional)
+
+| # | Step | Expected |
+|---|---|---|
+| 30.32 | Sign in as the LGU. Open an incident → Dispatch response. | The "Equipment to deploy" field is now a multi-select (size=5). Hold Ctrl/Cmd to pick more than one. |
+| 30.33 | Pick 2 equipment items, fill the rest of the form, press Confirm Dispatch. | The `dispatch_report_v2` RPC is called with `p_equipment_ids` set to a 2-element array. Both items move to status = 'deployed'. |
+| 30.34 | Open the dev tools Network tab | The payload's `p_equipment_ids` is an array of UUIDs, not a single UUID. |
+
+### What was verified by running
+
+- `node --check` on every edited JS file (all 29 OK).
+- Headless bundle eval (jsdom) of all 29 JS files — no module-load errors.
+- Headless data-act audit (`scripts/p1_audit.js`): every data-act on every
+  dispatch route has a matching handler in the merged ALL map. The new
+  `equipment-add` / `equipment-edit` / `equipment-remove` buttons appear
+  on the equipment route with handlers; no orphans (the only "orphan" is
+  `dispatch-note`, a text input that's a selector target for
+  `dispatch-respond`, not a button — see the audit table).
+- Headless functional test (`scripts/p2_equipment.js`): the Add-equipment
+  flow runs end-to-end — button → modal → form fill → RPC intercept →
+  success toast → row added → modal closed. 17/17 passed.
+- Headless member-visibility test: regular members do NOT see the Add /
+  Edit / Retire / Remove buttons (5/5 passed).
+
+### What still needs a live Supabase project + browser
+
+- The actual `add_equipment` / `update_equipment` / `remove_equipment`
+  RPC responses — my headless test mocks them. The real server may
+  return different error codes (e.g. RLS rejection if the policy was
+  changed).
+- The dispatch_equipment_use history count (used by the Retire/Remove
+  modal to decide whether to show "Remove permanently"). The query is
+  `select count(*) from dispatch_equipment_use where equipment_id = ?`
+  — verify in Supabase Studio that the count matches.
+- The "blocked while deployed" path — needs a live dispatch with
+  equipment assigned.
+- The catalog filter — my test injects a fake catalog; verify the
+  Type dropdown shows real catalog rows after `Repo.loadDispatchDirectory`
+  populates `UG.DATA.equipmentCatalog`.
+- The multi-select dispatch form — verify the `dispatch_report_v2` RPC
+  accepts a multi-element `p_equipment_ids` array (it already did —
+  migration 039's signature has always been `uuid[] default null`).
