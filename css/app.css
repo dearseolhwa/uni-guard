@@ -299,7 +299,7 @@
 .ug-dgrid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .ug-dgrid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .ug-dgrid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.ug-dgrid-main{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:12px;align-items:start}
+.ug-dgrid-main{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:12px;align-items:stretch}
 .ug-dgrid-detail{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:14px;align-items:start}
 .ug-dgrid-compose{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:14px;align-items:start}
 .ug-dgrid-centers{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(262px,100%),1fr));gap:12px}

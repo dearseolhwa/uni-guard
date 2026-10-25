@@ -771,3 +771,8 @@
   animation:ugPinPulse 1.6s ease-out infinite;pointer-events:none}
 @keyframes ugPinPulse{from{transform:scale(.6);opacity:.9}to{transform:scale(1.5);opacity:0}}
 @media (prefers-reduced-motion: reduce){.ug-report-pin .ug-pin-ring{animation:none;opacity:.45}}
+
+/* Dashboard map + recent incidents grid stretch fix */
+.ug-dgrid-main > .ug-card { display: flex; flex-direction: column; }
+.ug-dgrid-main > .ug-card > .ug-map { flex: 1; min-height: 260px; }
+
