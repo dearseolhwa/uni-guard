@@ -64,18 +64,76 @@ const UG_FEATURES = (function () {
       if (!navigator.geolocation) {
         return reject(new Error('This device does not support automatic location. Enter the coordinates manually.'));
       }
-      navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), accuracy: Math.round(p.coords.accuracy) }),
-        (err) => {
-          const map = {
-            1: 'Location permission was denied. Enter the coordinates manually.',
-            2: 'Your position is unavailable right now. Enter the coordinates manually.',
-            3: 'Location timed out. Try again or enter the coordinates manually.'
+      /* Improved accuracy: use watchPosition to collect multiple readings
+         over a few seconds and pick the most accurate one. The old code
+         called getCurrentPosition once with maximumAge:30000 which could
+         return a stale WiFi-based position (50-200m off). Now we:
+           1. Set maximumAge:0 to force a fresh satellite/wifi fix every time
+           2. Set timeout:20000 to give the GPS more time to lock on
+           3. Use watchPosition for up to 8 seconds, keeping the reading
+              with the lowest accuracy value (most precise)
+           4. If the first reading is already good (<=25m), accept it
+              immediately without waiting */
+      let best = null;
+      let watchId = null;
+      let settled = false;
+      const startTime = Date.now();
+      const MAX_WAIT = 8000; /* 8 seconds max to get a better reading */
+
+      const cleanup = () => {
+        if (watchId !== null) {
+          try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
+          watchId = null;
+        }
+      };
+
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(result);
+      };
+
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        const map = {
+          1: 'Location permission was denied. Enter the coordinates manually.',
+          2: 'Your position is unavailable right now. Enter the coordinates manually.',
+          3: 'Location timed out. Try again or enter the coordinates manually.'
+        };
+        reject(new Error(map[err.code] || 'Could not read your location.'));
+      };
+
+      watchId = navigator.geolocation.watchPosition(
+        (p) => {
+          const reading = {
+            lat: +p.coords.latitude.toFixed(6),
+            lng: +p.coords.longitude.toFixed(6),
+            accuracy: Math.round(p.coords.accuracy)
           };
-          reject(new Error(map[err.code] || 'Could not read your location.'));
+          /* Keep the best (lowest accuracy value = most precise) reading */
+          if (!best || reading.accuracy < best.accuracy) {
+            best = reading;
+          }
+          /* Accept immediately if the reading is good enough (<=25m) */
+          if (best && best.accuracy <= 25) {
+            finish(best);
+          }
         },
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
+        fail,
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
       );
+
+      /* After MAX_WAIT seconds, accept the best reading we got (or fail) */
+      setTimeout(() => {
+        if (best) {
+          finish(best);
+        } else if (!settled) {
+          fail({ code: 3 });
+        }
+      }, MAX_WAIT);
     });
   }
 
