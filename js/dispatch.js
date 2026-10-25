@@ -693,23 +693,37 @@ const UG_DISPATCH = (function () {
     if (state.loading) return pageHead('Equipment & readiness', '') + statePanel('loading');
     if (state.error)   return pageHead('Equipment & readiness', '') + statePanel('error', 'Could not load', state.error);
     const rows = state.data.equipment || [];
-    if (!rows.length) return pageHead('Equipment & readiness', 'Track each piece and run the shift checklist.') +
-      emptyState('shield', 'No equipment yet', 'Your unit admin can add equipment here.');
+    /* 050: unit_admin can add/edit/remove. Regular members only see the
+       Check + Status buttons (record_equipment_check + set_equipment_status
+       already allow members of the unit). */
+    const canManage = !!(st.session && st.session.role === 'dispatch_team' && st.session.unit_role === 'unit_admin');
+    if (!rows.length) return pageHead('Equipment & readiness', 'Track each piece and run the shift checklist.',
+        canManage ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="equipment-add" data-owner-unit="' + esc((state.data.unit && state.data.unit.id) || '') + '">' + I('plus', 14) + 'Add equipment</button>' : '') +
+      emptyState('shield', 'No equipment yet',
+        canManage ? 'Use "Add equipment" to register a piece of equipment for your unit.' : 'Your unit admin can add equipment here.');
     const overdue = rows.filter((r) => !r.last_checked_at || (Date.now() - Date.parse(r.last_checked_at)) > 86400000).length;
     const row = (r) => {
       const overdueClass = !r.last_checked_at || (Date.now() - Date.parse(r.last_checked_at)) > 86400000 ? ' style="border-left:3px solid var(--ug-warning)"' : '';
+      const manageBtns = canManage
+        ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + esc(r.id) + '">Edit</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>'
+        : '';
       return '<tr' + overdueClass + '>' +
         '<td><div style="font-weight:600">' + esc(r.identifier || r.custom_label || 'Equipment') + '</div>' +
           '<div class="ug-dimmer" style="font-size:10.5px">' + esc(r.notes || '') + '</div></td>' +
         '<td>' + badge(r.status, r.status) + '</td>' +
         '<td>' + badge(r.condition, r.condition) + '</td>' +
         '<td class="t-num">' + (r.last_checked_at ? ago(r.last_checked_at) : 'never') + '</td>' +
-        '<td class="t-right"><button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-check" data-id="' + esc(r.id) + '">Check</button>' +
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-status" data-id="' + esc(r.id) + '">Status</button></td>' +
+        '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-check" data-id="' + esc(r.id) + '">Check</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-status" data-id="' + esc(r.id) + '">Status</button>' +
+          manageBtns +
+        '</div></td>' +
       '</tr>';
     };
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Equipment & readiness', 'Track each piece and run the shift checklist.',
+        (canManage ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="equipment-add" data-owner-unit="' + esc((state.data.unit && state.data.unit.id) || '') + '">' + I('plus', 14) + 'Add equipment</button>' : '') +
         '<span class="ug-chip is-on">' + rows.length + ' items</span>' +
         (overdue ? '<span class="ug-chip" style="background:rgba(255,179,64,.14);color:var(--ug-warning)">' + overdue + ' OVERDUE</span>' : '')) +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
@@ -1061,7 +1075,17 @@ const UG_DISPATCH = (function () {
        screen via app.js's APP_ACTIONS, but that path runs for the
        barangay_official/LGU; this one runs for the dispatch_team user. */
     'dispatch-decline': async (d) => {
-      if (!window.UG_FEATURES || !UG_FEATURES.prompt) return;
+      /* Friendly-fail if the prompt host is missing — same pattern as
+         openModal. The old code silently returned when UG_FEATURES.prompt
+         was undefined, so the user clicked "Can't respond" and nothing
+         happened. */
+      /* typeof on an undeclared identifier returns 'undefined' without
+         throwing — safe even if js/features.js failed to load. */
+      if (typeof UG_FEATURES === 'undefined' || typeof UG_FEATURES.prompt !== 'function') {
+        app().toast('Could not open the decline form (UI module not loaded). Reload the page; if this persists, contact the LGU.', 'warning');
+        try { console.error('[UniGuard dispatch] UG_FEATURES.prompt is missing — cannot open the decline form'); } catch (e) {}
+        return;
+      }
       const res = await UG_FEATURES.prompt({
         title: 'Decline this dispatch',
         label: 'Reason', placeholder: 'e.g. No available responders, equipment failure'
@@ -1078,10 +1102,16 @@ const UG_DISPATCH = (function () {
     },
     /* A2: help request composer. */
     'dispatch-help-new': (d) => {
-      if (!window.UG_FEATURES || !UG_FEATURES.modal) return;
-      const kindOpts = ['general','water_tanker','extra_personnel','beyond_capacity']
-        .map((k) => '<option value="' + k + '">' + k + '</option>').join('');
-      UG_FEATURES.modal({
+      /* readable Kind labels, DB values preserved (PART 1 step 8 pattern) */
+      const HELP_KIND_LABELS = {
+        general: 'General',
+        water_tanker: 'Water tanker',
+        extra_personnel: 'Extra personnel',
+        beyond_capacity: 'Beyond capacity'
+      };
+      const kindOpts = Object.keys(HELP_KIND_LABELS).map((k) =>
+        '<option value="' + k + '">' + esc(HELP_KIND_LABELS[k]) + '</option>').join('');
+      openModal({
         title: 'Request help on this dispatch',
         body: '<div class="ug-field"><label class="ug-lab">Kind</label>' +
             '<select class="ug-sel" data-hr-kind>' + kindOpts + '</select></div>' +
@@ -1132,8 +1162,7 @@ const UG_DISPATCH = (function () {
     },
     /* D1: PNP-only road closure — self-contained modal. */
     'dispatch-road-closure': (d) => {
-      if (!window.UG_FEATURES || !UG_FEATURES.modal) return;
-      UG_FEATURES.modal({
+      openModal({
         title: 'Post a road closure from this dispatch',
         body:
           '<div class="ug-field"><label class="ug-lab">Road name</label>' +
@@ -1179,6 +1208,19 @@ const UG_DISPATCH = (function () {
         app().render();
       } catch (e) { app().toast(e.message || 'Could not reopen', 'warning'); }
     },
+
+    /* 050 (Oct 25 2026) — equipment management actions (unit_admin only).
+       The barangay_official + LGU paths live in js/screens.admin.js and
+       js/app.js; the same openAddEquipmentModal / openEditEquipmentModal /
+       openRemoveEquipmentModal functions are reused there. */
+    'equipment-add': (d) => openAddEquipmentModal({
+      ownerUnitId: d.ownerUnit || (state.data.unit && state.data.unit.id) || null,
+      ownerBarangayId: d.ownerBarangay || null,
+      unitType: d.unitType || (state.data.unit && state.data.unit.unit_type)
+    }),
+    'equipment-edit': (d) => openEditEquipmentModal(d.id, {}),
+    'equipment-remove': (d) => openRemoveEquipmentModal(d.id, {}),
+
     'dispatch-csv': () => exportCsv(),
     'dispatch-request-new': () => openRequestModal(),
     'dispatch-capacity-edit': () => openCapacityModal(),
@@ -1201,117 +1243,499 @@ const UG_DISPATCH = (function () {
     const eq = (state.data.equipment || []).find((e) => e.id === id);
     if (!eq) return;
     const condOpts = ['ready', 'needs_repair', 'missing', 'out_of_service', 'unknown'].map((c) => '<option value="' + c + '">' + c + '</option>').join('');
-    if (window.UG_FEATURES && UG_FEATURES.modal) {
-      UG_FEATURES.modal({
-        title: 'Readiness check · ' + (eq.identifier || eq.custom_label || 'equipment'),
-        body: '<div class="ug-field"><label class="ug-lab">Condition</label><select class="ug-sel" data-ck-cond>' + condOpts + '</select></div>' +
-              '<div class="ug-field"><label class="ug-lab">Level (fuel / pressure / etc.)</label><input class="ug-in" type="text" data-ck-level placeholder="e.g. 80% or 200 bar"></div>' +
-              '<div class="ug-field"><label class="ug-lab">Notes</label><textarea class="ug-ta" rows="2" data-ck-notes></textarea></div>',
-        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-ck-save>Save check</button>',
-        onMount: (wrap, close) => {
-          wrap.querySelector('[data-ck-save]').addEventListener('click', async () => {
-            try {
-              await rpc('record_equipment_check', {
-                p_equipment_id: id, p_condition: wrap.querySelector('[data-ck-cond]').value,
-                p_level: wrap.querySelector('[data-ck-level]').value, p_notes: wrap.querySelector('[data-ck-notes]').value,
-                p_photo: null, p_items: []
-              });
-              app().toast('Check recorded', 'prepared');
-              await loadEquipment();
-              app().render();
-              close();
-            } catch (e) { app().toast(e.message, 'warning'); }
-          });
-        }
-      });
-    }
+    openModal({
+      title: 'Readiness check · ' + (eq.identifier || eq.custom_label || 'equipment'),
+      body: '<div class="ug-field"><label class="ug-lab">Condition</label><select class="ug-sel" data-ck-cond>' + condOpts + '</select></div>' +
+            '<div class="ug-field"><label class="ug-lab">Level (fuel / pressure / etc.)</label><input class="ug-in" type="text" data-ck-level placeholder="e.g. 80% or 200 bar"></div>' +
+            '<div class="ug-field"><label class="ug-lab">Notes</label><textarea class="ug-ta" rows="2" data-ck-notes></textarea></div>',
+      footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-ck-save>Save check</button>',
+      onMount: (wrap, close) => {
+        wrap.querySelector('[data-ck-save]').addEventListener('click', async () => {
+          const btn = wrap.querySelector('[data-ck-save]');
+          if (btn.disabled) return;
+          btn.disabled = true; btn.textContent = 'Saving…';
+          try {
+            await rpc('record_equipment_check', {
+              p_equipment_id: id, p_condition: wrap.querySelector('[data-ck-cond]').value,
+              p_level: wrap.querySelector('[data-ck-level]').value, p_notes: wrap.querySelector('[data-ck-notes]').value,
+              p_photo: null, p_items: []
+            });
+            app().toast('Check recorded', 'prepared');
+            await loadEquipment();
+            app().render();
+            close();
+          } catch (e) {
+            app().toast(e.message || 'Could not record the check', 'warning');
+            btn.disabled = false; btn.textContent = 'Save check';
+          }
+        });
+      }
+    });
   }
 
   function openStatusModal(id) {
     const eq = (state.data.equipment || []).find((e) => e.id === id);
     if (!eq) return;
     const statusOpts = ['available', 'deployed', 'maintenance', 'unavailable'].map((s) => '<option value="' + s + '"' + (s === eq.status ? ' selected' : '') + '>' + s + '</option>').join('');
-    if (window.UG_FEATURES && UG_FEATURES.modal) {
-      UG_FEATURES.modal({
-        title: 'Set status · ' + (eq.identifier || eq.custom_label || 'equipment'),
-        body: '<div class="ug-field"><label class="ug-lab">Status</label><select class="ug-sel" data-st-status>' + statusOpts + '</select></div>' +
-              '<div class="ug-field"><label class="ug-lab">Notes</label><textarea class="ug-ta" rows="2" data-st-notes>' + esc(eq.notes || '') + '</textarea></div>',
-        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-st-save>Save</button>',
-        onMount: (wrap, close) => {
-          wrap.querySelector('[data-st-save]').addEventListener('click', async () => {
-            try {
-              await rpc('set_equipment_status', {
-                p_equipment_id: id, p_status: wrap.querySelector('[data-st-status]').value,
-                p_condition: null, p_notes: wrap.querySelector('[data-st-notes]').value
-              });
-              await loadEquipment();
-              app().render();
-              close();
-            } catch (e) { app().toast(e.message, 'warning'); }
-          });
-        }
-      });
+    openModal({
+      title: 'Set status · ' + (eq.identifier || eq.custom_label || 'equipment'),
+      body: '<div class="ug-field"><label class="ug-lab">Status</label><select class="ug-sel" data-st-status>' + statusOpts + '</select></div>' +
+            '<div class="ug-field"><label class="ug-lab">Notes</label><textarea class="ug-ta" rows="2" data-st-notes>' + esc(eq.notes || '') + '</textarea></div>',
+      footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-st-save>Save</button>',
+      onMount: (wrap, close) => {
+        wrap.querySelector('[data-st-save]').addEventListener('click', async () => {
+          const btn = wrap.querySelector('[data-st-save]');
+          if (btn.disabled) return;
+          btn.disabled = true; btn.textContent = 'Saving…';
+          try {
+            await rpc('set_equipment_status', {
+              p_equipment_id: id, p_status: wrap.querySelector('[data-st-status]').value,
+              p_condition: null, p_notes: wrap.querySelector('[data-st-notes]').value
+            });
+            app().toast('Status updated', 'prepared');
+            await loadEquipment();
+            app().render();
+            close();
+          } catch (e) {
+            app().toast(e.message || 'Could not update status', 'warning');
+            btn.disabled = false; btn.textContent = 'Save';
+          }
+        });
+      }
+    });
+  }
+
+  /* ------------------------------------------------------- request modal
+   * PART 1 fix (Oct 24 2026): the New request button was fragile:
+   *   - if window.UG_FEATURES.modal was missing, the click silently did
+   *     nothing (no toast, no log). Now we toast loudly.
+   *   - if state.data.unit was null (account not linked to a unit, or
+   *     loadUnit() had not finished), `state.data.unit.id` threw a
+   *     TypeError that surfaced as a technical toast. Now we detect it
+   *     and show a friendly message.
+   *   - the Details textarea had no empty-check; an empty string was
+   *     sent to the RPC. Now we trim + reject empty.
+   *   - the Send button had no in-flight guard; double-clicks could
+   *     submit twice. Now we disable it while the RPC is in flight.
+   *   - the Kind dropdown showed raw DB values ("mutual_aid"). Now the
+   *     labels are readable ("Mutual aid") while the value stays the DB
+   *     value the RPC expects.
+   *   - the 1000-char limit the RPC enforces with left(..., 1000) is
+   *     surfaced to the user with a maxlength + counter.
+   */
+  /* ----------------------------------------------------- modal host helper
+   * Wraps UG_FEATURES.modal so every caller fails safely when the modal
+   * host is missing. Without this wrapper, every modal in this module
+   * silently no-op'd when UG_FEATURES.modal was undefined (the user
+   * clicked Check / Status / Update capacity / New request and nothing
+   * happened — no toast, no log). Now the user sees a clear message. */
+  function openModal(opts) {
+    /* typeof on an undeclared identifier returns 'undefined' without
+       throwing — safe even if js/features.js failed to load. In a real
+       browser, `const UG_FEATURES` declared at the top of a classic
+       <script> does NOT attach to window, so `window.UG_FEATURES` is
+       always undefined. The check must use the lexical `UG_FEATURES`. */
+    if (typeof UG_FEATURES === 'undefined' || typeof UG_FEATURES.modal !== 'function') {
+      const msg = 'Could not open the ' + (opts && opts.title ? opts.title : 'dialog') + ' (UI module not loaded). Reload the page; if this persists, contact the LGU.';
+      app().toast(msg, 'warning');
+      try { console.error('[UniGuard dispatch] UG_FEATURES.modal is missing — cannot open', opts && opts.title); } catch (e) {}
+      return null;
     }
+    return UG_FEATURES.modal(opts);
   }
 
   function openRequestModal() {
-    const kindOpts = ['fuel', 'personnel', 'equipment', 'mutual_aid', 'other'].map((k) => '<option value="' + k + '">' + k + '</option>').join('');
-    if (window.UG_FEATURES && UG_FEATURES.modal) {
-      UG_FEATURES.modal({
-        title: 'New support request',
-        body: '<div class="ug-field"><label class="ug-lab">Kind</label><select class="ug-sel" data-rq-kind>' + kindOpts + '</select></div>' +
-              '<div class="ug-field"><label class="ug-lab">Details</label><textarea class="ug-ta" rows="3" data-rq-details placeholder="What do you need?"></textarea></div>',
-        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-rq-save>Send</button>',
-        onMount: (wrap, close) => {
-          wrap.querySelector('[data-rq-save]').addEventListener('click', async () => {
-            try {
-              await rpc('create_unit_request', {
-                p_unit_id: state.data.unit.id, p_kind: wrap.querySelector('[data-rq-kind]').value,
-                p_details: wrap.querySelector('[data-rq-details]').value
-              });
-              app().toast('Request sent to the LGU', 'prepared');
-              await loadRequests();
-              app().render();
-              close();
-            } catch (e) { app().toast(e.message, 'warning'); }
-          });
-        }
-      });
+    /* Detect "no unit linked" before opening the form, so we can show a
+       friendly message instead of a TypeError on submit. */
+    if (!state.data.unit || !state.data.unit.id) {
+      app().toast('Your account is not linked to a dispatch unit. Ask the LGU or Super Admin to assign one before sending a support request.', 'warning');
+      return;
     }
+    /* PART 1 step 8: readable Kind labels, DB values preserved. */
+    const KIND_LABELS = {
+      fuel: 'Fuel',
+      personnel: 'Personnel',
+      equipment: 'Equipment',
+      mutual_aid: 'Mutual aid',
+      other: 'Other'
+    };
+    const kindOpts = Object.keys(KIND_LABELS).map((k) =>
+      '<option value="' + k + '">' + esc(KIND_LABELS[k]) + '</option>').join('');
+
+    /* openModal() handles the missing-UG_FEATURES case with a visible
+       toast — no silent fail. */
+    openModal({
+      title: 'New support request',
+      body: '<div class="ug-field"><label class="ug-lab">Kind</label><select class="ug-sel" data-rq-kind>' + kindOpts + '</select></div>' +
+            '<div class="ug-field"><label class="ug-lab">Details</label>' +
+              '<textarea class="ug-ta" rows="3" data-rq-details maxlength="1000" placeholder="What do you need? Be specific — the LGU sees this message."></textarea>' +
+              '<div class="ug-help ug-dimmer" style="font-size:10.5px;text-align:right" data-rq-counter>0 / 1000</div>' +
+            '</div>',
+      footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-rq-save>Send</button>',
+      onMount: (wrap, close) => {
+        /* Live character counter. */
+        const ta = wrap.querySelector('[data-rq-details]');
+        const counter = wrap.querySelector('[data-rq-counter]');
+        const updateCounter = () => {
+          if (!counter) return;
+          const n = (ta.value || '').length;
+          counter.textContent = n + ' / 1000';
+          counter.style.color = n > 1000 ? 'var(--ug-emergency)' : (n > 900 ? 'var(--ug-warning)' : '');
+        };
+        ta.addEventListener('input', updateCounter);
+        updateCounter();
+
+        const saveBtn = wrap.querySelector('[data-rq-save]');
+        saveBtn.addEventListener('click', async () => {
+          /* PART 1 step 4: validation + double-submit guard. */
+          if (saveBtn.disabled) return;
+          const kind = wrap.querySelector('[data-rq-kind]').value;
+          const details = (ta.value || '').trim();
+          if (!details) {
+            app().toast('Write a short description of what you need before sending.', 'warning');
+            ta.focus();
+            return;
+          }
+          if (details.length > 1000) {
+            app().toast('Keep the details under 1000 characters (you have ' + details.length + ').', 'warning');
+            return;
+          }
+          /* Disable while the request is in flight. */
+          saveBtn.disabled = true;
+          saveBtn.textContent = 'Sending…';
+          try {
+            await rpc('create_unit_request', {
+              p_unit_id: state.data.unit.id,
+              p_kind: kind,
+              p_details: details
+            });
+            app().toast('Request sent to the LGU', 'prepared');
+            /* PART 1 step 6: refresh + render so the new row + the open-count chip update. */
+            await loadRequests();
+            app().render();
+            close();
+          } catch (e) {
+            app().toast(e.message || 'Could not send the request', 'warning');
+            /* Re-enable so the user can fix the message and retry. */
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Send';
+          }
+        });
+      }
+    });
   }
 
   function openCapacityModal() {
-    const cap = state.data.capacity || { er_beds: 0, icu_beds: 0, available: 0, accepting: true };
-    if (window.UG_FEATURES && UG_FEATURES.modal) {
-      UG_FEATURES.modal({
-        title: 'Update hospital capacity',
-        body: '<div class="ug-field"><label class="ug-lab">ER beds</label><input class="ug-in" type="number" min="0" data-cap-er value="' + cap.er_beds + '"></div>' +
-              '<div class="ug-field"><label class="ug-lab">ICU beds</label><input class="ug-in" type="number" min="0" data-cap-icu value="' + cap.icu_beds + '"></div>' +
-              '<div class="ug-field"><label class="ug-lab">Available</label><input class="ug-in" type="number" min="0" data-cap-avail value="' + cap.available + '"></div>' +
-              '<div class="ug-field"><label class="ug-lab">Accepting patients</label><select class="ug-sel" data-cap-accepting>' +
-                '<option value="true"' + (cap.accepting ? ' selected' : '') + '>Accepting</option>' +
-                '<option value="false"' + (!cap.accepting ? ' selected' : '') + '>Divert</option></select></div>',
-        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-cap-save>Save</button>',
-        onMount: (wrap, close) => {
-          wrap.querySelector('[data-cap-save]').addEventListener('click', async () => {
-            try {
-              await rpc('set_hospital_capacity', {
-                p_unit_id: state.data.unit.id,
-                p_er_beds: parseInt(wrap.querySelector('[data-cap-er]').value, 10) || 0,
-                p_icu_beds: parseInt(wrap.querySelector('[data-cap-icu]').value, 10) || 0,
-                p_available: parseInt(wrap.querySelector('[data-cap-avail]').value, 10) || 0,
-                p_accepting: wrap.querySelector('[data-cap-accepting]').value === 'true'
-              });
-              app().toast('Capacity updated', 'prepared');
-              await loadCapacity();
-              app().render();
-              close();
-            } catch (e) { app().toast(e.message, 'warning'); }
-          });
-        }
-      });
+    /* Hospital-only — but guard anyway. If the user is not on a hospital
+       unit, the Set capacity button should not be visible (it's hidden
+       in sEquipment for non-Hospital units). Detect a missing unit and
+       toast a friendly message instead of throwing on state.data.unit.id. */
+    if (!state.data.unit || !state.data.unit.id) {
+      app().toast('Your account is not linked to a dispatch unit. Ask the LGU or Super Admin to assign one before updating capacity.', 'warning');
+      return;
     }
+    const cap = state.data.capacity || { er_beds: 0, icu_beds: 0, available: 0, accepting: true };
+    openModal({
+      title: 'Update hospital capacity',
+      body: '<div class="ug-field"><label class="ug-lab">ER beds</label><input class="ug-in" type="number" min="0" data-cap-er value="' + cap.er_beds + '"></div>' +
+            '<div class="ug-field"><label class="ug-lab">ICU beds</label><input class="ug-in" type="number" min="0" data-cap-icu value="' + cap.icu_beds + '"></div>' +
+            '<div class="ug-field"><label class="ug-lab">Available</label><input class="ug-in" type="number" min="0" data-cap-avail value="' + cap.available + '"></div>' +
+            '<div class="ug-field"><label class="ug-lab">Accepting patients</label><select class="ug-sel" data-cap-accepting>' +
+              '<option value="true"' + (cap.accepting ? ' selected' : '') + '>Accepting</option>' +
+              '<option value="false"' + (!cap.accepting ? ' selected' : '') + '>Divert</option></select></div>',
+      footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-cap-save>Save</button>',
+      onMount: (wrap, close) => {
+        wrap.querySelector('[data-cap-save]').addEventListener('click', async () => {
+          const btn = wrap.querySelector('[data-cap-save]');
+          if (btn.disabled) return;
+          btn.disabled = true; btn.textContent = 'Saving…';
+          try {
+            await rpc('set_hospital_capacity', {
+              p_unit_id: state.data.unit.id,
+              p_er_beds: parseInt(wrap.querySelector('[data-cap-er]').value, 10) || 0,
+              p_icu_beds: parseInt(wrap.querySelector('[data-cap-icu]').value, 10) || 0,
+              p_available: parseInt(wrap.querySelector('[data-cap-avail]').value, 10) || 0,
+              p_accepting: wrap.querySelector('[data-cap-accepting]').value === 'true'
+            });
+            app().toast('Capacity updated', 'prepared');
+            await loadCapacity();
+            app().render();
+            close();
+          } catch (e) {
+            app().toast(e.message || 'Could not update capacity', 'warning');
+            btn.disabled = false; btn.textContent = 'Save';
+          }
+        });
+      }
+    });
   }
+
+  /* ------------------------------------------------------- equipment management
+   * 050 (Oct 25 2026): Add / Edit / Retire / Remove equipment for the
+   * caller's own unit. The barangay_official + LGU paths are in
+   * js/screens.admin.js; this block is for the dispatch_team unit_admin
+   * on the Equipment & Readiness screen. Regular members see only the
+   * Check / Status buttons (handled by the existing actions).
+   *
+   * Catalog dropdown: from UG.DATA.equipmentCatalog (loaded once by
+   * Repo.loadDispatchDirectory). The list_equipment_catalog_by_owner RPC
+   * also exists for callers that want a server-side filter.
+   */
+
+  /* Render the catalog <option>s for the Add form's Type dropdown. The
+     owner unit's unit_type determines which catalog rows to show. */
+  function catalogOptionsForUnitType(unitType, selectedId) {
+    const list = (window.UG_DATA && UG_DATA.equipmentCatalog) ||
+                 (typeof UG !== 'undefined' && UG.DATA && UG.DATA.equipmentCatalog) || [];
+    const filtered = list.filter((c) => c.unit_type === unitType);
+    const opts = filtered.map((c) =>
+      '<option value="' + esc(c.id) + '"' + (c.id === selectedId ? ' selected' : '') + '>' + esc(c.label) + '</option>'
+    ).join('');
+    /* The "Other (custom)" option uses custom_label and no catalog_id. */
+    return opts + '<option value=""' + (selectedId === '' || selectedId == null ? ' selected' : '') + '>Other (custom)</option>';
+  }
+
+  /* Map a dispatch_equipment row's catalog_id back to a readable label,
+     falling back to custom_label or 'Equipment'. */
+  function equipmentLabel(row) {
+    if (row && row.catalog_id) {
+      const list = (typeof UG !== 'undefined' && UG.DATA && UG.DATA.equipmentCatalog) || [];
+      const c = list.find((x) => x.id === row.catalog_id);
+      if (c) return c.label;
+    }
+    return (row && (row.custom_label || row.identifier)) || 'Equipment';
+  }
+
+  function openAddEquipmentModal(opts) {
+    /* opts: { ownerUnitId, ownerBarangayId, unitType, onSaved } */
+    if (!state.data.unit && !opts.ownerBarangayId) {
+      app().toast('Your account is not linked to a dispatch unit. Ask the LGU or Super Admin to assign one before adding equipment.', 'warning');
+      return;
+    }
+    const unitType = opts.unitType || (state.data.unit && state.data.unit.unit_type) || 'Barangay';
+    const catalogOpts = catalogOptionsForUnitType(unitType, null);
+
+    openModal({
+      title: 'Add equipment' + (opts.ownerUnitId ? ' · ' + (state.data.unit && state.data.unit.name || '') : ''),
+      body: '<div class="ug-field"><label class="ug-lab">Type</label>' +
+          '<select class="ug-sel" data-eq-catalog>' + catalogOpts + '</select></div>' +
+        '<div class="ug-field" data-eq-custom-field hidden><label class="ug-lab">Custom label</label>' +
+          '<input class="ug-in" type="text" data-eq-custom placeholder="e.g. Portable Pump"></div>' +
+        '<div class="ug-field"><label class="ug-lab">Identifier (plate / tag / unit number)</label>' +
+          '<input class="ug-in" type="text" data-eq-identifier placeholder="e.g. Fire Truck #2"></div>' +
+        '<div class="ug-field"><label class="ug-lab">Starting condition</label>' +
+          '<select class="ug-sel" data-eq-condition>' +
+            ['ready','needs_repair','missing','out_of_service','unknown'].map((c) =>
+              '<option value="' + c + '"' + (c === 'unknown' ? ' selected' : '') + '>' + c + '</option>').join('') +
+          '</select></div>' +
+        '<div class="ug-field"><label class="ug-lab">Notes</label>' +
+          '<textarea class="ug-ta" rows="2" data-eq-notes placeholder="Anything the next shift should know"></textarea></div>',
+      footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-eq-save>Add</button>',
+      onMount: (wrap, close) => {
+        /* Show the custom-label field only when "Other (custom)" is selected. */
+        const catalogSel = wrap.querySelector('[data-eq-catalog]');
+        const customField = wrap.querySelector('[data-eq-custom-field]');
+        const refreshCustom = () => { customField.hidden = !!catalogSel.value; };
+        catalogSel.addEventListener('change', refreshCustom);
+        refreshCustom();
+
+        const saveBtn = wrap.querySelector('[data-eq-save]');
+        saveBtn.addEventListener('click', async () => {
+          if (saveBtn.disabled) return;
+          const catalogId = catalogSel.value || null;
+          const customLabel = customField.hidden ? '' : (wrap.querySelector('[data-eq-custom]').value || '').trim();
+          const identifier = (wrap.querySelector('[data-eq-identifier]').value || '').trim();
+          const condition = wrap.querySelector('[data-eq-condition]').value;
+          const notes = (wrap.querySelector('[data-eq-notes]').value || '').trim();
+          if (!catalogId && !customLabel) {
+            app().toast('Pick a type from the catalog, or write a custom label.', 'warning');
+            return;
+          }
+          saveBtn.disabled = true; saveBtn.textContent = 'Adding…';
+          try {
+            await rpc('add_equipment', {
+              p_owner_unit_id: opts.ownerUnitId || null,
+              p_owner_barangay_id: opts.ownerBarangayId || null,
+              p_catalog_id: catalogId,
+              p_custom_label: customLabel,
+              p_identifier: identifier,
+              p_condition: condition,
+              p_notes: notes
+            });
+            app().toast('Equipment added', 'prepared');
+            /* Refresh the equipment list. For the dispatch_team console
+               that's loadEquipment(); for the LGU/barangay screen the
+               caller's onSaved callback is used. */
+            if (typeof loadEquipment === 'function') { await loadEquipment(); }
+            if (typeof opts.onSaved === 'function') { try { await opts.onSaved(); } catch (e) {} }
+            app().render();
+            close();
+          } catch (e) {
+            app().toast(e.message || 'Could not add the equipment', 'warning');
+            saveBtn.disabled = false; saveBtn.textContent = 'Add';
+          }
+        });
+      }
+    });
+  }
+
+  function openEditEquipmentModal(id, opts) {
+    /* opts: { onSaved } — for the LGU/barangay screen, which doesn't share
+       UG_DISPATCH.state.data.equipment, the caller passes the row + a
+       refresh callback. */
+    const localRow = (state.data.equipment || []).find((e) => e.id === id);
+    const allRows = (typeof UG !== 'undefined' && UG.DATA && UG.DATA.dispatchEquipment) || [];
+    const row = localRow || allRows.find((e) => e.id === id);
+    if (!row) {
+      app().toast('That equipment is no longer in the list. Refresh and try again.', 'warning');
+      return;
+    }
+    openModal({
+      title: 'Edit · ' + esc(row.identifier || equipmentLabel(row)),
+      body: '<div class="ug-field"><label class="ug-lab">Type</label>' +
+          '<input class="ug-in" type="text" value="' + esc(equipmentLabel(row)) + '" disabled></div>' +
+        '<div class="ug-field"' + (row.catalog_id ? ' hidden' : '') + ' data-eq-custom-field><label class="ug-lab">Custom label</label>' +
+          '<input class="ug-in" type="text" data-eq-custom value="' + esc(row.custom_label || '') + '"></div>' +
+        '<div class="ug-field"><label class="ug-lab">Identifier</label>' +
+          '<input class="ug-in" type="text" data-eq-identifier value="' + esc(row.identifier || '') + '"></div>' +
+        '<div class="ug-field"><label class="ug-lab">Condition</label>' +
+          '<select class="ug-sel" data-eq-condition>' +
+            ['ready','needs_repair','missing','out_of_service','unknown'].map((c) =>
+              '<option value="' + c + '"' + (c === row.condition ? ' selected' : '') + '>' + c + '</option>').join('') +
+          '</select></div>' +
+        '<div class="ug-field"><label class="ug-lab">Notes</label>' +
+          '<textarea class="ug-ta" rows="2" data-eq-notes>' + esc(row.notes || '') + '</textarea></div>' +
+        '<div class="ug-help">Owner cannot be changed. Retire + add a new row to change ownership.</div>',
+      footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-eq-save>Save</button>',
+      onMount: (wrap, close) => {
+        const saveBtn = wrap.querySelector('[data-eq-save]');
+        saveBtn.addEventListener('click', async () => {
+          if (saveBtn.disabled) return;
+          const customLabel = (wrap.querySelector('[data-eq-custom-field]').hidden ? null : (wrap.querySelector('[data-eq-custom]').value || '').trim());
+          const identifier = (wrap.querySelector('[data-eq-identifier]').value || '').trim();
+          const condition = wrap.querySelector('[data-eq-condition]').value;
+          const notes = (wrap.querySelector('[data-eq-notes]').value || '').trim();
+          saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+          try {
+            await rpc('update_equipment', {
+              p_equipment_id: id,
+              p_identifier: identifier,
+              p_custom_label: customLabel,
+              p_condition: condition,
+              p_notes: notes
+            });
+            app().toast('Equipment updated', 'prepared');
+            if (typeof loadEquipment === 'function') { await loadEquipment(); }
+            if (typeof opts === 'object' && opts && typeof opts.onSaved === 'function') { try { await opts.onSaved(); } catch (e) {} }
+            app().render();
+            close();
+          } catch (e) {
+            app().toast(e.message || 'Could not update the equipment', 'warning');
+            saveBtn.disabled = false; saveBtn.textContent = 'Save';
+          }
+        });
+      }
+    });
+  }
+
+  function openRemoveEquipmentModal(id, opts) {
+    /* opts: { onSaved } */
+    const localRow = (state.data.equipment || []).find((e) => e.id === id);
+    const allRows = (typeof UG !== 'undefined' && UG.DATA && UG.DATA.dispatchEquipment) || [];
+    const row = localRow || allRows.find((e) => e.id === id);
+    if (!row) {
+      app().toast('That equipment is no longer in the list. Refresh and try again.', 'warning');
+      return;
+    }
+    /* Block the modal entirely while deployed. */
+    if (row.status === 'deployed') {
+      openModal({
+        title: 'Cannot remove · ' + esc(row.identifier || equipmentLabel(row)),
+        body: '<div class="ug-note">This equipment is currently deployed to a dispatch. ' +
+              'Release it from the dispatch (or mark the dispatch Done) before removing or retiring it.</div>',
+        footer: '<button class="ug-btn" data-modal-close>Close</button>'
+      });
+      return;
+    }
+    /* Fetch the dispatch history count so we can pre-empt the "has been
+       used" case in the UI. The RPC will reject server-side anyway, so
+       this is purely for a friendlier modal. */
+    const refreshAfter = async () => {
+      if (typeof loadEquipment === 'function') { await loadEquipment(); }
+      if (typeof opts === 'object' && opts && typeof opts.onSaved === 'function') { try { await opts.onSaved(); } catch (e) {} }
+      app().render();
+    };
+    const c = client();
+    /* Default the body text — the actual history count is fetched
+       asynchronously; if the count is 0 we show "Remove" + "Retire";
+       if >0 we show only "Retire". */
+    openModal({
+      title: 'Retire or remove · ' + esc(row.identifier || equipmentLabel(row)),
+      body: '<div class="ug-note" data-eq-status>Loading dispatch history…</div>',
+      footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
+              '<button class="ug-btn ug-btn--ghost" data-eq-retire hidden>Retire (status = unavailable)</button>' +
+              '<button class="ug-btn ug-btn--signal" data-eq-remove hidden>Remove permanently</button>',
+      onMount: async (wrap, close) => {
+        const statusEl = wrap.querySelector('[data-eq-status]');
+        const retireBtn = wrap.querySelector('[data-eq-retire]');
+        const removeBtn = wrap.querySelector('[data-eq-remove]');
+        let useCount = 0;
+        if (c) {
+          try {
+            const { data, error } = await c.from('dispatch_equipment_use')
+              .select('id', { count: 'exact', head: true })
+              .eq('equipment_id', id);
+            useCount = (error ? 0 : (data && data.count) || 0);
+            /* head:true returns count in the response meta, but the supabase
+               JS client returns it as `count` on the response. If head:true
+               returned no count, fall back to a normal select + length. */
+            if (useCount === 0 && !error) {
+              const { data: rows } = await c.from('dispatch_equipment_use')
+                .select('id').eq('equipment_id', id).limit(1);
+              useCount = (rows && rows.length) || 0;
+            }
+          } catch (e) { /* fall back to "no history" — server will reject if wrong */ }
+        }
+        if (useCount > 0) {
+          statusEl.innerHTML = 'This equipment has been used in <b>' + useCount + '</b> dispatch(es). ' +
+            'Permanently deleting it would erase that history. <b>Retire</b> it instead — it stays in the list, marked unavailable, and the history is preserved.';
+          retireBtn.hidden = false;
+          removeBtn.hidden = true;
+        } else {
+          statusEl.innerHTML = 'This equipment has never been used in a dispatch. You can <b>remove</b> it permanently (the readiness-check history is also deleted) or <b>retire</b> it (status = unavailable, stays in the list).';
+          retireBtn.hidden = false;
+          removeBtn.hidden = false;
+        }
+        retireBtn.addEventListener('click', async () => {
+          if (retireBtn.disabled) return;
+          retireBtn.disabled = true; retireBtn.textContent = 'Retiring…';
+          try {
+            await rpc('remove_equipment', { p_equipment_id: id, p_retire: true });
+            app().toast('Equipment retired', 'prepared');
+            await refreshAfter();
+            close();
+          } catch (e) {
+            app().toast(e.message || 'Could not retire the equipment', 'warning');
+            retireBtn.disabled = false; retireBtn.textContent = 'Retire (status = unavailable)';
+          }
+        });
+        removeBtn.addEventListener('click', async () => {
+          if (removeBtn.disabled) return;
+          removeBtn.disabled = true; removeBtn.textContent = 'Removing…';
+          try {
+            await rpc('remove_equipment', { p_equipment_id: id, p_retire: false });
+            app().toast('Equipment removed', 'prepared');
+            await refreshAfter();
+            close();
+          } catch (e) {
+            app().toast(e.message || 'Could not remove the equipment', 'warning');
+            removeBtn.disabled = false; removeBtn.textContent = 'Remove permanently';
+          }
+        });
+      }
+    });
+  }
+
 
   function exportCsv() {
     const rows = state.data.dispatches || [];
@@ -1330,7 +1754,16 @@ const UG_DISPATCH = (function () {
   /* ----------------------------------------------------------------- exports */
   return {
     state, frame, body, loadAll, loadRoute, actions,
-    DTITLES: (r) => DTITLES(r)
+    DTITLES: (r) => DTITLES(r),
+    /* 050 (Oct 25 2026): expose the equipment-management modals so the
+       LGU + barangay Response Team screens (js/screens.admin.js + js/app.js)
+       can reuse them — the modal logic is the same for every role, only
+       the owner (unit_id vs barangay_id) differs. */
+    openAddEquipmentModal,
+    openEditEquipmentModal,
+    openRemoveEquipmentModal,
+    catalogOptionsForUnitType,
+    equipmentLabel
   };
 })();
 

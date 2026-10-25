@@ -421,12 +421,48 @@ const UG_ADMIN = (function () {
       '<td class="t-right"><button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="center-detail" data-id="' + esc(c.uuid || c.id) + '">Open</button></td>' +
     '</tr>';
 
+    /* 050 (Oct 25 2026) — equipment for this barangay. The barangay_official
+       and the LGU can add / edit / retire / remove. Equipment rows come
+       from UG.DATA.dispatchEquipment (loaded by Repo.loadDispatchDirectory);
+       filter to this barangay's rows. */
+    const barangayEquipment = (UG.DATA.dispatchEquipment || [])
+      .filter((e) => isLgu || e.owner_barangay_id === myBrgyId);
+    const eqRow = (r) => {
+      const label = (function () {
+        const list = (UG.DATA.equipmentCatalog || []);
+        const c = list.find((x) => x.id === r.catalog_id);
+        return c ? c.label : (r.custom_label || r.identifier || 'Equipment');
+      })();
+      const canManage = (me.role === 'barangay_official' || isLgu);
+      const manageBtns = canManage
+        ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + esc(r.id) + '">Edit</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>'
+        : '';
+      return '<tr>' +
+        '<td><div style="font-weight:600">' + esc(r.identifier || label) + '</div>' +
+          '<div class="ug-dimmer" style="font-size:10.5px">' + esc(r.notes || '') + '</div></td>' +
+        '<td>' + esc(label) + '</td>' +
+        '<td>' + U.badge(r.status, r.status) + '</td>' +
+        '<td>' + U.badge(r.condition, r.condition) + '</td>' +
+        '<td class="t-num">' + (r.last_checked_at ? esc(UG_UTIL.relTime(r.last_checked_at) || '') : 'never') + '</td>' +
+        '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' + manageBtns + '</div></td>' +
+      '</tr>';
+    };
+
     return '<div class="ug-col" style="gap:18px">' +
       head('Barangay Response Team', 'Incoming dispatches, roster and equipment for ' + (isLgu ? 'every barangay' : 'Barangay ' + brgyName) + '.') +
       (disp.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>When</th><th>Team</th><th>Instructions</th><th>By</th><th>Status</th><th>Action</th></tr></thead><tbody>' + disp.map(dispatchRow).join('') + '</tbody></table></div>'
         : statePanel('empty', 'No Response Team dispatches yet', 'When your barangay\'s Response Team is dispatched, the alert lands here.')) +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Name / unit</th><th>Contact</th><th>Status</th><th class="t-right">Action</th></tr></thead><tbody>' +
         (responders.length ? responders.map(responderRow).join('') : '<tr><td colspan="4" style="text-align:center;padding:20px">No responders yet</td></tr>') + '</tbody></table></div>' +
+      /* 050: barangay equipment table (with Add for the official / LGU) */
+      head('Equipment', 'Boats, life vests, ropes, radios and other barangay-owned equipment.') +
+        ((me.role === 'barangay_official' || isLgu)
+          ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="equipment-add" data-owner-brgy="' + esc(myBrgyId || '') + '" data-unit-type="Barangay" style="margin-bottom:10px">' + I('plus', 14) + 'Add equipment</button>'
+          : '') +
+      (barangayEquipment.length
+        ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Equipment</th><th>Type</th><th>Status</th><th>Condition</th><th>Last check</th><th class="t-right">Action</th></tr></thead><tbody>' + barangayEquipment.map(eqRow).join('') + '</tbody></table></div>'
+        : statePanel('empty', 'No equipment yet', (me.role === 'barangay_official' || isLgu) ? 'Use "Add equipment" to register a piece of barangay equipment.' : 'The barangay official can add equipment here.')) +
       (patrolShelters.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Shelter needing patrol</th><th>Flagged</th><th class="t-right">Action</th></tr></thead><tbody>' + patrolShelters.map(patrolRow).join('') + '</tbody></table></div>' : '') +
       (units ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Unit</th><th>Type</th><th>Contact</th><th>Status</th><th class="t-right">Action</th></tr></thead><tbody>' + units + '</tbody></table></div>' : '') +
     '</div>';
@@ -474,6 +510,10 @@ const UG_ADMIN = (function () {
       '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
         '<button class="ug-btn ug-btn--sm" data-act="admin-edit-unit" data-id="' + esc(u.id) + '" title="' + esc(T('action.edit')) + '">' + I('settings', 14) + esc(T('action.edit')) + '</button>' +
         '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-unit-accounts" data-id="' + esc(u.id) + '" title="' + esc(T('admin.unitAccountHint')) + '">' + I('users', 14) + esc(T('admin.unitAccount')) + '</button>' +
+        /* 050 (Oct 25 2026): the LGU can manage any unit's equipment.
+           The button opens a modal listing this unit's equipment, with
+           Add / Edit / Retire / Remove buttons. */
+        '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-unit-equipment" data-id="' + esc(u.id) + '" data-unit-type="' + esc(u.unit_type) + '" data-unit-name="' + esc(u.name) + '" title="Equipment">' + I('shield', 14) + 'Equipment</button>' +
         (canDelete ? '<button class="ug-btn ug-btn--sm" data-act="admin-delete-unit" data-id="' + esc(u.id) + '" title="' + esc(T('action.delete')) + '" style="background:linear-gradient(180deg,#EF4444 0%,#B91C1C 100%);color:#fff;border:1px solid rgba(255,255,255,.15)">' + I('x', 14) + esc(T('action.delete')) + '</button>' : '') +
       '</div></td>' +
     '</tr>';

@@ -1032,8 +1032,13 @@
         if (team === 'Barangay Response Team') return e.owner_barangay_id === (inc.brgy_id || inc.barangay_id);
         return unitId && e.owner_unit_id === unitId;
       });
-      if (!list.length) return '<option value="">(no equipment available)</option>';
-      return '<option value="">(none)</option>' + list.map((e) =>
+      if (!list.length) return '<option value="" disabled>(no equipment available)</option>';
+      /* 050 (Oct 25 2026): multi-select. The dispatch_report_v2 RPC already
+         accepts p_equipment_ids as a uuid[]; js/repo.js already passes an
+         array. The previous single-select was a UI limitation, not a
+         backend one. The "(none)" option is gone — to dispatch with no
+         equipment, just leave the select empty. */
+      return list.map((e) =>
         '<option value="' + esc(e.id) + '">' + esc(e.identifier || e.custom_label || 'equipment') + '</option>').join('');
     };
 
@@ -1046,9 +1051,9 @@
           '<select class="ug-sel" data-dp-unit><option value="">Select a unit</option>' +
           units.map((u) => '<option value="' + esc(u.id) + '" data-type="' + esc(u.unit_type) + '">' + esc(u.name) + ' · ' + esc(u.unit_type) + '</option>').join('') +
           '</select></div>' +
-        '<div class="ug-field"><label class="ug-lab">Equipment to deploy (optional)</label>' +
-          '<select class="ug-sel" data-dp-equipment>' + equipmentOpts('Barangay Response Team', null) + '</select>' +
-          '<div class="ug-help">Equipment that is not Available or in a deployable condition is absent from the picker.</div></div>' +
+        '<div class="ug-field"><label class="ug-lab">Equipment to deploy (optional, multi-select)</label>' +
+          '<select class="ug-sel" data-dp-equipment multiple size="5" style="height:auto">' + equipmentOpts('Barangay Response Team', null) + '</select>' +
+          '<div class="ug-help">Hold Ctrl (or Cmd on Mac) to pick more than one. Equipment that is not Available or in a deployable condition is absent from the picker. Leave empty to dispatch with no equipment.</div></div>' +
         '<div class="ug-field"><label class="ug-lab">Action or instructions</label>' +
           '<textarea class="ug-ta" rows="3" data-dp-instr placeholder="e.g. Evacuate Purok 3, bring boat"></textarea>' +
           '<div class="ug-help">Say exactly what the team should do and what to bring.</div></div>' +
@@ -1111,7 +1116,11 @@
           const instructions = wrap.querySelector('[data-dp-instr]').value.trim();
           const etaVal = etaEl.value;
           const unitId = wrap.querySelector('[data-dp-unit]').value || null;
-          const eqId = wrap.querySelector('[data-dp-equipment]').value || null;
+          /* 050 (Oct 25 2026): multi-select — read every selected option.
+             The select has `multiple`, so .selectedOptions is a live
+             HTMLCollection of the chosen <option>s. */
+          const eqSelEl = wrap.querySelector('[data-dp-equipment]');
+          const eqIds = Array.prototype.map.call(eqSelEl.selectedOptions || [], (o) => o.value).filter(Boolean);
           if (!instructions) { toast('Write what the team is supposed to do', 'warning'); return; }
           if (!etaVal) { toast('Set an estimated arrival time', 'warning'); return; }
           if (team !== 'Barangay Response Team' && !unitId) { toast('Pick a unit to dispatch', 'warning'); return; }
@@ -1123,7 +1132,7 @@
           try {
             await Repo.dispatchReportV2(inc.uuid || inc.id, {
               team: team, instructions: instructions, eta: eta.toISOString(),
-              unit_id: unitId, equipment_ids: eqId ? [eqId] : null
+              unit_id: unitId, equipment_ids: eqIds.length ? eqIds : null
             });
             toast(team + ' dispatched to ' + inc.id, 'prepared');
             try {
@@ -2759,6 +2768,149 @@
       });
     },
     /* ----------------------------------------- edit a dispatch unit (LGU / unit_admin) */
+    /* 050 (Oct 25 2026) — manage a unit's equipment (LGU). Opens a modal
+       that lists the unit's equipment with Add / Edit / Retire / Remove
+       buttons. The actual modal logic + RPC calls are reused from
+       UG_DISPATCH (openAddEquipmentModal / openEditEquipmentModal /
+       openRemoveEquipmentModal). */
+    'admin-unit-equipment': (d) => {
+      const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
+      if (!unit) { toast('That unit no longer exists', 'warning'); return; }
+      if (!Repo.client()) { toast('No connection to the server. Reconnect and try again.', 'warning'); return; }
+      /* Refresh the dispatch directory so UG.DATA.dispatchEquipment is
+         up to date before opening the modal. */
+      Repo.loadDispatchDirectory().then(() => {
+        if (window.UG_FEATURES && UG_FEATURES.modal) {
+          UG_FEATURES.modal({
+            title: 'Equipment · ' + (d.unitName || unit.name || ''),
+            body: '<div data-unit-equipment-list data-unit-id="' + UG_UTIL.esc(unit.id) + '" data-unit-type="' + UG_UTIL.esc(unit.unit_type) + '">Loading…</div>',
+            footer: '<button class="ug-btn" data-modal-close>Close</button>' +
+                    '<button class="ug-btn ug-btn--signal" data-unit-equipment-add data-unit-id="' + UG_UTIL.esc(unit.id) + '" data-unit-type="' + UG_UTIL.esc(unit.unit_type) + '">' + UG.icon('plus', 14) + 'Add equipment</button>',
+            onMount: (wrap, close) => {
+              const listEl = wrap.querySelector('[data-unit-equipment-list]');
+              const refresh = () => {
+                const unitId = listEl.getAttribute('data-unit-id');
+                const unitType = listEl.getAttribute('data-unit-type');
+                const rows = (UG.DATA.dispatchEquipment || []).filter((e) => e.owner_unit_id === unitId);
+                if (!rows.length) {
+                  listEl.innerHTML = '<div class="ug-note">No equipment yet for this unit. Use "Add equipment" to register a piece.</div>';
+                  return;
+                }
+                const catalog = UG.DATA.equipmentCatalog || [];
+                const rowHtml = rows.map((r) => {
+                  const c = catalog.find((x) => x.id === r.catalog_id);
+                  const label = c ? c.label : (r.custom_label || r.identifier || 'Equipment');
+                  return '<tr>' +
+                    '<td><div style="font-weight:600">' + UG_UTIL.esc(r.identifier || label) + '</div>' +
+                      '<div class="ug-dimmer" style="font-size:10.5px">' + UG_UTIL.esc(r.notes || '') + '</div></td>' +
+                    '<td>' + UG_UTIL.esc(label) + '</td>' +
+                    '<td>' + UG_UTIL.esc(r.status) + '</td>' +
+                    '<td>' + UG_UTIL.esc(r.condition) + '</td>' +
+                    '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
+                      '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + UG_UTIL.esc(r.id) + '">Edit</button>' +
+                      '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + UG_UTIL.esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>' +
+                    '</div></td>' +
+                  '</tr>';
+                }).join('');
+                listEl.innerHTML = '<div class="ug-card" style="overflow:hidden;margin:0"><table class="ug-table">' +
+                  '<thead><tr><th>Equipment</th><th>Type</th><th>Status</th><th>Condition</th><th class="t-right">Action</th></tr></thead>' +
+                  '<tbody>' + rowHtml + '</tbody></table></div>';
+              };
+              refresh();
+              /* Add button: open the same Add modal as the dispatch_team
+                 console, but with the LGU's owner_unit_id. The UG_DISPATCH
+                 openAddEquipmentModal reads opts.ownerUnitId. */
+              wrap.querySelector('[data-unit-equipment-add]').addEventListener('click', () => {
+                if (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.openAddEquipmentModal) {
+                  UG_DISPATCH.openAddEquipmentModal({
+                    ownerUnitId: unit.id,
+                    ownerBarangayId: null,
+                    unitType: unit.unit_type,
+                    onSaved: async function () {
+                      try { await Repo.loadDispatchDirectory(); } catch (e) {}
+                      refresh();
+                    }
+                  });
+                } else {
+                  toast('Equipment module not loaded. Reload the page.', 'warning');
+                }
+              });
+            }
+          });
+        }
+      }).catch(() => { toast('Could not load the equipment list. Try again.', 'warning'); });
+    },
+
+    /* 050 (Oct 25 2026) — equipment actions shared by the dispatch console,
+       the barangay Response Team screen, and the LGU's per-unit modal. The
+       dispatch_team console defines its own (in UG_DISPATCH.actions) for the
+       unit_admin path; these app.js versions serve the barangay_official
+       and LGU paths (their data-act buttons live in screens.admin.js). */
+    'equipment-add': (d) => {
+      /* The data-act button carries the owner via data-owner-brgy or
+         data-owner-unit. For the barangay_official it's data-owner-brgy;
+         for the LGU's per-unit modal it's the per-unit Add button which
+         calls UG_DISPATCH.openAddEquipmentModal directly (not this action).
+         So this action's main job is the barangay path. */
+      if (typeof UG_DISPATCH === 'undefined' || !UG_DISPATCH.openAddEquipmentModal) {
+        toast('Equipment module not loaded. Reload the page.', 'warning');
+        return;
+      }
+      const ownerBrgy = d.ownerBrgy || null;
+      const ownerUnit = d.ownerUnit || null;
+      if (ownerBrgy) {
+        /* barangay path */
+        UG_DISPATCH.openAddEquipmentModal({
+          ownerUnitId: null,
+          ownerBarangayId: ownerBrgy,
+          unitType: 'Barangay',
+          onSaved: async function () {
+            try { await Repo.loadDispatchDirectory(); } catch (e) {}
+            if (typeof render === 'function') render();
+          }
+        });
+      } else if (ownerUnit) {
+        /* unit path (LGU clicking the per-unit Add button falls through
+           to UG_DISPATCH.openAddEquipmentModal directly via onMount, so
+           this branch is a fallback) */
+        UG_DISPATCH.openAddEquipmentModal({
+          ownerUnitId: ownerUnit,
+          ownerBarangayId: null,
+          unitType: d.unitType || null,
+          onSaved: async function () {
+            try { await Repo.loadDispatchDirectory(); } catch (e) {}
+            if (typeof render === 'function') render();
+          }
+        });
+      } else {
+        toast('Could not determine the owner. Reload the page and try again.', 'warning');
+      }
+    },
+    'equipment-edit': (d) => {
+      if (typeof UG_DISPATCH === 'undefined' || !UG_DISPATCH.openEditEquipmentModal) {
+        toast('Equipment module not loaded. Reload the page.', 'warning');
+        return;
+      }
+      UG_DISPATCH.openEditEquipmentModal(d.id, {
+        onSaved: async function () {
+          try { await Repo.loadDispatchDirectory(); } catch (e) {}
+          if (typeof render === 'function') render();
+        }
+      });
+    },
+    'equipment-remove': (d) => {
+      if (typeof UG_DISPATCH === 'undefined' || !UG_DISPATCH.openRemoveEquipmentModal) {
+        toast('Equipment module not loaded. Reload the page.', 'warning');
+        return;
+      }
+      UG_DISPATCH.openRemoveEquipmentModal(d.id, {
+        onSaved: async function () {
+          try { await Repo.loadDispatchDirectory(); } catch (e) {}
+          if (typeof render === 'function') render();
+        }
+      });
+    },
+
     'admin-edit-unit': async (d) => {
       const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
       if (!unit) { toast('That unit no longer exists', 'warning'); return; }
@@ -2865,8 +3017,16 @@
 
     /* ----------------------------------------------- LGU decides a support request */
     'admin-decide-request': async (d) => {
+      /* Disable both decision buttons while in flight so the LGU user
+         cannot double-click Approve + Decline (or click Approve twice
+         and produce two notifications). The LGU screen is rendered by
+         js/screens.admin.js dispatchUnits(); we re-enable on the next
+         render. We do not need a per-button disabled flag — the buttons
+         only exist for status === 'pending', and the row leaves that
+         state once the RPC succeeds. */
       try {
         const c = Repo.client();
+        if (!c) { toast('No connection to the server. Reconnect and try again.', 'warning'); return; }
         const { error } = await c.rpc('decide_unit_request', {
           p_request_id: d.id, p_decision: d.decision, p_note: ''
         });
@@ -2874,7 +3034,7 @@
         toast('Request ' + d.decision, 'prepared');
         try { await Repo.loadDispatchDirectory(); } catch (e) {}
         render();
-      } catch (e) { toast(e.message, 'warning'); }
+      } catch (e) { toast(e.message || ('Could not ' + d.decision + ' the request'), 'warning'); }
     },
 
     /* ---------------------- barangay official toggles a responder's duty status */

@@ -926,3 +926,17 @@ unit. Removed it.
    composer → tap "Enable push on this device" → grant permission.
 3. The reach indicator should now read "1 subscribed device".
 4. Publish an advisory → the device should receive a real push.
+
+---
+
+## 2026-10-25 — Equipment management (Add / Edit / Retire / Remove)
+
+- **Add / Edit / Retire / Remove equipment from the app** — previously equipment only entered the database through `seed/003_dispatch_units.sql`, and the empty state on the Equipment & Readiness screen said "Your unit admin can add equipment here" but no such control existed.
+- **Three roles can manage equipment**: a `unit_admin` on their own unit's Equipment & Readiness screen; a `barangay_official` on their own barangay's Response Team screen (new Equipment table); the `LGU` on any unit's Equipment (new "Equipment" button on each unit row in the Dispatch Units screen, opening a per-unit modal). Regular unit members see only Check / Status (unchanged).
+- **Form fields**: Type (catalog dropdown filtered by the owner's type, plus "Other (custom)"), Identifier, Starting condition (default "unknown"), Notes. Edit form allows changing identifier, custom label, condition and notes; the owner is NOT editable (retire + add to change ownership).
+- **Retire vs Remove**: blocked entirely while the item is `status = 'deployed'` (release it first). If the item has any `dispatch_equipment_use` row, only Retire is offered (`status = 'unavailable'`) — permanently deleting would cascade to dispatch history. True delete is allowed only for items never used in a dispatch; it cascades to `equipment_checks`.
+- **Multi-select in the dispatch form**: the single-equipment `<select>` is now a multi-select. The `dispatch_report_v2` RPC already accepted `p_equipment_ids uuid[]`; `js/repo.js` already passed an array. The previous single-select was a UI limitation, not a backend one.
+- **Migration `050_equipment_management.sql`** (additive, idempotent, `begin;`/`commit;`): three new `SECURITY DEFINER` RPCs (`add_equipment`, `update_equipment`, `remove_equipment`) that re-check role + ownership server-side and call `write_audit`. Plus a `list_equipment_catalog_by_owner` helper RPC. Uses `DO $$` guards (no `ADD CONSTRAINT IF NOT EXISTS`, which is invalid in PostgreSQL). No RLS changes — the existing `dispatch_equipment_write` policy at 038 L192-204 already covers these RPCs because they run as `SECURITY DEFINER`, bypassing RLS.
+- **Service worker**: `sw.js` bumped to `uniguard-v15` so browsers fetch the new files.
+- Files: `migrations/050_equipment_management.sql` (new); `js/dispatch.js` (sEquipment Add/Edit/Retire/Remove buttons + openAddEquipmentModal/openEditEquipmentModal/openRemoveEquipmentModal + equipment-* actions + new exports); `js/screens.admin.js` (barangay Equipment table on responseTeam + Equipment button per unit row on dispatchUnits); `js/app.js` (admin-unit-equipment action + equipment-add/edit/remove actions for the barangay path + dispatch form multi-select); `js/repo.js` (loadDispatchDirectory also loads `equipment_catalog`); `js/screens.js` (UG.DATA.equipmentCatalog default); `js/i18n.js` (en + fil for ~30 new equipment strings); `sw.js` (v15); `docs/TEST-CHECKLIST-ALL.md` (section 30); `CHANGES.md`, `DISPATCH_FEATURES_RESULT.md`.
+- Run order: nothing else needed — `050_equipment_management.sql` runs after `049_dispatch_team_features.sql` (which is already applied if you ran the previous fixpack). Safe to re-run.

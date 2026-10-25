@@ -1167,7 +1167,7 @@ const Repo = (function () {
     const c = client();
     if (!c) return;
     try {
-      const [units, equipment, requests, helpReqs, escorts] = await Promise.all([
+      const [units, equipment, requests, helpReqs, escorts, catalog] = await Promise.all([
         c.from('dispatch_units').select('*').order('unit_type', { ascending: true }),
         c.from('dispatch_equipment').select('*').order('created_at', { ascending: false }),
         c.from('unit_requests').select('*').order('created_at', { ascending: false }).limit(50),
@@ -1176,12 +1176,17 @@ const Repo = (function () {
         /* D3 (Oct 24 2026): relief distributions with escort_status active.
            The existing relief loader already pulls everything; we just
            refresh here so the LGU console's escort list is current. */
-        c.from('relief_distributions').select('*').order('distribution_at', { ascending: false }).limit(100)
+        c.from('relief_distributions').select('*').order('distribution_at', { ascending: false }).limit(100),
+        /* 050 (Oct 25 2026): equipment_catalog — for the Add-equipment form's
+           Type dropdown. Small table (~30 rows), so we load it once with the
+           rest of the dispatch directory. */
+        c.from('equipment_catalog').select('*').order('unit_type, label', { ascending: true })
       ]);
       UG.DATA.dispatchUnits = units.data || [];
       UG.DATA.dispatchEquipment = equipment.data || [];
       UG.DATA.unitRequests = requests.data || [];
       UG.DATA.dispatchHelpRequests = helpReqs.data || [];
+      UG.DATA.equipmentCatalog = catalog.data || [];
       if (escorts.data) UG.DATA.relief = escorts.data.map(toRelief);
       emit();
     } catch (e) { /* directory is a read-only convenience */ }

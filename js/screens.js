@@ -163,6 +163,9 @@ const UG = (() => {
     /* A2 (Oct 24 2026) — dispatch help requests; Repo.loadHelpRequests (LGU
        only) overwrites this when Supabase is reachable. */
     dispatchHelpRequests: [],
+    /* 050 (Oct 25 2026) — equipment catalog, for the Add-equipment form's
+       Type dropdown. Repo.loadDispatchDirectory overwrites this. */
+    equipmentCatalog: [],
     /* change requests (master prompt · Emergency Hotlines approval).
        Repo.loadChangeRequests overwrites this when Supabase is reachable. */
     changeRequests: [],
