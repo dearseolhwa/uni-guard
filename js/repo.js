@@ -1483,7 +1483,7 @@ const Repo = (function () {
   }
 
   /* LGU verifies an overdue report (1-hour escalation queue). */
-  async function lguVerifyOverdueReport(reportId) {
+  async function lguVerifyOverdueReport(reportId, note) {
     const c = client();
     if (!c) {
       /* offline: just flip the row in UG.DATA.incidents so the UI updates. */
@@ -1492,17 +1492,15 @@ const Repo = (function () {
       emit();
       return { ok: true, local: true };
     }
-    /* try the migration 047 RPC; fall back to advancing the status with the
-       advance_report_status RPC that already exists (migration 007). */
-    try {
-      const { data, error } = await c.rpc('lgu_verify_overdue_report', { p_report_id: reportId });
-      if (!error) return data || { ok: true };
-    } catch (e) { /* fall through */ }
-    try {
-      const { error } = await c.rpc('advance_report_status', { p_report_id: reportId, p_status: 'verified' });
-      if (error) throw new Error(error.message);
-      return { ok: true };
-    } catch (e) { throw e; }
+    /* migration 051: lgu_verify_overdue_report only accepts reports older than
+       1 hour and delegates to lgu_verify_report, so the note, verified_by_role
+       and the reporter notification are kept. Its errors are real business
+       errors (not overdue, already rejected, Super Admin) and are surfaced
+       as-is instead of being masked by a fallback call. */
+    const { data, error } = await c.rpc('lgu_verify_overdue_report', { p_report_id: reportId, p_note: note || '' });
+    if (error) fail(error);
+    await loadAll();
+    return data || { ok: true };
   }
 
   /* ------------------------------------------------------ force reload (retry)

@@ -1491,6 +1491,23 @@
       if (next >= order.length) { toast('This incident is already resolved', 'info'); return; }
       if (order[next] === 'dispatched') { dispatchModal(inc); return; }
       const label = UG.STAGES[next].label;
+      /* Resolving needs a closing note: the reporter's notification and the
+         audit log both carry it (advance_report_status rejects an empty one). */
+      if (order[next] === 'resolved') {
+        const closing = await UG_FEATURES.prompt({
+          title: 'Resolve ' + inc.id,
+          label: 'Closing note (required, sent to the reporter)',
+          placeholder: 'e.g. Water receded; road passable again.',
+          required: true, requiredMessage: 'Write a closing note before resolving.'
+        });
+        if (closing === null) return;
+        try {
+          await Repo.advanceStatus(inc.uuid || inc.id, 'resolved', closing);
+          toast(inc.id + ' moved to ' + label, 'prepared');
+        } catch (e) { toast(e.message, 'warning'); }
+        render();
+        return;
+      }
       const ok = await UG_FEATURES.confirm({
         title: T('action.update'),
         message: 'Move ' + inc.id + ' to "' + label + '"?',
@@ -1510,11 +1527,12 @@
       const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
       if (!inc) return;
       const reason = await UG_FEATURES.prompt({
-        title: 'Reject report', label: 'Reason (shown in the audit log)', placeholder: 'e.g. Duplicate of UG-2026-0140'
+        title: 'Reject report', label: 'Reason (required, sent to the reporter)', placeholder: 'e.g. Duplicate of UG-2026-0140',
+        required: true, requiredMessage: 'Write the reason for rejecting this report.'
       });
       if (reason === null) return;
       try {
-        await Repo.advanceStatus(inc.uuid || inc.id, 'rejected', reason || '');
+        await Repo.advanceStatus(inc.uuid || inc.id, 'rejected', reason);
         toast(inc.id + ' marked rejected', 'warning');
       } catch (e) { toast(e.message, 'warning'); }
       render();
@@ -1549,14 +1567,10 @@
       });
       if (note === null) return;
       try {
-        /* Try the dedicated overdue-verification RPC first (migration 047);
-           fall back to the existing lguVerify (migration 036) for older
-           schemas. Both paths produce the same audit + status transition. */
-        try {
-          await Repo.lguVerifyOverdueReport(inc.uuid || inc.id);
-        } catch (e) {
-          await Repo.lguVerify(inc.uuid || inc.id, note || '');
-        }
+        /* lgu_verify_report keeps the note, stamps verified_by_role and
+           notifies the reporter. It works for any report still in
+           "reported", overdue or not (migration 051). */
+        await Repo.lguVerify(inc.uuid || inc.id, note || '');
         toast(inc.id + ' LGU-verified', 'prepared');
       } catch (e) { toast(e.message, 'warning'); }
       render();
@@ -3305,7 +3319,8 @@
     'dispatch-decline': async (d) => {
       const res = await UG_FEATURES.prompt({
         title: 'Decline this dispatch',
-        label: 'Reason', placeholder: 'e.g. No available responders, equipment failure'
+        label: 'Reason (required)', placeholder: 'e.g. No available responders, equipment failure',
+        required: true, requiredMessage: 'A reason is required to decline.'
       });
       if (!res) return;
       const reason = String(res || '').trim();
@@ -3318,6 +3333,8 @@
         });
         if (error) throw error;
         toast('Dispatch declined — the dispatcher has been notified', 'prepared');
+        /* declining the last active team returns the report to verified (051) */
+        try { await Repo.loadAll(); } catch (e) {}
         if (d.reportId) { try { await Repo.loadDispatches(d.reportId); } catch (e) {} }
         render();
       } catch (e) { toast(e.message || 'Could not decline', 'warning'); }

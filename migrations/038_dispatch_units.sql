@@ -70,6 +70,25 @@ begin
   end if;
 end $$;
 
+-- --------------------------------------------- role helpers (used by policies below)
+-- Defined here, before the first policy that calls them; redefined
+-- identically further down, so re-runs are unaffected.
+create or replace function public.is_dispatch()
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.current_role_key() = 'dispatch_team';
+$$;
+
+create or replace function public.is_unit_admin()
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.current_role_key() = 'dispatch_team'
+     and coalesce((select unit_role from public.profiles where id = auth.uid()), '') = 'unit_admin';
+$$;
+
+create or replace function public.my_unit_id()
+returns uuid language sql stable security definer set search_path = public as $$
+  select dispatch_unit_id from public.profiles where id = auth.uid();
+$$;
+
 -- -------------------------------------------------------- dispatch_units
 create table if not exists public.dispatch_units (
   id             uuid primary key default gen_random_uuid(),
@@ -446,6 +465,22 @@ create index if not exists report_dispatch_events_dispatch_idx on public.report_
 
 alter table public.report_dispatch_events enable row level security;
 
+-- (read policy is created below, once report_dispatches.unit_id exists)
+
+-- ----------------------------------------------------- extend report_dispatches
+alter table public.report_dispatches add column if not exists unit_id            uuid;
+alter table public.report_dispatches add column if not exists target_barangay_id uuid;
+alter table public.report_dispatches add column if not exists dispatch_status    text not null default 'sent';
+alter table public.report_dispatches add column if not exists ack_at            timestamptz;
+alter table public.report_dispatches add column if not exists en_route_at       timestamptz;
+alter table public.report_dispatches add column if not exists on_scene_at        timestamptz;
+alter table public.report_dispatches add column if not exists done_at           timestamptz;
+alter table public.report_dispatches add column if not exists after_action      text not null default '';
+alter table public.report_dispatches add column if not exists after_action_at   timestamptz;
+alter table public.report_dispatches add column if not exists after_action_by   uuid;
+alter table public.report_dispatches add column if not exists after_action_meta jsonb not null default '{}'::jsonb;
+
+-- report_dispatch_events read policy (needs report_dispatches.unit_id above)
 drop policy if exists report_dispatch_events_read on public.report_dispatch_events;
 create policy report_dispatch_events_read on public.report_dispatch_events
   for select to authenticated using (
@@ -461,19 +496,6 @@ create policy report_dispatch_events_read on public.report_dispatch_events
         and (public.is_official() and r.barangay_id = public.my_barangay_id())
     )
   );
-
--- ----------------------------------------------------- extend report_dispatches
-alter table public.report_dispatches add column if not exists unit_id            uuid;
-alter table public.report_dispatches add column if not exists target_barangay_id uuid;
-alter table public.report_dispatches add column if not exists dispatch_status    text not null default 'sent';
-alter table public.report_dispatches add column if not exists ack_at            timestamptz;
-alter table public.report_dispatches add column if not exists en_route_at       timestamptz;
-alter table public.report_dispatches add column if not exists on_scene_at        timestamptz;
-alter table public.report_dispatches add column if not exists done_at           timestamptz;
-alter table public.report_dispatches add column if not exists after_action      text not null default '';
-alter table public.report_dispatches add column if not exists after_action_at   timestamptz;
-alter table public.report_dispatches add column if not exists after_action_by   uuid;
-alter table public.report_dispatches add column if not exists after_action_meta jsonb not null default '{}'::jsonb;
 
 -- widen the team check to accept 'Rescue Unit' (from unit_type 'Rescue'),
 -- keeping all previously allowed values
@@ -493,10 +515,18 @@ create index if not exists report_dispatches_unit_idx      on public.report_disp
 create index if not exists report_dispatches_brgy_idx      on public.report_dispatches (target_barangay_id, dispatched_at desc);
 create index if not exists report_dispatches_status_idx    on public.report_dispatches (dispatch_status, dispatched_at desc);
 
-alter table public.report_dispatches add constraint if not exists report_dispatches_unit_fkey
-  foreign key (unit_id) references public.dispatch_units(id) on delete set null;
-alter table public.report_dispatches add constraint if not exists report_dispatches_target_brgy_fkey
-  foreign key (target_barangay_id) references public.barangays(id) on delete set null;
+-- (PostgreSQL has no ADD CONSTRAINT IF NOT EXISTS; guard with pg_constraint)
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'report_dispatches_unit_fkey') then
+    alter table public.report_dispatches add constraint report_dispatches_unit_fkey
+      foreign key (unit_id) references public.dispatch_units(id) on delete set null;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'report_dispatches_target_brgy_fkey') then
+    alter table public.report_dispatches add constraint report_dispatches_target_brgy_fkey
+      foreign key (target_barangay_id) references public.barangays(id) on delete set null;
+  end if;
+end $$;
 
 -- Update the read policy so the dispatched unit's members can read it too.
 drop policy if exists report_dispatches_read on public.report_dispatches;

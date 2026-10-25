@@ -35,12 +35,22 @@ alter table public.reports validate constraint reports_other_requires_text;
 
 -- reports_feed (migration 004) is the read view the client queries; recreate
 -- it with the new column so it keeps returning every column the client reads
-create or replace view public.reports_feed as
-  select r.id, r.code, r.hazard_type, r.hazard_other_text, r.barangay_id, r.barangay, r.description,
-         r.severity, r.urgency, r.status, r.lat, r.lng, r.photo_path, r.reporter_id,
-         r.resolved_at, r.created_at, r.updated_at,
-         (select count(*) from public.report_corroborations c where c.report_id = r.id) as corroborations
-    from public.reports r;
+-- Guarded: on a fresh install the 004 column order makes CREATE OR REPLACE
+-- fail ("cannot change name of view column"); migration 023 drops and
+-- rebuilds this view anyway, so a failure here is skipped, not fatal.
+do $$
+begin
+  execute $v$
+    create or replace view public.reports_feed as
+      select r.id, r.code, r.hazard_type, r.hazard_other_text, r.barangay_id, r.barangay, r.description,
+             r.severity, r.urgency, r.status, r.lat, r.lng, r.photo_path, r.reporter_id,
+             r.resolved_at, r.created_at, r.updated_at,
+             (select count(*) from public.report_corroborations c where c.report_id = r.id) as corroborations
+        from public.reports r
+  $v$;
+exception when others then
+  raise notice 'reports_feed left unchanged here (rebuilt by migration 023): %', sqlerrm;
+end $$;
 
 -- keep whatever security_invoker setting migration 004 established
 do $$

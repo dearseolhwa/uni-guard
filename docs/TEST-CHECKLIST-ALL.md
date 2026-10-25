@@ -686,3 +686,55 @@ buttons — they can still run Check + Status as they do today.
 - The multi-select dispatch form — verify the `dispatch_report_v2` RPC
   accepts a multi-element `p_equipment_ids` array (it already did —
   migration 039's signature has always been `uuid[] default null`).
+
+## 31. Report → Resolved workflow (Oct 25 2026)
+
+Run migration `051_report_workflow_fixes.sql` first. Bumps `sw.js` to
+`uniguard-v16`. Accounts: 3 citizens, a barangay official (BO) for the
+test barangay, a BO for another barangay, an LGU user (not Super Admin),
+a BFP and a Rescue dispatch user.
+
+- [ ] Three citizens file the same hazard within ~500 m: all three submit,
+      all three become **verified**, each gets "auto-verified".
+- [ ] Same with Confirm: the 3rd Confirm succeeds and shows "verified".
+- [ ] A pin dropped in the middle of Aliwekwek / Baay lands in that barangay.
+- [ ] BO clicks Verify in two windows: second shows "already verified";
+      the citizen gets one notification; details show "verified by".
+- [ ] LGU-Verify with a note: citizen notified with the note; details show LGU.
+- [ ] Dispatch BFP with two equipment items: succeeds; items show Deployed.
+- [ ] Citizen gets one "Response dispatched" notification (not two).
+- [ ] Rescue: On hold (reason required) → Resume → back On scene → Done.
+- [ ] On scene shows a secondary **Done** (Rescue, Ambulance); BFP also
+      at Under control.
+- [ ] Decline the only dispatch: report returns to Verified, citizen gets
+      "Responder reassignment", Dispatch is offered again.
+- [ ] Resolve asks for a closing note (cannot be empty); citizen sees it.
+- [ ] Reject / Decline cannot be saved with an empty reason.
+- [ ] A report left unverified for over 1 hour appears in the LGU overdue
+      queue without anyone touching it; a BO of another barangay cannot see it.
+- [ ] Super Admin cannot Verify / LGU-Verify; can still Reject with a reason.
+
+Migration `052_reroute_and_advisory_seed.sql` moves misrouted reports that
+are still **reported** (nobody has acted on them) and prints
+`{"moved", "skipped", "held_for_review", "errors"}`. If `skipped` is above 0
+(a report was being edited at that moment), run
+`select public.reroute_misrouted_reports();` once more. Verified / dispatched
+reports are never moved automatically — this lists them for review:
+
+```sql
+select r.code, r.status, r.barangay as stored, b.name as by_location
+  from public.reports r
+  cross join lateral public.resolve_barangay(r.lat, r.lng) as x(bid)
+  join public.barangays b on b.id = x.bid
+ where r.status in ('reported','verified','dispatched')
+   and r.lat between 15.95 and 16.085 and r.lng between 120.17 and 120.29
+   and r.barangay_id is distinct from x.bid;
+```
+
+- [ ] After 052: a report filed under the old routing (still "reported")
+      now shows the right barangay; that barangay's official got
+      "Report moved to your barangay"; the old one got "moved to another
+      barangay"; Audit log shows `report.rerouted`.
+- [ ] `seed/001_sample_data.sql` loads with no errors (sample advisories +
+      their targets). A citizen still cannot add advisory targets; a BO
+      still cannot target another barangay.

@@ -259,12 +259,24 @@ const UG_FEATURES = (function () {
         title: opts.title,
         body: '<div class="ug-field"><label class="ug-lab">' + esc(opts.label || '') + '</label>' +
               '<input class="ug-in" data-prompt-value value="' + esc(opts.value || '') + '" placeholder="' + esc(opts.placeholder || '') + '"></div>' +
-              (opts.help ? '<div class="ug-help">' + esc(opts.help) + '</div>' : ''),
+              (opts.help ? '<div class="ug-help">' + esc(opts.help) + '</div>' : '') +
+              (opts.required ? '<div class="ug-help" data-prompt-error hidden style="color:var(--ug-emergency, #c0392b)">' + esc(opts.requiredMessage || 'This field is required.') + '</div>' : ''),
         footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
                 '<button class="ug-btn ug-btn--signal" data-ok>Save</button>',
         onMount: (wrap, closeFn) => {
           const input = wrap.querySelector('[data-prompt-value]');
-          const ok = () => { const v = input.value.trim(); closeFn(); resolve(v || null); };
+          /* opts.required: an empty answer keeps the dialog open instead of
+             resolving null (which callers treat as Cancel). */
+          const ok = () => {
+            const v = input.value.trim();
+            if (opts.required && !v) {
+              const err = wrap.querySelector('[data-prompt-error]');
+              if (err) err.hidden = false;
+              input.focus();
+              return;
+            }
+            closeFn(); resolve(v || null);
+          };
           wrap.querySelector('[data-ok]').addEventListener('click', ok);
           input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } });
           setTimeout(() => input.focus(), 30);

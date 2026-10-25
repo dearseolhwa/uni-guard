@@ -527,6 +527,10 @@ const UG_DISPATCH = (function () {
     const nextPair = STEP[status] || null;
     const next = nextPair ? nextPair[0] : null;
     const nextLabel = nextPair ? nextPair[1] : '';
+    /* Secondary "Done" where dispatch_respond also allows finishing directly
+       (on scene for every team, BFP under control): a rescue that needs no
+       hold, or an ambulance case treated on site, can still be closed. */
+    const canFinish = next && next !== 'done' && (status === 'on_scene' || (team === 'BFP' && status === 'under_control'));
 
     const stepLabel = (s) => ({
       sent: T('dispatch.acknowledge'), acknowledged: T('dispatch.acknowledge'), en_route: T('dispatch.enRoute'),
@@ -629,6 +633,7 @@ const UG_DISPATCH = (function () {
       '<div class="ug-rowf ug-gap8" style="gap:8px">' +
         (next ? '<input class="ug-in" type="text" data-act="dispatch-note" data-id="' + esc(d.id) + '" placeholder="' + (next === 'on_hold' ? 'Reason (required)' : 'Note (optional)') + '" style="flex:1;max-width:none">' : '') +
         (next ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-respond" data-id="' + esc(d.id) + '" data-next="' + next + '">' + esc(nextLabel) + '</button>' : '') +
+        (canFinish ? '<button class="ug-btn ug-btn--sm" data-act="dispatch-respond" data-id="' + esc(d.id) + '" data-next="done">' + esc(T('dispatch.done')) + '</button>' : '') +
       '</div>' +
       '<div class="ug-dim" style="font-size:11px">Each step is one click. The reporter is notified on every status change.</div>' +
       declineHelp + '</div>');
@@ -938,7 +943,8 @@ const UG_DISPATCH = (function () {
       try {
         const note = (document.querySelector('[data-act="dispatch-note"][data-id="' + d.id + '"]') || {}).value || '';
         await rpc('dispatch_respond', { p_dispatch_id: d.id, p_action: d.next, p_note: note });
-        app().toast('Status updated to ' + d.next, 'prepared');
+        /* resume is an event: the dispatch goes back to on_scene (migration 051) */
+        app().toast(d.next === 'resume' ? 'Rescue resumed · back on scene' : 'Status updated to ' + d.next, 'prepared');
         await loadDispatches(); await loadEvents();
         app().render();
       } catch (e) { app().toast(e.message || 'Could not update', 'warning'); }
@@ -1088,7 +1094,8 @@ const UG_DISPATCH = (function () {
       }
       const res = await UG_FEATURES.prompt({
         title: 'Decline this dispatch',
-        label: 'Reason', placeholder: 'e.g. No available responders, equipment failure'
+        label: 'Reason (required)', placeholder: 'e.g. No available responders, equipment failure',
+        required: true, requiredMessage: 'A reason is required to decline.'
       });
       if (!res) return;
       const reason = String(res || '').trim();

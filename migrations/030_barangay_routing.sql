@@ -41,9 +41,9 @@ create table if not exists public.barangay_geoms (
 );
 
 -- approximate centroids; bbox = centroid +- the offsets below (~1.2 km lat / 1.4 km lng)
-insert into public.barangay_geoms (barangay_id, centroid_lat, centroid_lng, min_lat, max_lat, min_lng, max_lng)
-select b.id, v.lat, v.lng, v.lat - 0.006, v.lat + 0.006, v.lng - 0.007, v.lng + 0.007
-  from (values
+-- Missing barangay rows are created first (name is unique; the seed uses
+-- ON CONFLICT too), so a fresh install does not end up with no geometry.
+with v(name, lat, lng) as (values
     ('Aliwekwek',          16.0260, 120.2340),
     ('Baay',               16.0140, 120.2200),
     ('Balangobong',        16.0450, 120.2130),
@@ -76,8 +76,18 @@ select b.id, v.lat, v.lng, v.lat - 0.006, v.lat + 0.006, v.lng - 0.007, v.lng + 
     ('Tonton',             16.0080, 120.2180),
     ('Tumbar',             16.0120, 120.2100),
     ('Wawa',               16.0470, 120.2410)
-  ) as v(name, lat, lng)
-  join public.barangays b on b.name = v.name
+),
+ensured as (
+  insert into public.barangays (name)
+  select v.name from v
+  on conflict (name) do nothing
+  returning id, name
+)
+insert into public.barangay_geoms (barangay_id, centroid_lat, centroid_lng, min_lat, max_lat, min_lng, max_lng)
+select coalesce(b.id, e.id), v.lat, v.lng, v.lat - 0.006, v.lat + 0.006, v.lng - 0.007, v.lng + 0.007
+  from v
+  left join public.barangays b on b.name = v.name
+  left join ensured e on e.name = v.name
 on conflict (barangay_id) do nothing;
 
 -- municipal service bounds — keep in sync with js/geo.js BOUNDS

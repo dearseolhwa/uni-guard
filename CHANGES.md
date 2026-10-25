@@ -940,3 +940,33 @@ unit. Removed it.
 - **Service worker**: `sw.js` bumped to `uniguard-v15` so browsers fetch the new files.
 - Files: `migrations/050_equipment_management.sql` (new); `js/dispatch.js` (sEquipment Add/Edit/Retire/Remove buttons + openAddEquipmentModal/openEditEquipmentModal/openRemoveEquipmentModal + equipment-* actions + new exports); `js/screens.admin.js` (barangay Equipment table on responseTeam + Equipment button per unit row on dispatchUnits); `js/app.js` (admin-unit-equipment action + equipment-add/edit/remove actions for the barangay path + dispatch form multi-select); `js/repo.js` (loadDispatchDirectory also loads `equipment_catalog`); `js/screens.js` (UG.DATA.equipmentCatalog default); `js/i18n.js` (en + fil for ~30 new equipment strings); `sw.js` (v15); `docs/TEST-CHECKLIST-ALL.md` (section 30); `CHANGES.md`, `DISPATCH_FEATURES_RESULT.md`.
 - Run order: nothing else needed — `050_equipment_management.sql` runs after `049_dispatch_team_features.sql` (which is already applied if you ran the previous fixpack). Safe to re-run.
+
+## Report → Resolved workflow fixes (Oct 25 2026)
+
+End-to-end audit of reported → verified → dispatched → resolved, verified on a fresh database built from every migration plus an upgrade of an existing one (98 automated checks pass, plus a two-session concurrency test).
+
+- **Migration `051_report_workflow_fixes.sql`** (additive, idempotent, `begin;`/`commit;`):
+  - Auto-verification by corroboration no longer blocks the 3rd nearby report / 3rd Confirm ("You can only edit your own report"). `guard_report_edit` lets backend sessions and the server-side `auto_corroboration` / `all_declined` paths through (status + `verified_at` only). Auto-verify now stamps `verified_at` and notifies on both paths.
+  - `dispatch_report_v2` no longer fails when equipment is picked; ids are de-duplicated and locked; the report row is locked so two dispatchers cannot race.
+  - Rescue **Resume** returns the dispatch to `on_scene` (it wrote an invalid `resume` status).
+  - `resolve_barangay` picks the nearest centroid among overlapping boxes (15 of 32 barangay centres routed to a neighbour).
+  - `advance_report_status` restored: one-step check, `verified_by*` stamping, audit `from`, row lock (no duplicate verify/resolve or duplicate notifications), Super Admin verify block kept. **Reject needs a reason and Resolve needs a closing note.**
+  - `lgu_verify_overdue_report` only accepts reports older than 1 hour and delegates to `lgu_verify_report` (note, `verified_by_role`, reporter notification).
+  - `lgu_escalation_queue` is computed from the clock (an idle report now reaches the LGU) and is `security_invoker`; policy `reports_lgu_escalation_read` (cross-barangay leak) dropped; optional `refresh_overdue_reports()` for pg_cron.
+  - `fanout_dispatch` is internal only (any user could send fake dispatch alerts); the reporter is no longer notified twice for the first dispatch.
+  - Declining the only active dispatch returns the report to `verified` (logged as `all_declined`) and tells the reporter a new team is being arranged.
+  - Closing a report / finishing / declining a dispatch releases only the equipment that action freed (it used to free items redeployed elsewhere).
+- **Fresh-install fixes** (no effect on an already-migrated project): `010` view rewrite guarded; `038` role helpers defined before first use, `report_dispatch_events` policy moved after the columns it reads, invalid `ADD CONSTRAINT IF NOT EXISTS` replaced; `030` creates missing barangay rows before loading `barangay_geoms`.
+- **Client**: Resolve asks for a required closing note; Reject and Decline require a reason (`UG_FEATURES.prompt` gains `required`); LGU-Verify calls `lgu_verify_report` with the note; `Repo.lguVerifyOverdueReport` no longer falls back with the wrong parameter; dispatch detail shows a secondary **Done** on scene (and BFP under control); declining reloads incidents.
+- **Service worker**: `sw.js` bumped to `uniguard-v16`.
+- Files: `migrations/051_report_workflow_fixes.sql` (new); `migrations/010_hazard_types.sql`, `migrations/030_barangay_routing.sql`, `migrations/038_dispatch_units.sql` (fresh-install only); `js/app.js`, `js/dispatch.js`, `js/repo.js`, `js/features.js`; `sw.js`; `docs/TEST-CHECKLIST-ALL.md` (section 31).
+- Run order: run `051_report_workflow_fixes.sql` after `050`. Safe to re-run.
+- **Migration `052_reroute_and_advisory_seed.sql`** (run after 051; idempotent, `begin;`/`commit;`):
+  - `reroute_misrouted_reports()` moves reports the old routing put in the wrong barangay — only those still `reported`, each row locked (`FOR UPDATE SKIP LOCKED`) and re-checked, only `barangay_id`/`barangay` changed, `report.rerouted` audit row per move, both barangays' officials notified. Verified/dispatched ones are counted as `held_for_review`, never moved. Backend-only (revoked from app users); runs once inside the migration and is a no-op when re-run.
+  - `guard_advisory_target` lets backend sessions through (the write policy is `to authenticated`, so app users are checked exactly as before) — `seed/001_sample_data.sql` now loads without errors.
+  - Verified: upgrade of an old-routing database (moved / held / locked-skipped / untouched cases), fresh install with all seeds, advisory permission checks per role, and the 98-check workflow suite.
+
+## Merged: GPS accuracy update (uni-guard-for-gps, Oct 25 2026)
+
+- `js/features.js` — `locate()` now uses `watchPosition` with `maximumAge: 0`, keeps the most precise reading for up to 8 s and accepts a reading of 25 m or better immediately (from `uni-guard-for-gps`). Three-way merged with the `prompt({ required })` change above; the two touch different functions, no conflicts.
+- `env.js` — `BUILD` bumped to `2026-10-25.7` (the GPS folder had `.6`; this build also contains the workflow fixes).
