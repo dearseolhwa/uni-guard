@@ -663,6 +663,20 @@ const Repo = (function () {
     return data;
   }
 
+  /* The barangay the server will file a report under for these coordinates
+     (official PSA boundaries, migration 053). null when offline, when the
+     RPC is not deployed yet, or when the coordinates are rejected — callers
+     then fall back to the address-based guess. */
+  async function barangayAt(lat, lng) {
+    const c = client();
+    if (!c || typeof lat !== 'number' || typeof lng !== 'number') return null;
+    try {
+      const { data, error } = await c.rpc('barangay_at', { p_lat: lat, p_lng: lng });
+      if (error || !data || !data.ok || !data.name) return null;
+      return { id: data.id, name: data.name, inside: data.inside === true };
+    } catch (e) { return null; }
+  }
+
   async function reportHistory(reportUuid) {
     const c = client();
     if (!c) return [];
@@ -1559,7 +1573,7 @@ const Repo = (function () {
   return {
     client, online, state, onChange,
     loadAll, forceReload, subscribe, unsubscribe,
-    createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, lguVerify, reportHistory, updateReport,
+    createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, lguVerify, barangayAt, reportHistory, updateReport,
     createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,
     markRead, markAllRead, listBarangays,
     declareEmergency, subscribedDeviceCount,

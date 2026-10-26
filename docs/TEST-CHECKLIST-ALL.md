@@ -727,7 +727,7 @@ select r.code, r.status, r.barangay as stored, b.name as by_location
   cross join lateral public.resolve_barangay(r.lat, r.lng) as x(bid)
   join public.barangays b on b.id = x.bid
  where r.status in ('reported','verified','dispatched')
-   and r.lat between 15.95 and 16.085 and r.lng between 120.17 and 120.29
+   and r.lat between 15.925 and 16.085 and r.lng between 120.135 and 120.30
    and r.barangay_id is distinct from x.bid;
 ```
 
@@ -738,3 +738,26 @@ select r.code, r.status, r.barangay as stored, b.name as by_location
 - [ ] `seed/001_sample_data.sql` loads with no errors (sample advisories +
       their targets). A citizen still cannot add advisory targets; a BO
       still cannot target another barangay.
+
+## 32. Barangay from official boundaries (Oct 26 2026)
+
+Run migration `053_barangay_boundaries.sql` after 052. Bumps `sw.js` to
+`uniguard-v17`, build `2026-10-26.1`.
+
+- [ ] Report from northern Poblacion (e.g. near the Narciso Ramos Sports
+      Center or Pangasinan National High School): the form shows
+      **Poblacion** after GPS/pin, and the report is filed under Poblacion
+      (it used to go to Bantayan).
+- [ ] Acquire GPS / drag the pin: the Barangay field changes to the
+      barangay that contains the pin, with "Set from your pin location".
+- [ ] Pick a different barangay in the dropdown: a note says the pin is in
+      another barangay; Submit asks "Pin is in …" — Cancel keeps you on the
+      form, "Submit to …" files it under the pin's barangay.
+- [ ] The success message names the barangay the server filed it under.
+- [ ] A report from the south of Estanza / Malawa / Rosario is accepted
+      (it used to say "outside Lingayen").
+- [ ] Offline: the form still works (address-based guess); the server
+      assigns the barangay when the report uploads.
+- [ ] 053 prints `{"moved", "skipped", "held_for_review", "errors"}`;
+      reports still "reported" were moved to their real barangay
+      (Audit log: `report.rerouted`).

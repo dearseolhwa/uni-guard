@@ -970,3 +970,19 @@ End-to-end audit of reported → verified → dispatched → resolved, verified 
 
 - `js/features.js` — `locate()` now uses `watchPosition` with `maximumAge: 0`, keeps the most precise reading for up to 8 s and accepts a reading of 25 m or better immediately (from `uni-guard-for-gps`). Three-way merged with the `prompt({ required })` change above; the two touch different functions, no conflicts.
 - `env.js` — `BUILD` bumped to `2026-10-25.7` (the GPS folder had `.6`; this build also contains the workflow fixes).
+
+## Barangay routing from official boundaries (Oct 26 2026)
+
+Live test: reports from Poblacion (and other barangays) were filed under Bantayan.
+
+- **Cause**: routing used approximate centre points from migration 030. Compared with the official PSA boundaries several were kilometres off (some in the sea), so the north of Poblacion fell to Bantayan. The form's barangay dropdown is a hint only — the server routes by the pin — and the success message showed the dropdown value, so the mismatch was invisible.
+- **Migration `053_barangay_boundaries.sql`** (after 052; idempotent, `begin;`/`commit;`):
+  - `barangay_boundaries`: official PSA barangay boundaries for all 32 barangays (PSGC 3Q 2026, high resolution, `faeldon/philippines-json-maps` v1.0.0, MIT; release checksum verified).
+  - `resolve_barangay()` uses the boundary that contains the point (exact ray casting, `ug_point_in_ring`), else the nearest boundary (`ug_distance_to_ring_m`). PostgreSQL's built-in `polygon @> point` was not used: its fuzzy comparison misplaced ~2.6% of test points.
+  - `barangay_geoms` centroids/boxes recomputed from the boundaries (fallback only).
+  - `lingayen_bounds()` widened to the real municipal extent (parts of Estanza, Malawa, Rosario, Lasip, Sabangan and Wawa were rejected as outside Lingayen); `js/geo.js` BOUNDS matches.
+  - `barangay_at(lat, lng)` (signed-in users): the barangay the server will assign.
+  - Re-runs `reroute_misrouted_reports()`: untouched reports move to their real barangay; verified/dispatched ones are only counted.
+  - Verified: 800/800 interior points (25 per barangay) and 5,000/5,000 random points match an independent computation; fresh install and upgrade over 051/052 with existing reports; the 98-check workflow suite still passes.
+- **Client**: the Barangay field follows the pin (server answer; address guess only offline); a note and a confirm step when the dropdown differs from the pin; the success message shows the barangay the report was filed under. `sw.js` → `uniguard-v17`, build `2026-10-26.1`.
+- Files: `migrations/053_barangay_boundaries.sql` (new); `js/app.js`, `js/screens.js`, `js/repo.js`, `js/geo.js`; `sw.js`, `env.js`; `docs/TEST-CHECKLIST-ALL.md` (section 32).

@@ -239,6 +239,23 @@
      mutation (a settings toggle, a template edit). Defined after render() exists. */
   window.APP_RENDER = render;
 
+  /* The report form's barangay follows the pin. The server files a report
+     under the barangay whose official boundary contains its coordinates
+     (migration 053), so ask it; only when that is unavailable (offline, RPC
+     not deployed) fall back to the address-based guess. S.report.pinBrgy is
+     the authoritative value the form compares the dropdown against. */
+  async function setReportBarangayFromPin(lat, lng, guess) {
+    const srv = await Repo.barangayAt(lat, lng);
+    if (srv && srv.name) {
+      S.report.pinBrgy = srv.name;
+      S.report.brgy = srv.name;
+      return srv.name;
+    }
+    S.report.pinBrgy = null;
+    if (guess) S.report.brgy = guess;
+    return guess || null;
+  }
+
   /* --------------------------------------------------------------- live maps */
   let mapKey = '';
   async function mountMaps() {
@@ -1283,18 +1300,20 @@
         S.report.pinOutside = false;   /* the map re-flags it if this fix is outside Lingayen */
         /* reverse-geocode so a citizen can verify the pin against a real address, and
            so the LGU sees something more human-readable than lat/lng on the dispatch view.
-           Also try to guess the barangay from it and pre-fill the dropdown — the citizen
-           can still change it, this is a best-effort suggestion, not a locked value. */
+           The barangay comes from the server's official boundaries (the one the
+           report will be filed under); the address-based guess is only a fallback. */
+        let guess = null;
         try {
           const geo = await UG_FEATURES.reverseGeocode(p.lat, p.lng);
           S.report.address = geo.address || '';
-          if (geo.barangay) {
-            S.report.brgy = geo.barangay;
-            toast('Position acquired, accuracy ' + p.accuracy + ' m · barangay set to ' + geo.barangay, 'prepared');
-          } else {
-            toast('Position acquired, accuracy ' + p.accuracy + ' m' + (S.report.address ? ' · ' + S.report.address : '') + ' — please confirm your barangay', 'prepared');
-          }
+          guess = geo.barangay || null;
         } catch (e) { S.report.address = ''; }
+        const brgy = await setReportBarangayFromPin(p.lat, p.lng, guess);
+        if (brgy) {
+          toast('Position acquired, accuracy ' + p.accuracy + ' m · barangay ' + brgy, 'prepared');
+        } else {
+          toast('Position acquired, accuracy ' + p.accuracy + ' m' + (S.report.address ? ' · ' + S.report.address : '') + ' — please confirm your barangay', 'prepared');
+        }
       } catch (e) {
         /* Plain explanation + the map pin is the fallback. The pin on the report
            map is already live: dragging or tapping it sets the location. A manual
@@ -1317,11 +1336,13 @@
       const parsed = UG_FEATURES.parseCoords(manual);
       if (parsed) {
         S.report.lat = parsed.lat; S.report.lng = parsed.lng; S.report.gps = true; S.report.accuracy = null;
+        let guess = null;
         try {
           const geo = await UG_FEATURES.reverseGeocode(parsed.lat, parsed.lng);
           S.report.address = geo.address || '';
-          if (geo.barangay) S.report.brgy = geo.barangay;
+          guess = geo.barangay || null;
         } catch (er) { S.report.address = ''; }
+        await setReportBarangayFromPin(parsed.lat, parsed.lng, guess);
         toast(parsed.outside ? 'Coordinates set, but they look outside Lingayen — double-check them' : 'Coordinates set manually', parsed.outside ? 'warning' : 'prepared');
       } else if (manual) {
         toast('That does not look like a coordinate pair', 'warning');
@@ -1336,11 +1357,13 @@
       const lat = parseFloat(d.lat), lng = parseFloat(d.lng);
       if (!isFinite(lat) || !isFinite(lng)) return;
       S.report.lat = lat; S.report.lng = lng; S.report.gps = true; S.report.pinOutside = false;
+      let guess = null;
       try {
         const geo = await UG_FEATURES.reverseGeocode(lat, lng);
         S.report.address = geo.address || '';
-        if (geo.barangay) S.report.brgy = geo.barangay;
+        guess = geo.barangay || null;
       } catch (e) { S.report.address = ''; }
+      await setReportBarangayFromPin(lat, lng, guess);
       render();
       const sc = q('.ug-scroll');
       if (sc) {
@@ -1409,6 +1432,18 @@
         toast(UG_GEO.message(locState) || 'A location is required. Acquire your GPS or drop the pin on the map before submitting.', 'warning');
         return;
       }
+      /* The server files the report under the barangay containing the pin, not
+         the dropdown. If they differ, say so before sending instead of after. */
+      if (r.pinBrgy && r.brgy !== r.pinBrgy) {
+        const go = await UG_FEATURES.confirm({
+          title: 'Pin is in ' + r.pinBrgy,
+          message: 'You chose ' + r.brgy + ', but the pin is in ' + r.pinBrgy + '. The report will be filed under ' + r.pinBrgy + '. ' +
+            'If the hazard is in ' + r.brgy + ', cancel and move the pin to the hazard location.',
+          confirmLabel: 'Submit to ' + r.pinBrgy
+        });
+        if (!go) return;
+        r.brgy = r.pinBrgy;
+      }
       if (r.busy) return;
       r.busy = true;
       try {
@@ -1443,8 +1478,10 @@
             location_note: r.locationNote || '',
             photoBlob: r.photoBlob, reportCodeHint: 'draft'
           });
-          toast(res.queued ? 'Saved for upload' : 'Report ' + res.row.id + ' submitted to the ' + r.brgy + ' queue', 'prepared');
-          S.lastReport = { id: res.row ? res.row.id : null, brgy: r.brgy };
+          /* the barangay the server actually filed it under */
+          const filed = (res.row && res.row.brgy) || r.brgy;
+          toast(res.queued ? 'Saved for upload' : 'Report ' + res.row.id + ' submitted to the ' + filed + ' queue', 'prepared');
+          S.lastReport = { id: res.row ? res.row.id : null, brgy: filed };
         }
         S.route = 'report-done';
         S.report = { hazard: r.hazard, hazardOther: '', brgy: r.brgy, urg: 'warning', desc: '', photo: false, photoBlob: null, photoName: '', gps: false, lat: null, lng: null, accuracy: null, error: '', busy: false, address: '', locationNote: '', _autoTriggered: false };

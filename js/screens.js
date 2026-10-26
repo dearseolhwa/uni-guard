@@ -622,7 +622,14 @@ const UG_SCREENS = (() => {
 
       '<div class="ug-field"><label class="ug-lab">Barangay jurisdiction</label>' +
         '<select class="ug-sel" data-field="brgy" aria-label="Barangay jurisdiction">' +
-        U.DATA.barangays.map(b => '<option' + (r.brgy === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select></div>' +
+        U.DATA.barangays.map(b => '<option' + (r.brgy === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select>' +
+        /* the report is filed under the barangay that contains the pin
+           (official boundaries, migration 053) — say so when they differ */
+        (r.pinBrgy && r.brgy !== r.pinBrgy
+          ? '<div class="ug-note" style="margin-top:8px">Your pin is in <b>' + esc(r.pinBrgy) + '</b>. Reports go to the barangay where the pin is. ' +
+            'If the hazard is in ' + esc(r.brgy) + ', move the pin on the map below to the hazard location.</div>'
+          : (r.pinBrgy ? '<div class="ug-help">Set from your pin location.</div>' : '')) +
+        '</div>' +
 
       '<div class="ug-field"><label class="ug-lab">How urgent does it look</label>' +
         '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + urg.map(u =>

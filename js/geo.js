@@ -8,9 +8,11 @@
  *   - Barangay list: PSA via PhilAtlas, Lingayen has 32 barangays.
  *   - Municipal centre 16.0206, 120.2306: PhilAtlas.
  *   - Landmark coordinates: Wikipedia / Wikidata pages for each landmark.
- *   - BOUNDS is a service-area box drawn a little wider than the town. It is an
- *     approximation, NOT an official boundary. It exists to catch wrong-city and
- *     swapped latitude/longitude values, not to define jurisdiction.
+ *   - BOUNDS is a service-area box a little wider than the town. It is NOT an
+ *     official boundary. It exists to catch wrong-city and swapped
+ *     latitude/longitude values, not to define jurisdiction: the server assigns
+ *     the barangay from the official PSA boundaries (migration 053), which the
+ *     app reads back through Repo.barangayAt().
  */
 const UG_GEO = (function () {
   const PLACE = {
@@ -28,7 +30,10 @@ const UG_GEO = (function () {
   /* municipal centre, then a zoom that shows the whole built-up area */
   const CENTER = [16.0206, 120.2306];
   const ZOOM = 13;
-  const BOUNDS = { minLat: 15.95, maxLat: 16.085, minLng: 120.17, maxLng: 120.29 };
+  /* Real municipal extent (PSA boundaries, migration 053) is lat 15.9344–16.0490,
+     lng 120.1425–120.2915; this adds ~1 km and keeps the sea to the north.
+     Keep in sync with lingayen_bounds() in migration 053. */
+  const BOUNDS = { minLat: 15.925, maxLat: 16.085, minLng: 120.135, maxLng: 120.30 };
 
   /* Map view bounds: a little wider than the town so the live map can be
      panned over Lingayen plus its immediate neighbours (Labrador to the

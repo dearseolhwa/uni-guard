@@ -19,7 +19,7 @@
 --   2. dispatch_report_v2 failed whenever equipment was picked ("cannot
 --      assign non-composite value to a record variable").
 --      → typed loop variable, de-duplicated ids, row lock on the report.
---   3. Rescue "Resume" wrote dispatch_status = 'resume' (not allowed by the
+--   3. Rescue "Resume" wrote dispatch_status =  'resume' (not allowed by the
 --      check constraint), so a held rescue could never finish.
 --      → resume returns the dispatch to on_scene (event row still says resume).
 --   4. resolve_barangay took the first overlapping bounding box with no
