@@ -1194,12 +1194,15 @@ const Repo = (function () {
         /* 050 (Oct 25 2026): equipment_catalog — for the Add-equipment form's
            Type dropdown. Small table (~30 rows), so we load it once with the
            rest of the dispatch directory. */
-        c.from('equipment_catalog').select('*').order('unit_type, label', { ascending: true })
+        c.from('equipment_catalog').select('*').order('unit_type', { ascending: true }).order('label', { ascending: true })
       ]);
       UG.DATA.dispatchUnits = units.data || [];
       UG.DATA.dispatchEquipment = equipment.data || [];
       UG.DATA.unitRequests = requests.data || [];
       UG.DATA.dispatchHelpRequests = helpReqs.data || [];
+      /* 054: a failed catalog read used to leave the Type dropdown with
+         only "Other (custom)" and no hint why. Log it. */
+      if (catalog.error) console.warn('[repo] equipment_catalog load failed:', catalog.error);
       UG.DATA.equipmentCatalog = catalog.data || [];
       if (escorts.data) UG.DATA.relief = escorts.data.map(toRelief);
       emit();

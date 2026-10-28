@@ -275,7 +275,9 @@ const UG_FEATURES = (function () {
               input.focus();
               return;
             }
-            closeFn(); resolve(v || null);
+            /* opts.allowEmpty: an optional field saved empty answers '' (not
+               null, which callers treat as Cancel) */
+            closeFn(); resolve(v || (opts.allowEmpty ? '' : null));
           };
           wrap.querySelector('[data-ok]').addEventListener('click', ok);
           input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } });

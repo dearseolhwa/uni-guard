@@ -1,0 +1,339 @@
+/* UniGuard · Oct 2026 design: light, one palette per role
+ *
+ * Brings the look of the React app (UNIGUARD-TRIAL--ui-responsive-pwa) to this
+ * app. Colours, fonts and shapes only: every screen keeps its layout and
+ * behaviour.
+ *
+ *   auth      sign-in, sign-up      navy + red     brandTokens.ts "auth"
+ *   resident  citizen               crimson        "resident"
+ *   barangay  barangay official     navy blue      "barangay"
+ *   command   LDRRMO staff          charcoal       "command"
+ *   admin     Super Admin           gold           "admin"
+ *   dispatch  dispatch team         orange         "dispatch"
+ *
+ * js/app.js sets <html data-portal="…"> on every render. Everything here is
+ * scoped to html[data-portal], so removing the <link> to this file in
+ * index.html brings back the previous dark design unchanged.
+ *
+ * Hazard, severity and status colours still come from js/theme.js, which
+ * adds darker text shades for this design (each checked to 4.5:1 or better).
+ */
+
+/* ======================================================= shared light base */
+html[data-portal],
+html[data-portal] .ug {
+  color-scheme: light;
+
+  --ug-bg: #F4F4F6;
+  --ug-bg-2: #FAFAFB;
+  --ug-surface: #FFFFFF;
+  --ug-surface-2: #F8FAFC;
+  --ug-surface-3: #EEF1F5;
+  --ug-line: #E4E4E7;
+  --ug-line-soft: rgba(24,24,27,.06);
+  --ug-line-strong: rgba(24,24,27,.14);
+  --ug-ink: #18181B;
+  --ug-ink-2: #52525B;
+  --ug-ink-3: #71717A;
+
+  /* the switchable colours from tokens.css / the converted stylesheets */
+  --ug-tint: 24,24,27;               /* translucent overlays: dark on light */
+  --ug-panel-rgb: 255,255,255;       /* frosted top bar, tab bar, sign-in card */
+  --ug-bg-rgb: 255,255,255;
+  --ug-field-bg: #F7F7F8;
+  --ug-map-bg: #E8EEF4;
+  --ug-alert-top: #FEF2F2;
+  --ug-shadow-c: rgba(15,23,42,.28);
+  --ug-card-top: #FFFFFF;
+  --ug-card-bottom: #FAFAFB;
+  --ug-tx-red: #B91C1C;
+  --ug-tx-green: #166534;
+  --ug-tx-amber: #854D0E;
+  --ug-tx-orange: #9A3412;
+  --ug-tx-sky: #0369A1;
+  --ug-tx-muted: #71717A;
+  --ug-tx-soft: #52525B;
+
+  --ug-display: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --ug-body: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --ug-r-sm: 10px;
+  --ug-r-md: 14px;
+  --ug-r-lg: 20px;
+  --ug-r-xl: 24px;
+  --ug-shadow: 0 1px 2px rgba(15,23,42,.04), 0 10px 30px -18px rgba(15,23,42,.22);
+
+  /* page behind the app, field focus ring */
+  --ug-page: linear-gradient(135deg, #F8FAFC 0%, #F1F6FB 50%, #E6EFF8 100%);
+  --ug-focus: rgba(var(--ug-signal-rgb), .18);
+  /* primary buttons: a gradient as in the React app */
+  --ug-btn-grad: linear-gradient(135deg, var(--ug-signal) 0%, var(--ug-signal-2) 100%);
+}
+
+/* ============================================================ the six roles */
+/* LDRRMO staff: charcoal on cool grey (brandTokens "command") */
+html[data-portal="command"],
+html[data-portal="command"] .ug {
+  --ug-signal: #18181B; --ug-signal-2: #3F3F46; --ug-signal-rgb: 24,24,27;
+  --ug-signal-ink: #FFFFFF; --ug-signal-dim: rgba(24,24,27,.08); --ug-tx-signal: #18181B;
+  --ug-em-left: #18181B; --ug-em-right: #52525B; --ug-em-keel: #A1A1AA; --ug-em-hub: #FFFFFF; --ug-em-dot: #18181B;
+  --ug-backdrop: linear-gradient(135deg, #9AA8B7 0%, #8E9DA9 50%, #82909C 100%);
+}
+
+/* Super Admin: the same console in gold (brandTokens "admin", .ug-admin-ops) */
+html[data-portal="admin"],
+html[data-portal="admin"] .ug {
+  --ug-signal: #B9770E; --ug-signal-2: #A2650A; --ug-signal-rgb: 185,119,14;
+  --ug-signal-ink: #FFFFFF; --ug-signal-dim: rgba(214,158,46,.14); --ug-tx-signal: #8A5A00;
+  --ug-btn-grad: linear-gradient(140deg, #DDA024 0%, #B9770E 55%, #A2650A 100%);
+  --ug-em-left: #B7791F; --ug-em-right: #F6C445; --ug-em-keel: #5C3A0A; --ug-em-hub: #FFFFFF; --ug-em-dot: #D69E2E;
+  --ug-page: linear-gradient(135deg, #FFFBF0 0%, #FDF1CF 55%, #FBE6A8 100%);
+  --ug-backdrop: linear-gradient(135deg, #F7CE6A 0%, #F2B744 55%, #E9A12A 100%);
+  --ug-line: #EFE3C4;
+}
+
+/* Barangay official: navy blue (brandTokens "barangay") */
+html[data-portal="barangay"],
+html[data-portal="barangay"] .ug {
+  --ug-signal: #052659; --ug-signal-2: #1E4E8C; --ug-signal-rgb: 5,38,89;
+  --ug-signal-ink: #FFFFFF; --ug-signal-dim: rgba(194,232,255,.45); --ug-tx-signal: #052659;
+  --ug-ink: #011025; --ug-ink-2: #052659; --ug-ink-3: #4A6E99;
+  --ug-line: rgba(126,160,197,.38); --ug-field-bg: rgba(194,232,255,.16);
+  --ug-surface-2: #F4F9FF; --ug-surface-3: #E3EEF9;
+  --ug-em-left: #052659; --ug-em-right: #5482B4; --ug-em-keel: #1E4E8C; --ug-em-hub: #FFFFFF; --ug-em-dot: #5482B4;
+  --ug-page: linear-gradient(135deg, #F8FBFF 0%, #F1F6FC 50%, #E4EEF9 100%);
+  --ug-backdrop: linear-gradient(135deg, #052659 0%, #031C42 55%, #011025 100%);
+}
+
+/* Resident: crimson on blush (brandTokens "resident") */
+html[data-portal="resident"],
+html[data-portal="resident"] .ug {
+  --ug-signal: #991B1B; --ug-signal-2: #7F1D1D; --ug-signal-rgb: 153,27,27;
+  --ug-signal-ink: #FFFFFF; --ug-signal-dim: rgba(153,27,27,.08); --ug-tx-signal: #991B1B;
+  --ug-ink: #2A0A0E; --ug-ink-2: #5B3A3F; --ug-ink-3: #7A5A5F;
+  --ug-line: #F1DADC; --ug-field-bg: #FFF8F8;
+  --ug-surface-2: #FFF9F9; --ug-surface-3: #FBEDEE;
+  --ug-em-left: #991B1B; --ug-em-right: #C9545A; --ug-em-keel: #4A0D12; --ug-em-hub: #FFFFFF; --ug-em-dot: #991B1B;
+  --ug-page: #FFF5F5;
+  --ug-backdrop: #F0F2F7;
+}
+
+/* Dispatch team: warm orange (DispatchPortal.tsx: #E2552B, #F7F1EE) */
+html[data-portal="dispatch"],
+html[data-portal="dispatch"] .ug {
+  --ug-signal: #E2552B; --ug-signal-2: #C2410C; --ug-signal-rgb: 226,85,43;
+  --ug-signal-ink: #FFFFFF; --ug-signal-dim: rgba(240,122,74,.12); --ug-tx-signal: #B4421C;
+  --ug-btn-grad: linear-gradient(90deg, #F07A4A 0%, #E2552B 100%);
+  --ug-ink: #3B1607; --ug-ink-2: #6B4A3C; --ug-ink-3: #8A6A5C;
+  --ug-line: #F1E4DD; --ug-field-bg: #F7F4F2;
+  --ug-surface-2: #FDF6F3; --ug-surface-3: #F7EDE7;
+  --ug-shadow: 0 2px 10px -6px rgba(120,60,30,.25);
+  --ug-em-left: #C2410C; --ug-em-right: #F59E6B; --ug-em-keel: #7C2D12; --ug-em-hub: #FFFFFF; --ug-em-dot: #EA580C;
+  --ug-page: #F7F1EE;
+  --ug-backdrop: linear-gradient(135deg, #FFF7F2 0%, #FDEDE4 55%, #FBE3D6 100%);
+}
+
+/* Sign-in and sign-up: navy emblem, red action (UnifiedAuthPortal.tsx) */
+html[data-portal="auth"],
+html[data-portal="auth"] .ug {
+  --ug-signal: #D32F2F; --ug-signal-2: #B71C1C; --ug-signal-rgb: 211,47,47;
+  --ug-signal-ink: #FFFFFF; --ug-signal-dim: rgba(211,47,47,.08); --ug-tx-signal: #B71C1C;
+  --ug-btn-grad: linear-gradient(90deg, #D32F2F 0%, #E53935 100%);
+  --ug-ink: #0E2243; --ug-ink-2: #3E5272; --ug-ink-3: #5B6B82;
+  --ug-em-left: #0E2243; --ug-em-right: #3E6496; --ug-em-keel: #C8323A; --ug-em-hub: #FFFFFF; --ug-em-dot: #C8323A;
+  --ug-page: linear-gradient(135deg, #FAF0F2 0%, #F5E6E9 50%, #EEDCE2 100%);
+}
+
+/* ================================================================ the page */
+html[data-portal] { background: var(--ug-page); }
+html[data-portal] body {
+  background: var(--ug-page);
+  color: var(--ug-ink);
+  font-family: var(--ug-body);
+}
+html[data-portal] .ug-frame { background: var(--ug-page); }
+
+/* Desktop consoles sit in a rounded frame on the role's backdrop, as in the
+   React app (App.tsx). Phones and the resident app stay edge to edge. */
+@media (min-width: 1100px) {
+  html[data-portal="command"] body,
+  html[data-portal="admin"] body,
+  html[data-portal="barangay"] body,
+  html[data-portal="dispatch"] body {
+    background: var(--ug-backdrop);
+  }
+  html[data-portal="command"] #ug-root,
+  html[data-portal="admin"] #ug-root,
+  html[data-portal="barangay"] #ug-root,
+  html[data-portal="dispatch"] #ug-root {
+    padding: 14px;
+  }
+  html[data-portal="command"] .ug-frame.ug-d,
+  html[data-portal="admin"] .ug-frame.ug-d,
+  html[data-portal="barangay"] .ug-frame.ug-d,
+  html[data-portal="dispatch"] .ug-frame.ug-d {
+    height: 100%;
+    border-radius: 28px;
+    border: 1px solid rgba(255,255,255,.7);
+    box-shadow: 0 20px 60px -15px rgba(0,0,0,.18);
+  }
+  html[data-portal="barangay"] .ug-frame.ug-d { border-color: rgba(194,232,255,.8); }
+}
+
+/* ============================================================ brand + logo */
+html[data-portal] .ug-mark {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+html[data-portal] .ug-mark .ug-mark-classic { display: none; }
+html[data-portal] .ug-mark .ug-emblem { display: block; width: 100%; height: 100%; }
+html[data-portal] .ug-wordmark { font-weight: 800; letter-spacing: -.025em; color: var(--ug-ink); }
+html[data-portal] .ug-wordmark em { color: var(--ug-signal); }
+
+/* ================================================================ type */
+html[data-portal] .ug-lab {
+  font-family: var(--ug-body);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--ug-ink-3);
+}
+
+/* ================================================================ cards */
+html[data-portal] .ug-card,
+html[data-portal] .ug-stat {
+  background: var(--ug-surface);
+  border-color: var(--ug-line);
+  border-radius: var(--ug-r-xl);
+  box-shadow: var(--ug-shadow);
+}
+html[data-portal] .ug-card--flat { background: var(--ug-surface-2); box-shadow: none; }
+html[data-portal] .ug-card-h { border-bottom-color: var(--ug-line); }
+html[data-portal] .ug-modal-card {
+  border-radius: 26px;
+  border-color: var(--ug-line);
+  box-shadow: 0 30px 80px -30px rgba(15,23,42,.35);
+}
+
+/* ================================================================ buttons */
+html[data-portal] .ug-btn {
+  border-radius: 999px;
+  font-weight: 600;
+  background: var(--ug-surface);
+  border-color: var(--ug-line);
+  color: var(--ug-ink);
+}
+html[data-portal] .ug-btn:hover { background: var(--ug-surface-3); }
+html[data-portal] .ug-btn--signal {
+  background: var(--ug-btn-grad);
+  border-color: transparent;
+  color: var(--ug-signal-ink);
+  font-weight: 700;
+  box-shadow: 0 10px 22px -12px rgba(var(--ug-signal-rgb), .8);
+}
+html[data-portal] .ug-btn--signal:hover { background: var(--ug-signal-2); color: var(--ug-signal-ink); }
+html[data-portal] .ug-btn--danger { color: #FFFFFF; background: #DC2626; }
+html[data-portal] .ug-btn--danger:hover { background: #B91C1C; }
+html[data-portal] .ug-btn--ghost { background: transparent; }
+html[data-portal] .ug-btn--ghost:hover { background: rgba(var(--ug-tint), .05); }
+html[data-portal] .ug-btn--icon,
+html[data-portal] .ug-ico-btn { border-radius: 999px; }
+html[data-portal] .ug-ico-btn { background: var(--ug-surface); border-color: var(--ug-line); color: var(--ug-ink-2); }
+
+/* ============================================================ chips, badges */
+html[data-portal] .ug-chip { border-radius: 999px; }
+html[data-portal] .ug-chip.is-on { background: var(--ug-signal); border-color: var(--ug-signal); color: var(--ug-signal-ink); }
+html[data-portal] .ug-badge { border-radius: 999px; font-weight: 700; }
+html[data-portal] .ug-badge--id { background: var(--ug-signal-dim); color: var(--ug-tx-signal); border-color: rgba(var(--ug-signal-rgb), .25); }
+
+/* ================================================================ fields */
+html[data-portal] .ug-in,
+html[data-portal] .ug-sel,
+html[data-portal] .ug-ta,
+html[data-portal] .ug-sel-inline {
+  background-color: var(--ug-field-bg);
+  border-color: var(--ug-line);
+  border-radius: 12px;
+  color: var(--ug-ink);
+}
+html[data-portal] .ug-in::placeholder,
+html[data-portal] .ug-ta::placeholder { color: var(--ug-ink-3); }
+html[data-portal] .ug-in:focus,
+html[data-portal] .ug-sel:focus,
+html[data-portal] .ug-ta:focus {
+  background-color: var(--ug-surface);
+  border-color: rgba(var(--ug-signal-rgb), .55);
+  box-shadow: 0 0 0 3px var(--ug-focus);
+  outline: none;
+}
+html[data-portal] .ug-search { background: var(--ug-field-bg); border-color: var(--ug-line); border-radius: 999px; }
+html[data-portal] .ug-upload { border-color: rgba(var(--ug-tint), .18); background: var(--ug-surface-2); }
+
+/* ============================================= desktop console: side + top */
+html[data-portal] .ug-side {
+  background: rgba(255,255,255,.72);
+  border-right-color: var(--ug-line);
+}
+html[data-portal] .ug-nav { border-radius: 999px; color: var(--ug-ink-2); font-weight: 600; }
+html[data-portal] .ug-nav:hover { background: rgba(var(--ug-tint), .05); color: var(--ug-ink); }
+html[data-portal] .ug-nav.is-on,
+html[data-portal] .ug-nav[aria-current="page"] {
+  background: var(--ug-signal);
+  color: var(--ug-signal-ink);
+  box-shadow: 0 8px 18px -12px rgba(var(--ug-signal-rgb), .9);
+}
+html[data-portal] .ug-nav.is-on svg,
+html[data-portal] .ug-nav[aria-current="page"] svg { color: var(--ug-signal-ink); }
+html[data-portal] .ug-top {
+  background: rgba(255,255,255,.78);
+  border-bottom-color: var(--ug-line);
+}
+html[data-portal] .ug-av { background: var(--ug-signal); color: var(--ug-signal-ink); border-radius: 999px; }
+
+/* ================================================= phone: app bar, tab bar */
+html[data-portal] .ug-appbar {
+  background: rgba(255,255,255,.88);
+  border-bottom-color: var(--ug-line);
+}
+html[data-portal] .ug-tabbar {
+  background: rgba(255,255,255,.94);
+  border-top: 1px solid var(--ug-line);
+  box-shadow: 0 -8px 24px -18px rgba(15,23,42,.35);
+}
+html[data-portal] .ug-tab { color: var(--ug-ink-3); border-radius: 14px; }
+html[data-portal] .ug-tab.is-on { color: var(--ug-signal); background: var(--ug-signal-dim); }
+html[data-portal] .ug-fab { border-radius: 999px; }
+
+/* ================================================================ sign-in */
+html[data-portal] .ug-login { background: var(--ug-page); }
+html[data-portal] .ug-login-art { opacity: .12; }
+html[data-portal] .ug-login-art:after { background: none; }
+html[data-portal] .ug-login-box,
+html[data-portal] .ug-auth-card {
+  background: rgba(255,255,255,.92);
+  border-color: rgba(255,255,255,.9);
+  border-radius: 28px;
+  box-shadow: 0 30px 70px -30px rgba(14,34,67,.35);
+}
+
+/* ============================================================= map, misc */
+html[data-portal] .ug-map,
+html[data-portal] .ug-leaflet { border-radius: var(--ug-r-lg); }
+html[data-portal] .ug-banner img { filter: saturate(.9) brightness(.92); }
+html[data-portal] .ug-row:hover { background: rgba(var(--ug-tint), .03); }
+/* report rows are <button>s; the browser's default bottom border showed as a
+   black line on light backgrounds */
+html[data-portal] button.ug-row { border-bottom: 0; }
+/* trend arrows on stat tiles (app.css .up / .down are pale for dark) */
+html[data-portal] .up { color: #166534; }
+html[data-portal] .down { color: #B91C1C; }
+/* counters on an orange fill: white reads on the deeper light-design orange */
+html[data-portal] .ug-tab .t-badge,
+html[data-portal] .ug-wdot { color: #FFFFFF; }
+html[data-portal] .ug-toast { background: #18181B; color: #FFFFFF; border-color: transparent; }
+html[data-portal] .ug-skel { background: linear-gradient(90deg, rgba(var(--ug-tint), .05), rgba(var(--ug-tint), .1), rgba(var(--ug-tint), .05)); }
+
+/* keep the classic shield in places the emblem would be too small to read */
+@media print {
+  html[data-portal] body { background: #FFFFFF; }
+}

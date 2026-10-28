@@ -138,22 +138,6 @@
      missed assignment never throws. */
   window.UG_TOAST = toast;
 
-  /* Trigger a client-side file download from a string (used by the relief CSV
-     export). Works without any server round-trip and is safe offline. */
-  function downloadText(filename, text) {
-    try {
-      const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
-    } catch (e) { toast('Could not start the download', 'warning'); }
-  }
-
   /* ------------------------------------------------------------------ render */
   function viewFor() {
     if (!S.session) return 'mobile';
@@ -161,7 +145,38 @@
     return isWide() ? 'desktop' : 'mobile';
   }
 
+  /* Oct 2026 design: each role gets its own palette (css/design.css). The
+     portal key matches the React app's brandTokens.ts: auth, resident,
+     barangay, command (LDRRMO staff), admin (Super Admin), dispatch. */
+  const PORTAL_THEME = {
+    auth: '#0E2243', resident: '#991B1B', barangay: '#052659',
+    command: '#18181B', admin: '#F2B21B', dispatch: '#EA580C'
+  };
+  function portalFor() {
+    const sess = S.session; /* render() shows the sign-in screens when there is no session */
+    if (!sess) return 'auth';
+    if (sess.role === 'citizen') return 'resident';
+    if (sess.role === 'barangay_official') return 'barangay';
+    if (sess.role === 'dispatch_team') return 'dispatch';
+    if (sess.role === 'lgu_ldrrmc') return sess.superAdmin ? 'admin' : 'command';
+    return 'auth';
+  }
+  /* only when css/design.css is linked: without it there is no data-portal,
+     so theme.js's light shades stay off and the previous dark design is intact */
+  const DESIGN_ON = !!document.querySelector('link[href$="css/design.css"]');
+  function applyPortal() {
+    if (!DESIGN_ON) return;
+    const portal = portalFor();
+    const html = document.documentElement;
+    if (html.dataset.portal === portal) return;
+    html.dataset.portal = portal;
+    /* phone status bar / browser chrome follows the role's colour */
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', PORTAL_THEME[portal]);
+  }
+
   function render(focusField) {
+    applyPortal();
     /* Sidebar scroll position preservation. The DOCX reports a recurring
        bug: clicking a lower sidebar item snaps the sidebar back to the top
        on every re-render. Root cause: render() rebuilds the entire #ug-root
@@ -335,6 +350,12 @@
       await UG_DISPATCH.loadRoute(route);
       return;
     }
+    /* Super Admin home: accounts, activity, SOS, change requests, units,
+       responders and push devices, each read on its own */
+    if (route === 'admin-home') {
+      if (isSuperAdmin() && typeof UG_SUPERADMIN !== 'undefined') await UG_SUPERADMIN.load();
+      return;
+    }
     /* Barangay Response Team + LGU Dispatch Units: preload the dispatch
        directory + unit list + open support requests so the screens have
        data without a separate RPC per render. */
@@ -448,7 +469,8 @@
     'dashboard', 'incidents', 'incident', 'analytics', 'users', 'audit', 'command', 'more',
     'relief', 'relief-verify', 'guides', 'faqs', 'roadwork', 'map', 'sos',
     'others-review', 'response-team', 'dispatch-units', 'dispatch', 'reporting',
-    'equipment', 'roster', 'hospital', 'requests', 'contacts', 'dispatch-detail', 'settings'];
+    'equipment', 'roster', 'hospital', 'requests', 'contacts', 'dispatch-detail', 'settings',
+    'admin-home'];
 
   function routeFromHash() {
     const h = String((window.location && window.location.hash) || '').replace(/^#\/?/, '').split('?')[0];
@@ -486,7 +508,10 @@
   /* Captured before boot: enterApp() writes the home route into the hash, so the
      route we arrived with has to be read now or it is lost. */
   const INITIAL_ROUTE = routeFromHash();
-  const homeRoute = () => (S.session && UG_WEB.ROLE_INFO[S.session.role].home) || 'home';
+  /* the Super Admin starts on their own home screen (js/screens.superadmin.js) */
+  const homeRoute = () => (S.session && S.session.role === 'lgu_ldrrmc' && S.session.superAdmin && typeof UG_SUPERADMIN !== 'undefined')
+    ? UG_SUPERADMIN.ROUTE
+    : ((S.session && UG_WEB.ROLE_INFO[S.session.role].home) || 'home');
   function enterApp(session, message) {
     S.session = session;
     S.screen = 'app';
@@ -511,6 +536,7 @@
     toast(message || ('Signed in as ' + (session.title || UG_WEB.ROLE_INFO[session.role].label) + ' · ' + session.scope), 'prepared');
     render();
     bootstrapData();
+    if (S.route === 'admin-home') loadRouteData('admin-home');
   }
 
   function requireRole(roles) {
@@ -1004,11 +1030,23 @@
       .catch(() => { });
   }
 
+  /* The units and equipment lists were only loaded on the Dispatch Units /
+     Response Team screens, so from the dashboard or the incident queue this
+     form showed no units and "(no equipment available)". Load them first;
+     the flag keeps a double click to one form. */
+  let dispatchOpening = false;
   function dispatchModal(inc) {
     if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can dispatch a response', 'warning'); return; }
     if (inc.status !== 'verified' && inc.status !== 'dispatched') {
       toast('Verify the report before dispatching a response', 'warning'); return;
     }
+    if (dispatchOpening) return;
+    dispatchOpening = true;
+    Promise.resolve(Repo.loadDispatchDirectory ? Repo.loadDispatchDirectory() : null)
+      .catch(() => { })
+      .then(() => { dispatchOpening = false; openDispatchModal(inc); });
+  }
+  function openDispatchModal(inc) {
     const me = S.session;
     const roleLabel = (UG_WEB.ROLE_INFO[me.role] || {}).label || '';
     const esc = UG_UTIL.esc;
@@ -1042,21 +1080,31 @@
     /* Equipment picker: populated based on the team. For municipality-wide
        units, the available equipment of the chosen unit. For the Response
        Team, the available equipment of the report's barangay. */
-    const equipmentOpts = (team, unitId) => {
+    const equipmentList = (team, unitId) => {
       const list = (UG.DATA.dispatchEquipment || []).filter((e) => {
         if (e.status !== 'available') return false;
         if (e.condition && ['needs_repair', 'missing', 'out_of_service'].indexOf(e.condition) !== -1) return false;
-        if (team === 'Barangay Response Team') return e.owner_barangay_id === (inc.brgy_id || inc.barangay_id);
+        /* a report without a barangay id must not match equipment that has
+           no barangay (every unit's equipment), so require a real id */
+        if (team === 'Barangay Response Team') { const bid = inc.brgy_id || inc.barangay_id; return !!bid && e.owner_barangay_id === bid; }
         return unitId && e.owner_unit_id === unitId;
       });
-      if (!list.length) return '<option value="" disabled>(no equipment available)</option>';
-      /* 050 (Oct 25 2026): multi-select. The dispatch_report_v2 RPC already
-         accepts p_equipment_ids as a uuid[]; js/repo.js already passes an
-         array. The previous single-select was a UI limitation, not a
-         backend one. The "(none)" option is gone — to dispatch with no
-         equipment, just leave the select empty. */
-      return list.map((e) =>
-        '<option value="' + esc(e.id) + '">' + esc(e.identifier || e.custom_label || 'equipment') + '</option>').join('');
+      if (!list.length) {
+        return '<div class="ug-eq-empty">' + (team !== 'Barangay Response Team' && !unitId
+          ? 'Pick a unit to see its equipment.'
+          : 'No available equipment for this team. You can still dispatch without equipment.') + '</div>';
+      }
+      const catalog = UG.DATA.equipmentCatalog || [];
+      /* one tick box per piece (the multi-select needed Ctrl / Cmd);
+         the type is shown with the tag so two trucks can be told apart */
+      return list.map((e) => {
+        const c = catalog.find((x) => x.id === e.catalog_id);
+        const type = c ? c.label : (e.custom_label || '');
+        const tag = e.identifier || e.custom_label || 'Equipment';
+        return '<label class="ug-eq-item"><input type="checkbox" value="' + esc(e.id) + '">' +
+          '<span class="ug-eq-name">' + esc(tag) + '</span>' +
+          (type && type !== tag ? '<span class="ug-eq-type">' + esc(type) + '</span>' : '') + '</label>';
+      }).join('');
     };
 
     UG_FEATURES.modal({
@@ -1066,11 +1114,11 @@
           '<select class="ug-sel" data-dp-team>' + teamOpts + '</select></div>' +
         '<div class="ug-field" data-dp-unit-field hidden><label class="ug-lab">Unit (municipality-wide)</label>' +
           '<select class="ug-sel" data-dp-unit><option value="">Select a unit</option>' +
-          units.map((u) => '<option value="' + esc(u.id) + '" data-type="' + esc(u.unit_type) + '">' + esc(u.name) + ' · ' + esc(u.unit_type) + '</option>').join('') +
+          units.filter((u) => u.active !== false).map((u) => '<option value="' + esc(u.id) + '" data-type="' + esc(u.unit_type) + '">' + esc(u.name) + ' · ' + esc(u.unit_type) + '</option>').join('') +
           '</select></div>' +
-        '<div class="ug-field"><label class="ug-lab">Equipment to deploy (optional, multi-select)</label>' +
-          '<select class="ug-sel" data-dp-equipment multiple size="5" style="height:auto">' + equipmentOpts('Barangay Response Team', null) + '</select>' +
-          '<div class="ug-help">Hold Ctrl (or Cmd on Mac) to pick more than one. Equipment that is not Available or in a deployable condition is absent from the picker. Leave empty to dispatch with no equipment.</div></div>' +
+        '<div class="ug-field"><label class="ug-lab">Equipment to deploy (optional)</label>' +
+          '<div class="ug-eq-list" data-dp-equipment>' + equipmentList('Barangay Response Team', null) + '</div>' +
+          '<div class="ug-help">Tick each piece to send. Only equipment that is available and in working condition is listed. Leave all unticked to dispatch with no equipment.</div></div>' +
         '<div class="ug-field"><label class="ug-lab">Action or instructions</label>' +
           '<textarea class="ug-ta" rows="3" data-dp-instr placeholder="e.g. Evacuate Purok 3, bring boat"></textarea>' +
           '<div class="ug-help">Say exactly what the team should do and what to bring.</div></div>' +
@@ -1102,7 +1150,7 @@
           // map the team to a unit type
           let mappedUnitId = unitId;
           if (team === 'Barangay Response Team') mappedUnitId = null;
-          eqSel.innerHTML = equipmentOpts(team, mappedUnitId);
+          eqSel.innerHTML = equipmentList(team, mappedUnitId);
         };
         const refreshUnitField = () => {
           const team = teamSel.value;
@@ -1126,6 +1174,9 @@
         };
         teamSel.addEventListener('change', refreshUnitField);
         unitSel.addEventListener('change', refreshEquipment);
+        /* match the form to the team it opens with (the suggested team can be
+           BFP, PNP, ...), not only after the first change */
+        refreshUnitField();
 
         const btn = wrap.querySelector('[data-dp-confirm]');
         btn.addEventListener('click', async () => {
@@ -1133,11 +1184,8 @@
           const instructions = wrap.querySelector('[data-dp-instr]').value.trim();
           const etaVal = etaEl.value;
           const unitId = wrap.querySelector('[data-dp-unit]').value || null;
-          /* 050 (Oct 25 2026): multi-select — read every selected option.
-             The select has `multiple`, so .selectedOptions is a live
-             HTMLCollection of the chosen <option>s. */
-          const eqSelEl = wrap.querySelector('[data-dp-equipment]');
-          const eqIds = Array.prototype.map.call(eqSelEl.selectedOptions || [], (o) => o.value).filter(Boolean);
+          /* every ticked piece of equipment */
+          const eqIds = Array.prototype.map.call(wrap.querySelectorAll('[data-dp-equipment] input:checked'), (o) => o.value).filter(Boolean);
           if (!instructions) { toast('Write what the team is supposed to do', 'warning'); return; }
           if (!etaVal) { toast('Set an estimated arrival time', 'warning'); return; }
           if (team !== 'Barangay Response Team' && !unitId) { toast('Pick a unit to dispatch', 'warning'); return; }
@@ -1275,7 +1323,7 @@
         body:
           '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' + UG.badge(c.status, (c.status || 'open').charAt(0).toUpperCase() + (c.status || '').slice(1)) +
             '<span class="ug-mono" style="font-size:12px">' + (c.occ || 0) + ' / ' + (c.cap || 0) + ' slots</span></div>' +
-          '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;margin-bottom:12px">' +
+          '<div style="height:6px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.08);overflow:hidden;margin-bottom:12px">' +
             '<div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + '"></div></div>' +
           kv('Barangay', c.brgy || '—') +
           kv('Address / notes', c.note || '—') +
@@ -1575,7 +1623,11 @@
       render();
     },
 
-    'dispatch-open': (d) => {
+    /* "Add Team" on a dispatched incident. It was named 'dispatch-open',
+       which the dispatch team module (js/dispatch.js) also defines for a
+       different screen; that one was merged later and won, so this button
+       never opened the dispatch form. */
+    'incident-add-team': (d) => {
       const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
       if (inc) dispatchModal(inc);
     },
@@ -1600,7 +1652,9 @@
       const note = await UG_FEATURES.prompt({
         title: 'LGU-verify ' + inc.id,
         label: 'Note (optional, shown in the audit log)',
-        placeholder: 'e.g. Barangay official unreachable; LGU verifying on their behalf.'
+        placeholder: 'e.g. Barangay official unreachable; LGU verifying on their behalf.',
+        /* Save with no note must still verify (it used to cancel silently) */
+        allowEmpty: true
       });
       if (note === null) return;
       try {
@@ -1774,7 +1828,7 @@
             '<div>' +
               '<div class="ug-rowf ug-between" style="font-size:11.5px;margin-bottom:5px"><span class="ug-dim">Occupancy</span>' +
                 '<span class="ug-mono">' + (c.occ || 0) + ' / ' + (c.cap || 0) + ' &middot; ' + pct + '%</span></div>' +
-              '<div style="height:8px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--ug-emergency)' : pct >= 80 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + '"></div></div>' +
+              '<div style="height:8px;border-radius:4px;background:rgba(var(--ug-tint, 255,255,255),.07);overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--ug-emergency)' : pct >= 80 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + '"></div></div>' +
             '</div>' +
             (facList.length ? '<div class="ug-rowf ug-gap6 ug-wrap" style="gap:5px">' + facList.map((x) => '<span class="ug-chip ug-chip--soft">' + UG.icon('check', 11) + UG_UTIL.esc(x) + '</span>').join('') + '</div>' : '') +
           '</div></div>' +
@@ -2065,98 +2119,13 @@
       } catch (e) { toast(e.message, 'warning'); }
     },
 
-    'export-hotlines': async () => {
-      const rows = (UG.DATA.hotlines || []).map((h) => [
-        h.agency || '', h.number || '', h.scope || ''
-      ]);
-      if (!rows.length) { toast('Nothing to export', 'info'); return; }
-      try {
-        UG_PDF.exportDoc({
-          title: 'Emergency Hotline Directory',
-          subtitle: 'Every agency contact cached offline on resident devices.',
-          kind: 'Directory export',
-          generatedBy: (S.session ? S.session.name + ' · ' + (S.session.title || (UG_WEB.ROLE_INFO[S.session.role] || {}).label) : 'UniGuard'),
-          scope: UG_GEO.PLACE.scope,
-          filename: 'uniguard-hotlines.pdf',
-          tables: [{ name: 'Hotlines', note: 'Numbers are listed exactly as published by each agency.', head: ['Agency', 'Contact number', 'Scope'], rows: rows }]
-        });
-        toast('Hotline directory exported as PDF', 'info');
-      } catch (e) { toast(e.message, 'warning'); }
-    },
+    'export-hotlines': () => UG_EXPORTS.run('export-hotlines'),
 
-    'export-analytics': async () => {
-      try {
-        const a = await Repo.analytics(S.anFrom || null, S.anTo || null);
-        const hazardRows = Object.keys(a.byHazard || {}).map((k) => [k, a.byHazard[k]]);
-        const statusRows = Object.keys(a.stages || {}).map((k) => [UG_THEME.status(k).label, a.stages[k]]);
-        if (!hazardRows.length && !statusRows.length) { toast('No analytics data yet', 'info'); return; }
-        const fmtDur = (s) => s == null ? '—' : (s >= 3600 ? (s / 3600).toFixed(1) + ' h' : Math.round(s / 60) + ' min');
-        try {
-          UG_PDF.exportDoc({
-            title: 'Analytics Report',
-            subtitle: 'Incident volume, response performance and verification quality.',
-            kind: 'Analytics',
-            generatedBy: (S.session ? S.session.name + ' · ' + (S.session.title || (UG_WEB.ROLE_INFO[S.session.role] || {}).label) : 'UniGuard'),
-            scope: (S.session && S.session.role === 'barangay_official') ? 'Barangay ' + (S.session.barangay || '') : UG_GEO.PLACE.scope,
-            meta: 'Date range: ' + (a.from || '') + ' to ' + (a.to || ''),
-            filename: 'uniguard-analytics.pdf',
-            tables: [
-              { name: 'Incidents by hazard type', note: 'Number of reports filed per hazard type in the selected range.', head: ['Hazard type', 'Reports'], rows: hazardRows },
-              { name: 'Incidents by status', note: 'Where reports in the range sit in the status pipeline right now.', head: ['Status', 'Reports'], rows: statusRows },
-              { name: 'Response performance', note: 'Average time from report to dispatch, and report to resolution.', head: ['Measure', 'Average'], rows: [
-                ['Report → Response Dispatched', fmtDur(a.avgDispatchSeconds)],
-                ['Report → Resolved', fmtDur(a.avgResolveSeconds)],
-                ['Auto-verified by corroboration', (a.corroborationRate || 0) + '% of reports']
-              ] }
-            ].filter((t) => t.rows.length)
-          });
-          toast('Analytics exported as PDF', 'info');
-        } catch (err) { toast(err.message, 'warning'); }
-      } catch (e) { toast(e.message, 'warning'); }
-    },
+    'export-analytics': () => UG_EXPORTS.run('export-analytics'),
 
-    /* Section 10: CSV export for the analytics page. Reflects the currently
-       selected barangay + date filters, the same way the on-screen cards do. */
-    'analytics-export-csv': () => {
-      const csvCell = (v) => {
-        const s = String(v == null ? '' : v).replace(/"/g, '""');
-        return /[",\n]/.test(s) ? '"' + s + '"' : s;
-      };
-      const stamp = new Date().toISOString().slice(0, 10);
-      const inc = (UG.DATA.incidents || []).filter((i) =>
-        S.anBrgyFilter === 'All' || S.session.role !== 'lgu_ldrrmc' || i.brgy === S.anBrgyFilter);
-      const byHaz = {};
-      inc.forEach((i) => { byHaz[i.hazard] = (byHaz[i.hazard] || 0) + 1; });
-      const stages = { reported: 0, verified: 0, dispatched: 0, resolved: 0, rejected: 0 };
-      inc.forEach((i) => { if (stages[i.status] != null) stages[i.status]++; });
-      const byBrgy = {};
-      inc.forEach((i) => { byBrgy[i.brgy] = (byBrgy[i.brgy] || 0) + 1; });
-      const hdr = ['Metric,Value'];
-      const lines = hdr.concat([
-        'Total reports in scope,' + inc.length,
-        'Open,' + inc.filter((i) => i.status !== 'resolved' && i.status !== 'rejected').length,
-        'Processing (reported),' + stages.reported,
-        'Verified,' + stages.verified,
-        'Deployed (dispatched),' + stages.dispatched,
-        'Resolved,' + stages.resolved,
-        'Rejected,' + stages.rejected,
-        'Auto-verified (>=3 corroborations),' + inc.filter((i) => (i.corr || 0) >= 3).length,
-        '',
-        'By hazard type,',
-        ...Object.keys(byHaz).map((k) => csvCell(k) + ',' + byHaz[k]),
-        '',
-        'By barangay,',
-        ...Object.keys(byBrgy).map((k) => csvCell(k) + ',' + byBrgy[k]),
-        '',
-        'Shelter occupancy,',
-        ...(UG.DATA.centers || []).map((c) => csvCell(c.name) + ',' + (c.occ || 0) + '/' + (c.cap || 0)),
-        '',
-        'Date range,' + (S.anFrom || 'start') + ' to ' + (S.anTo || 'today'),
-        'Barangay filter,' + (S.anBrgyFilter || 'All')
-      ]);
-      downloadText('uniguard-analytics-' + stamp + '.csv', lines.join('\n'));
-      toast('Analytics exported as CSV', 'info');
-    },
+    /* Analytics exports (js/exports.js) read UG_SCREENS.analyticsModel, the same
+       figures the screen draws, so the files always match what is shown. */
+    'analytics-export-csv': () => UG_EXPORTS.run('analytics-export-csv'),
 
     declare: async () => {
       if (!requireRole(['lgu_ldrrmc'])) { toast(T('error.permission'), 'warning'); return; }
@@ -2838,7 +2807,9 @@
       /* Refresh the dispatch directory so UG.DATA.dispatchEquipment is
          up to date before opening the modal. */
       Repo.loadDispatchDirectory().then(() => {
-        if (window.UG_FEATURES && UG_FEATURES.modal) {
+        /* UG_FEATURES is a top-level const, which is never a window property:
+           `window.UG_FEATURES` was always undefined, so this pop-up never opened */
+        if (typeof UG_FEATURES !== 'undefined' && UG_FEATURES.modal) {
           UG_FEATURES.modal({
             title: 'Equipment · ' + (d.unitName || unit.name || ''),
             body: '<div data-unit-equipment-list data-unit-id="' + UG_UTIL.esc(unit.id) + '" data-unit-type="' + UG_UTIL.esc(unit.unit_type) + '">Loading…</div>',
@@ -2862,8 +2833,8 @@
                     '<td><div style="font-weight:600">' + UG_UTIL.esc(r.identifier || label) + '</div>' +
                       '<div class="ug-dimmer" style="font-size:10.5px">' + UG_UTIL.esc(r.notes || '') + '</div></td>' +
                     '<td>' + UG_UTIL.esc(label) + '</td>' +
-                    '<td>' + UG_UTIL.esc(r.status) + '</td>' +
-                    '<td>' + UG_UTIL.esc(r.condition) + '</td>' +
+                    '<td>' + UG_UTIL.esc((typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.statusLabel ? UG_DISPATCH.statusLabel(r.status) : r.status)) + '</td>' +
+                    '<td>' + UG_UTIL.esc((typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.conditionLabel ? UG_DISPATCH.conditionLabel(r.condition) : r.condition)) + '</td>' +
                     '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
                       '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + UG_UTIL.esc(r.id) + '">Edit</button>' +
                       '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + UG_UTIL.esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>' +
@@ -2875,6 +2846,12 @@
                   '<tbody>' + rowHtml + '</tbody></table></div>';
               };
               refresh();
+              /* Fix (Oct 28 2026): Edit / Retire / Remove inside this list
+                 reloaded the data but never redrew the list, so it showed
+                 the old values until the modal was reopened. The shared
+                 equipment modals fire ug:equipment-changed after a save. */
+              const onEqChange = () => { if (listEl.isConnected) refresh(); else window.removeEventListener('ug:equipment-changed', onEqChange); };
+              window.addEventListener('ug:equipment-changed', onEqChange);
               /* Add button: open the same Add modal as the dispatch_team
                  console, but with the LGU's owner_unit_id. The UG_DISPATCH
                  openAddEquipmentModal reads opts.ownerUnitId. */
@@ -2899,7 +2876,12 @@
       }).catch(() => { toast('Could not load the equipment list. Try again.', 'warning'); });
     },
 
-    /* 050 (Oct 25 2026) — equipment actions shared by the dispatch console,
+    /* NOTE (Oct 28 2026): ALL merges UG_DISPATCH.actions after these, so
+       equipment-add / equipment-edit / equipment-remove below are shadowed
+       by the js/dispatch.js versions, which now handle the barangay and LGU
+       paths too. Kept only as a fallback if dispatch.js is missing.
+
+       050 (Oct 25 2026) — equipment actions shared by the dispatch console,
        the barangay Response Team screen, and the LGU's per-unit modal. The
        dispatch_team console defines its own (in UG_DISPATCH.actions) for the
        unit_admin path; these app.js versions serve the barangay_official
@@ -3112,67 +3094,9 @@
       } catch (e) { toast(e.message, 'warning'); }
     },
 
-    'admin-export-users': () => {
-      const rows = (S.users || []).map((u) => [
-        u.full_name || '', u.email || '',
-        (UG_ADMIN.ROLE_LABEL[u.role] || u.role || ''),
-        u.barangay || '',
-        u.disabled ? 'disabled' : 'active',
-        UG_UTIL.absTime(u.created_at) || ''
-      ]);
-      if (!rows.length) { toast('Nothing to export', 'info'); return; }
-      try {
-        UG_PDF.exportDoc({
-          title: 'User Accounts',
-          subtitle: 'Every account, its role and barangay assignment.',
-          kind: 'User export',
-          generatedBy: (S.session ? S.session.name + ' · ' + (S.session.title || (UG_WEB.ROLE_INFO[S.session.role] || {}).label) : 'UniGuard'),
-          scope: UG_GEO.PLACE.scope,
-          filename: 'uniguard-users.pdf',
-          tables: [{ name: 'Accounts', note: 'Roles are enforced by row level security; this list mirrors the console.', head: ['Name', 'Email', 'Role', 'Barangay', 'Status', 'Created'], rows: rows }]
-        });
-        toast('User list exported as PDF', 'info');
-      } catch (e) { toast(e.message, 'warning'); }
-    },
+    'admin-export-users': () => UG_EXPORTS.run('admin-export-users'),
 
-    'admin-export-audit': () => {
-      /* exports exactly what the filters show */
-      const roleLabel = (r) => {
-        const map = { citizen: 'Citizen', barangay_official: 'Barangay Official', lgu_ldrrmc: 'LDRRMO Staff', super_admin: 'Super Admin', dispatch_team: 'Dispatch Team' };
-        return map[r] || (r ? r.replace(/_/g, ' ') : 'System');
-      };
-      const rows = UG_ADMIN.filterAudit(S).map((a) => [
-        UG_UTIL.absTime(a.created_at) || '',
-        a.actor_name || (a.actor_id ? String(a.actor_id).slice(0, 8) : 'System'),
-        roleLabel(a.actor_role === 'super_admin' ? 'super_admin' : a.actor_role),
-        a.actor_barangay || '',
-        UG_ADMIN.entityLabel(a.entity),
-        a.action || '',
-        UG_ADMIN.describe(a).slice(0, 400)
-      ]);
-      if (!rows.length) { toast('Nothing to export', 'info'); return; }
-      const filt = [S.auditEntity && S.auditEntity !== 'All' ? 'record type ' + UG_ADMIN.entityLabel(S.auditEntity) : '',
-        S.auditAction && S.auditAction !== 'All' ? 'action type ' + S.auditAction : '',
-        S.auditRole && S.auditRole !== 'All' ? 'role ' + S.auditRole : '',
-        S.auditBarangay && S.auditBarangay !== 'All' ? 'barangay ' + S.auditBarangay : '',
-        S.auditActor && S.auditActor !== 'All' ? 'changed by ' + S.auditActor : '',
-        (S.auditFrom || S.auditTo) ? 'dates ' + (S.auditFrom || 'start') + ' to ' + (S.auditTo || 'today') : '',
-        S.auditQ ? 'search "' + S.auditQ + '"' : ''].filter(Boolean).join(', ');
-      try {
-        UG_PDF.exportDoc({
-          title: 'Activity Log',
-          subtitle: 'Who changed what, newest first. Covers Barangay Officials, LDRRMO Staff, the Super Admin and Dispatch Teams.',
-          kind: 'Activity log',
-          landscape: true,
-          generatedBy: (S.session ? S.session.name + ' · ' + (S.session.title || (UG_WEB.ROLE_INFO[S.session.role] || {}).label) : 'UniGuard'),
-          scope: UG_GEO.PLACE.scope,
-          meta: 'Filters: ' + (filt || 'none'),
-          filename: 'uniguard-activity-log.pdf',
-          tables: [{ name: 'Activity entries', note: 'Recorded by the database at write time. The actor identity and role come from a trusted server source.', head: ['When', 'Who', 'Role', 'Barangay', 'Module', 'Action', 'What changed'], rows: rows }]
-        });
-        toast('Activity log exported as PDF', 'info');
-      } catch (e) { toast(e.message, 'warning'); }
-    },
+    'admin-export-audit': () => UG_EXPORTS.run('admin-export-audit'),
 
     'audit-clear': () => {
       S.auditQ = ''; S.auditEntity = 'All'; S.auditActor = 'All';
@@ -3570,49 +3494,10 @@
     'relief-verify': (d) => { S.openId = d.id; S.route = 'relief-verify'; render(); },
     'report-status-filter': (d) => { S.reportStatusFilter = d.v; render(); },
 
-    /* Download the authorized-beneficiary list or the relief schedule list as a
-       CSV file. Exports exactly the rows the duty officer sees after the barangay
-       filter + search, so a printed copy matches the screen. */
-    'relief-download': (d) => {
-      const what = (d && d.what) || 'beneficiaries';
-      const csvCell = (v) => {
-        const s = String(v == null ? '' : v).replace(/"/g, '""');
-        return /[",\n]/.test(s) ? '"' + s + '"' : s;
-      };
-      const stamp = new Date().toISOString().slice(0, 10);
-      if (what === 'distributions') {
-        const mine = (S.session && S.session.role === 'barangay_official') ? S.session.barangay : null;
-        const rows = (UG.DATA.relief || []).filter((r) => !mine || r.barangay === mine);
-        const header = ['ID', 'Barangay', 'Title', 'Location', 'Address', 'Schedule', 'Contact person', 'Contact phone', 'Eligibility', 'Required docs', 'Active'];
-        const body = rows.map((r) => [
-          r.id, r.barangay, r.title, r.location_name, r.address,
-          r.distribution_at ? new Date(r.distribution_at).toLocaleString() : '',
-          r.contact_person, r.contact_phone,
-          (r.eligibility || []).join('; '), (r.required_docs || []).join('; '),
-          r.active === false ? 'No' : 'Yes'
-        ].map(csvCell).join(','));
-        const csv = header.map(csvCell).join(',') + '\n' + body.join('\n');
-        downloadText('uniguard-relief-schedules-' + stamp + '.csv', csv);
-        toast(rows.length + ' distribution(s) exported to CSV', 'prepared');
-        return;
-      }
-      /* default: beneficiaries */
-      const mine = (S.session && S.session.role === 'barangay_official') ? S.session.barangay : null;
-      const benFilter = mine || S.benBarangayFilter;
-      const qStr = (S.benSearchLgu || '').toLowerCase().trim();
-      const rows = (UG.DATA.beneficiaries || [])
-        .filter((b) => !mine || b.barangay === mine)
-        .filter((b) => (!benFilter || benFilter === 'All' || b.barangay === benFilter))
-        .filter((b) => !qStr ||
-          (b.beneficiary_name || '').toLowerCase().indexOf(qStr) >= 0 ||
-          (b.claimant_name || '').toLowerCase().indexOf(qStr) >= 0 ||
-          (b.claimant_id || '').toLowerCase().indexOf(qStr) >= 0);
-      const header = ['ID', 'Barangay', 'Beneficiary name', 'Claimant name', 'Claimant ID', 'Category'];
-      const body = rows.map((b) => [b.id, b.barangay, b.beneficiary_name, b.claimant_name, b.claimant_id, b.category].map(csvCell).join(','));
-      const csv = header.map(csvCell).join(',') + '\n' + body.join('\n');
-      downloadText('uniguard-beneficiaries-' + stamp + '.csv', csv);
-      toast(rows.length + ' beneficiary record(s) exported to CSV', 'prepared');
-    },
+    /* Relief exports (js/exports.js): the schedule list or the authorized
+       beneficiaries, exactly the rows on screen after the barangay filter and
+       search (UG_RELIEF.visibleSchedules / visibleBeneficiaries). */
+    'relief-download': (d) => UG_EXPORTS.run('relief-download:' + ((d && d.what) === 'distributions' ? 'distributions' : 'beneficiaries')),
 
     'relief-add': async () => {
       const fields = await UG_FEATURES.prompt({
@@ -3712,19 +3597,56 @@
     'relief-view': (d) => {
       if (!UG_RELIEF.distDetailModal(d.id, S)) toast('That distribution no longer exists', 'warning');
     },
-    'beneficiary-add': async () => {
-      const name = await UG_FEATURES.prompt({ title: 'Add authorized beneficiary', label: 'Beneficiary name', placeholder: 'Last, First' });
-      if (!name) return;
-      const claimant = await UG_FEATURES.prompt({ title: 'Claimant', label: 'Who will claim on their behalf?', placeholder: 'Same as beneficiary' });
-      const claimantId = await UG_FEATURES.prompt({ title: 'Claimant ID', label: 'ID number', placeholder: 'ID-2026-000000' });
-      try {
-        await Repo.createBeneficiary({
-          beneficiary_name: name, claimant_name: claimant || name,
-          claimant_id: claimantId || '', barangay: myBrgyName(), category: 'Affected household'
-        });
-        toast('Beneficiary added', 'prepared');
-      } catch (e) { toast(e.message, 'warning'); }
-      render();
+    /* one form for the whole record (it used to be three pop-ups in a row,
+       one field each, with the category fixed to "Affected household") */
+    'beneficiary-add': () => {
+      const esc = UG_UTIL.esc;
+      const isBO = !!(S.session && S.session.role === 'barangay_official');
+      const cats = ['Affected household', 'Senior citizen', 'PWD (authorized rep)', 'Coastal household', 'Solo parent', 'Pregnant / lactating', 'Indigenous family', 'Other'];
+      const brgyField = isBO
+        ? '<div class="ug-field"><label class="ug-lab">Barangay</label><input class="ug-in" value="' + esc(myBrgyName()) + '" disabled></div>'
+        : '<div class="ug-field"><label class="ug-lab">Barangay</label><select class="ug-sel" data-ben-brgy><option value="">Select a barangay</option>' +
+          (S.barangays || []).map((b) => '<option>' + esc(b.name) + '</option>').join('') + '</select></div>';
+      UG_FEATURES.modal({
+        title: 'Add authorized beneficiary',
+        body:
+          '<div class="ug-field"><label class="ug-lab">Beneficiary name</label><input class="ug-in" data-ben-name placeholder="Last, First" autocomplete="off"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Category</label><select class="ug-sel" data-ben-cat>' + cats.map((c) => '<option>' + esc(c) + '</option>').join('') + '</select></div>' +
+          '<div class="ug-field"><label class="ug-lab">Claimant</label><input class="ug-in" data-ben-claimant placeholder="Same as beneficiary" autocomplete="off">' +
+            '<div class="ug-help">Who will claim on their behalf. Leave empty if the beneficiary claims in person.</div></div>' +
+          '<div class="ug-field"><label class="ug-lab">Claimant ID number</label><input class="ug-in" data-ben-id placeholder="ID-2026-000000" autocomplete="off"></div>' +
+          brgyField,
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Save</button>',
+        onMount: (wrap, close) => {
+          const nameEl = wrap.querySelector('[data-ben-name]');
+          const saveBtn = wrap.querySelector('[data-save]');
+          setTimeout(() => nameEl.focus(), 30);
+          saveBtn.addEventListener('click', async () => {
+            if (saveBtn.disabled) return;
+            const name = nameEl.value.trim();
+            const brgyEl = wrap.querySelector('[data-ben-brgy]');
+            const barangay = isBO ? myBrgyName() : (brgyEl ? brgyEl.value : '');
+            if (!name) { toast('Enter the beneficiary\'s name', 'warning'); nameEl.focus(); return; }
+            if (!barangay) { toast('Select the barangay', 'warning'); return; }
+            saveBtn.disabled = true;
+            try {
+              await Repo.createBeneficiary({
+                beneficiary_name: name,
+                claimant_name: wrap.querySelector('[data-ben-claimant]').value.trim() || name,
+                claimant_id: wrap.querySelector('[data-ben-id]').value.trim(),
+                barangay: barangay,
+                category: wrap.querySelector('[data-ben-cat]').value
+              });
+              close();
+              toast('Beneficiary added', 'prepared');
+              render();
+            } catch (e) {
+              saveBtn.disabled = false;
+              toast(e.message, 'warning');
+            }
+          });
+        }
+      });
     },
     'beneficiary-del': async (d) => {
       try { await Repo.deleteBeneficiary(d.id); toast('Beneficiary removed', 'warning'); }
@@ -3856,14 +3778,7 @@
       render();
     },
 
-    'inv-download': () => {
-      const stamp = new Date().toISOString().slice(0, 10);
-      const rows = UG.DATA.inventory || [];
-      const header = ['ID', 'Name', 'Category', 'Unit', 'Stock', 'Reorder at', 'Location', 'Supplier'];
-      const body = rows.map((r) => [r.id, r.name, r.category, r.unit, r.stock, r.reorder, r.location || '', r.supplier || ''].map(csvCell).join(','));
-      downloadText('uniguard-inventory-' + stamp + '.csv', header.map(csvCell).join(',') + '\n' + body.join('\n'));
-      toast(rows.length + ' inventory item(s) exported to CSV', 'prepared');
-    },
+    'inv-download': () => UG_EXPORTS.run('inv-download'),
 
     'rec-add': () => {
       if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can record distributions', 'warning'); return; }
@@ -3927,14 +3842,7 @@
       render();
     },
 
-    'rec-download': () => {
-      const stamp = new Date().toISOString().slice(0, 10);
-      const rows = UG.DATA.distributionLog || [];
-      const header = ['ID', 'Item', 'Qty', 'Barangay', 'Family', 'Distributed by', 'At'];
-      const body = rows.map((r) => [r.id, r.item_name, r.qty, r.barangay, r.family, r.distributed_by, r.distributed_at].map(csvCell).join(','));
-      downloadText('uniguard-distributions-' + stamp + '.csv', header.map(csvCell).join(',') + '\n' + body.join('\n'));
-      toast(rows.length + ' distribution record(s) exported to CSV', 'prepared');
-    },
+    'rec-download': () => UG_EXPORTS.run('rec-download'),
 
     /* ================================================================ SETTINGS
        Settings is now per-user for preferences (language, notifications,
@@ -4036,43 +3944,10 @@
     'guide-phase': (d) => { S.guidePhase = d.v; render(); },
     'guide-open': (d) => { S.openId = d.id; S.route = 'guide-detail'; render(); },
 
-    /* Download the preparedness guides as a PDF. Citizens get a printable
-       copy of either the selected hazard (Before / During / After) or every
-       guide in the system. Uses the existing UG_PDF engine so the document
-       carries the UniGuard header, generated-by and page numbers. */
-    'guide-download': (d) => {
-      const hazard = (d && d.hazard) || 'all';
-      const all = (UG.DATA.guides || []).slice();
-      const scoped = hazard === 'all' ? all : all.filter((g) => g.hazard_type === hazard);
-      if (!scoped.length) { toast('No guides to export yet', 'warning'); return; }
-      /* group by hazard, then phase, so the PDF reads in a logical order */
-      const order = ['before', 'during', 'after'];
-      scoped.sort((a, b) =>
-        (a.hazard_type < b.hazard_type ? -1 : a.hazard_type > b.hazard_type ? 1 : 0) ||
-        (order.indexOf(a.phase) - order.indexOf(b.phase)));
-      const phaseLabel = (p) => p === 'before' ? 'Before' : p === 'during' ? 'During' : 'After';
-      const wrap = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
-      const tables = scoped.map((g) => ({
-        name: wrap(g.hazard_type) + ' · ' + phaseLabel(g.phase),
-        note: wrap(g.title),
-        head: ['Section', 'Instructions'],
-        rows: [['Guide', wrap(g.body).slice(0, 1800)]
-          /* keep the row readable; very long bodies wrap inside the cell */
-        ]
-      }));
-      try {
-        UG_PDF.exportDoc({
-          kind: 'Preparedness Guide',
-          title: hazard === 'all' ? 'Disaster Preparedness Guides' : (hazard + ' Preparedness Guide'),
-          subtitle: 'What to do before, during and after a hazard in ' + UG_GEO.PLACE.label + '.',
-          scope: UG_GEO.PLACE.label,
-          generatedBy: (S.session && S.session.name) || 'UniGuard',
-          filename: 'uniguard-guides-' + (hazard === 'all' ? 'all' : hazard.toLowerCase().replace(/[^a-z0-9]+/g, '-')) + '.pdf',
-          tables: tables
-        });
-        toast(scoped.length + ' guide' + (scoped.length === 1 ? '' : 's') + ' exported to PDF', 'prepared');
-      } catch (e) { toast(e.message || 'Could not generate the PDF', 'warning'); }
-    },
+    /* Preparedness guides as a formal PDF (js/exports.js): the selected
+       hazard or every guide, with summary and Before / During / After text in
+       full (no truncation). */
+    'guide-download': (d) => UG_EXPORTS.run('guide-download', (d && d.hazard) || 'all'),
 
     /* one guide = title + hazard category + summary + Before/During/After + PDF.
        A real modal form replaces the old one-line prompt() dialog. */
@@ -4474,7 +4349,9 @@
        index.html, so UG_DISPATCH.actions is available here. */
     (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.actions) ? UG_DISPATCH.actions : {},
     /* Reports and Documentation module actions (module G) */
-    (typeof UG_REPORTING !== 'undefined' && UG_REPORTING.actions) ? UG_REPORTING.actions : {}
+    (typeof UG_REPORTING !== 'undefined' && UG_REPORTING.actions) ? UG_REPORTING.actions : {},
+    /* Super Admin home screen actions, all named 'sa-*' */
+    (typeof UG_SUPERADMIN !== 'undefined' && UG_SUPERADMIN.actions) ? UG_SUPERADMIN.actions : {}
   );
 
   /* --------------------------------------------------------------- listeners */

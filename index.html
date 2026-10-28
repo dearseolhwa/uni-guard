@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="description" content="UniGuard · Unified Disaster Risk Reduction and Management System for the Municipality of Lingayen, Pangasinan LGU and MDRRMO coordination.">
-<meta name="theme-color" content="#050910">
-<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0E2243">
+<meta name="color-scheme" content="light">
 <title>UniGuard · Unified DRRM System · Lingayen</title>
 
 <!-- PWA -->
@@ -25,6 +25,15 @@
 <link rel="stylesheet" href="css/screens.css">
 <link rel="stylesheet" href="css/screens-additions.css">
 <link rel="stylesheet" href="css/dispatch.css">
+<!-- Oct 2026 design: light, one palette per role. Remove these three lines to
+     return to the previous dark design. Plus Jakarta Sans comes from Google
+     Fonts like the React app; offline, phones use their own system font.
+     To make it work offline too, see docs/DESIGN_2026.md. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="css/design.css">
+<!-- Super Admin home screen (copied from the React app); every rule is scoped under .ug-sa -->
+<link rel="stylesheet" href="css/superadmin.css">
 </head>
 <body>
 
@@ -72,8 +81,10 @@
 <script src="js/config.js"></script>
 <script src="js/util.js"></script>
 <script src="js/i18n.js"></script>
+<!-- Shared export layer: metadata, filenames, dates, CSV, scope checks (export-core),
+     the formal PDF template (pdf) and the formatted Excel writer (xlsx-lite) -->
+<script src="js/export-core.js"></script>
 <script src="js/pdf.js"></script>
-<!-- Excel writer: used only by the Reports and Documentation module -->
 <script src="js/xlsx-lite.js"></script>
 
 <!-- Where UniGuard is deployed (Lingayen, Pangasinan) and its one colour scheme.
@@ -86,6 +97,8 @@
 <script src="js/screens.web.js"></script>
 <script src="js/screens.auth.js"></script>
 <script src="js/screens.admin.js"></script>
+<!-- Super Admin home screen: Overview, Accounts, Activity (route admin-home) -->
+<script src="js/screens.superadmin.js"></script>
 
 <!-- feature modules: render functions + data shape, loaded before repo so they
      can seed UG.DATA defaults that the repo overwrites when Supabase is reachable. -->
@@ -100,6 +113,8 @@
 <script src="js/dispatch.js"></script>
 <!-- Module G: situation report, incident summary, damage and needs assessment -->
 <script src="js/reporting.js"></script>
+<!-- Module export definitions (hotlines, analytics, admin, relief, guides, dispatch) -->
+<script src="js/exports.js"></script>
 
 <script src="js/repo.js"></script>
 <script src="js/auth.js"></script>

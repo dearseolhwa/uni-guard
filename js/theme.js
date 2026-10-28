@@ -19,18 +19,19 @@
 const UG_THEME = (function () {
   /* ------------------------------------------------------------------ palette */
   /* base : marker fill, chart bar, dot        text : readable on the dark UI
+     light: the same hue, readable on the light per-role design (css/design.css)
      Every "text" value is checked against the surface colour in tests/contrast. */
   const PALETTE = {
-    red:    { base: '#EF4444', text: '#FCA5A5' },
-    orange: { base: '#F97316', text: '#FDBA74' },
-    yellow: { base: '#FACC15', text: '#FDE047' },
-    green:  { base: '#22C55E', text: '#86EFAC' },
-    blue:   { base: '#3B82F6', text: '#93C5FD' },
-    violet: { base: '#8B5CF6', text: '#C4B5FD' },
-    sky:    { base: '#38BDF8', text: '#7DD3FC' },
-    teal:   { base: '#14B8A6', text: '#5EEAD4' },
-    slate:  { base: '#94A3B8', text: '#CBD5E1' },
-    stone:  { base: '#64748B', text: '#A8B5C7' }
+    red:    { base: '#EF4444', text: '#FCA5A5', light: '#B91C1C' },
+    orange: { base: '#F97316', text: '#FDBA74', light: '#9A3412' },
+    yellow: { base: '#FACC15', text: '#FDE047', light: '#854D0E' },
+    green:  { base: '#22C55E', text: '#86EFAC', light: '#166534' },
+    blue:   { base: '#3B82F6', text: '#93C5FD', light: '#1D4ED8' },
+    violet: { base: '#8B5CF6', text: '#C4B5FD', light: '#6D28D9' },
+    sky:    { base: '#38BDF8', text: '#7DD3FC', light: '#0369A1' },
+    teal:   { base: '#14B8A6', text: '#5EEAD4', light: '#0F766E' },
+    slate:  { base: '#94A3B8', text: '#CBD5E1', light: '#475569' },
+    stone:  { base: '#64748B', text: '#A8B5C7', light: '#475569' }
   };
 
   const INK_DARK = '#0B1220';
@@ -67,6 +68,7 @@ const UG_THEME = (function () {
       key: key,
       color: p.base,
       text: p.text,
+      textLight: p.light,
       on: onColor(p.base),
       soft: rgba(p.base, 0.16),
       line: rgba(p.base, 0.4)
@@ -168,7 +170,7 @@ const UG_THEME = (function () {
       const e = SEVERITY[k];
       put('sev-' + k, e.color); put('sev-' + k + '-text', e.text); put('sev-' + k + '-on', e.on);
     });
-    put('sev-prepared', PREPARED.color);
+    put('sev-prepared', PREPARED.color); put('prepared-text', PREPARED.text);
     Object.keys(STATUS).forEach((k) => {
       const e = STATUS[k];
       put('st-' + k, e.color); put('st-' + k + '-text', e.text); put('st-' + k + '-on', e.on);
@@ -205,8 +207,36 @@ const UG_THEME = (function () {
     /* pipeline step colours */
     Object.keys(STATUS).forEach((k) => rules.push('.ug-step.s-' + k + '{color:' + STATUS[k].text + '}'));
 
+    /* The light per-role design (css/design.css, html[data-portal]) puts this
+       text on white, where the pale tints above would fade: the same hues in a
+       darker shade, checked to 4.5:1 or better on their badge background. */
+    const lightVars = [];
+    const putL = (name, e) => lightVars.push('--ug-' + name + ':' + e.textLight);
+    Object.keys(SEVERITY).forEach((k) => putL('sev-' + k + '-text', SEVERITY[k]));
+    Object.keys(STATUS).forEach((k) => putL('st-' + k + '-text', STATUS[k]));
+    ['open', 'full', 'closed'].forEach((k) => putL('shelter-' + k + '-text', SHELTER[k]));
+    putL('prepared-text', PREPARED);
+    /* the tone tokens (stat tiles, toasts, chips) are often used as TEXT; on the
+       light design they take a mid-dark shade, 4.5:1 or better on every role's
+       background. Map markers and legend swatches keep the bright --ug-sev-* /
+       --ug-st-* colours above. */
+    const LIGHT_TONE = { emergency: '#C81E1E', warning: '#C2410C', advisory: '#8A5A06', prepared: '#0369A1',
+      verified: '#1D4ED8', dispatched: '#6D28D9', resolved: '#137133', neutral: '#475569' };
+    Object.keys(LIGHT_TONE).forEach((k) => lightVars.push('--ug-' + k + ':' + LIGHT_TONE[k]));
+    const L = 'html[data-portal] ';
+    const badgeL = (cls, e) => L + '.ug-badge--' + cls + '{color:' + e.textLight + ';background:' + rgba(e.color, 0.12) + ';border-color:' + rgba(e.color, 0.35) + '}';
+    const lightRules = [];
+    Object.keys(STATUS).forEach((k) => lightRules.push(badgeL(k, STATUS[k])));
+    Object.keys(SEVERITY).forEach((k) => lightRules.push(badgeL(k, SEVERITY[k])));
+    lightRules.push(badgeL('prepared', PREPARED));
+    ['open', 'full', 'closed'].forEach((k) => lightRules.push(badgeL(k, SHELTER[k])));
+    lightRules.push(badgeL('sev-critical', SEVERITY.emergency), badgeL('sev-high', SEVERITY.warning), badgeL('sev-moderate', SEVERITY.advisory));
+    Object.keys(STATUS).forEach((k) => lightRules.push(L + '.ug-step.s-' + k + '{color:' + STATUS[k].textLight + '}'));
+    const lightBlock = lightVars.join(';') + ';';
+
     /* legend swatches and marker chips share these classes */
-    return ':root{' + block + '}\n.ug{' + block + '}\n' + rules.join('\n');
+    return ':root{' + block + '}\n.ug{' + block + '}\n' + rules.join('\n') +
+      '\nhtml[data-portal]{' + lightBlock + '}\nhtml[data-portal] .ug{' + lightBlock + '}\n' + lightRules.join('\n');
   }
 
   function inject() {

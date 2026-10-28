@@ -10,7 +10,7 @@
 
 html {
   height: 100%;
-  background: #050910;
+  background: var(--ug-bg, #050910);
   color-scheme: dark;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -23,8 +23,8 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   max-width: 100%;
-  background: #050910;
-  color: #E8EFFA;
+  background: var(--ug-bg, #050910);
+  color: var(--ug-ink, #E8EFFA);
   font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 15px;
   line-height: 1.5;

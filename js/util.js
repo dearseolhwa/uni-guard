@@ -68,8 +68,10 @@ const UG_UTIL = (function () {
     };
   }
 
-  /* All exports are formatted PDFs (js/pdf.js). download() now only handles
-     Blobs — the old CSV exporter and CSV branch are gone. */
+  /* Hands a generated Blob to the browser as a download and releases the
+     object URL afterwards. Every export reaches it through UG_EXPORT.download
+     (js/export-core.js); PDF, Excel and CSV are built there and in js/pdf.js /
+     js/xlsx-lite.js. */
   function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

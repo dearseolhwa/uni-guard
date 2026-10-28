@@ -243,6 +243,52 @@ const UG_RELIEF = (function () {
     return s && s.role === 'barangay_official' ? (s.barangay || '__none__') : null;
   }
 
+
+  /* ---------------------------------------------- visible rows (screen = export)
+     The relief screens and their exports (js/exports.js) read the same rows
+     through these, so a downloaded file always matches what is on screen. */
+  function visibleSchedules(st) {
+    const mine = scopedBrgy(st);
+    return (U.DATA.relief || []).filter((r) => !mine || r.barangay === mine);
+  }
+  function visibleBeneficiaries(st) {
+    const mine = scopedBrgy(st);
+    const benFilter = mine || st.benBarangayFilter;
+    const q = (st.benSearchLgu || '').toLowerCase().trim();
+    return (UG.DATA.beneficiaries || [])
+      .filter((b) => !mine || b.barangay === mine)
+      .filter((b) => (!benFilter || benFilter === 'All' || b.barangay === benFilter))
+      .filter((b) => !q ||
+        (b.beneficiary_name || '').toLowerCase().indexOf(q) >= 0 ||
+        (b.claimant_name || '').toLowerCase().indexOf(q) >= 0 ||
+        (b.claimant_id || '').toLowerCase().indexOf(q) >= 0);
+  }
+  function visibleInventory(st) {
+    ensureInventory();
+    const mine = scopedBrgy(st);
+    const all = (UG.DATA.inventory || []).filter((i) => !mine || (i.barangay || 'MDRRMO Warehouse') === mine || !i.barangay);
+    const cat = st.invCatFilter || 'all';
+    const q = (st.invSearch || '').trim().toLowerCase();
+    const brgyFilter = mine ? mine : (st.invBrgyFilter || 'All');
+    const list = all.filter((i) => cat === 'all' || i.category === cat)
+      .filter((i) => !q ||
+        (i.name || '').toLowerCase().indexOf(q) >= 0 ||
+        (i.id || '').toLowerCase().indexOf(q) >= 0 ||
+        (i.location || '').toLowerCase().indexOf(q) >= 0 ||
+        (i.supplier || '').toLowerCase().indexOf(q) >= 0)
+      .filter((i) => mine || brgyFilter === 'All' || (i.barangay || '') === brgyFilter);
+    return { all: all, list: list, cat: cat, q: q, brgyFilter: brgyFilter, mine: mine };
+  }
+  function visibleRecords(st) {
+    ensureInventory();
+    const mine = scopedBrgy(st);
+    const all = (UG.DATA.distributionLog || []).slice().sort((a, b) =>
+      (Date.parse(b.distributed_at) || 0) - (Date.parse(a.distributed_at) || 0));
+    const rows = all.filter((r) => !mine || r.barangay === mine);
+    const brgyFilter = st.recBrgyFilter || 'All';
+    return { rows: rows, filtered: rows.filter((r) => brgyFilter === 'All' || r.barangay === brgyFilter), brgyFilter: brgyFilter, mine: mine };
+  }
+
   /* ============================================================ MODULE E TABS
      The LGU relief surface is now a three-tab workspace:
        1. Distributions — schedules + authorized beneficiaries (the original)
@@ -275,7 +321,7 @@ const UG_RELIEF = (function () {
       : '';
     return '<div class="ug-col" style="gap:18px">' +
       head(T('title.relief'), T('relief.subtitle'),
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('relief-download', attr({ what: 'distributions' })) + '>' + I('download', 15) + esc(T('action.export')) + '</button>') +
+        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('relief-download', attr({ what: 'distributions' })) + ' title="Download the distribution schedule as CSV">' + I('download', 15) + esc(T('action.exportCsv')) + '</button>') +
       lowBanner +
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + tabs + '</div>' +
       (tab === 'inventory' ? dInventory(st) :
@@ -347,23 +393,10 @@ const UG_RELIEF = (function () {
    *    so they can audit any single barangay's stock.
    */
   function dInventory(st) {
-    ensureInventory();
-    const mine = scopedBrgy(st); /* null for LGU; barangay name for officials */
-    const all = (UG.DATA.inventory || []).filter((i) => !mine || (i.barangay || 'MDRRMO Warehouse') === mine || !i.barangay);
-    const cat = st.invCatFilter || 'all';
-    const q = (st.invSearch || '').trim().toLowerCase();
+    const vis = visibleInventory(st);
+    const all = vis.all, cat = vis.cat, list = vis.list, mine = vis.mine, q = vis.q;
     const cats = [['all', T('label.all'), all.length]].concat(INV_CATEGORIES.map((c) =>
       [c, c, all.filter((i) => i.category === c).length]));
-    /* combined filter: category + search text on name/id/location/supplier +
-       LGU barangay filter (barangay_official is already scoped to mine). */
-    const brgyFilter = mine ? mine : (st.invBrgyFilter || 'All');
-    const list = all.filter((i) => cat === 'all' || i.category === cat)
-      .filter((i) => !q ||
-        (i.name || '').toLowerCase().indexOf(q) >= 0 ||
-        (i.id || '').toLowerCase().indexOf(q) >= 0 ||
-        (i.location || '').toLowerCase().indexOf(q) >= 0 ||
-        (i.supplier || '').toLowerCase().indexOf(q) >= 0)
-      .filter((i) => mine || brgyFilter === 'All' || (i.barangay || '') === brgyFilter);
     const lowN = (all).filter((i) => (i.stock || 0) <= (i.reorder || 0)).length;
     const totalUnits = all.reduce((s, i) => s + (i.stock || 0), 0);
     const summary = [
@@ -460,7 +493,7 @@ const UG_RELIEF = (function () {
           '<div>' +
             '<div class="ug-rowf ug-between" style="font-size:11.5px;margin-bottom:5px"><span class="ug-dim">Stock vs reorder point</span>' +
               '<span class="ug-mono">' + esc(i.stock || 0) + ' / ' + esc(i.reorder || 0) + ' ' + esc(i.unit || '') + '</span></div>' +
-            '<div style="height:8px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + statusTone + '"></div></div>' +
+            '<div style="height:8px;border-radius:4px;background:rgba(var(--ug-tint, 255,255,255),.07);overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + statusTone + '"></div></div>' +
           '</div>' +
         '</div></div>' +
         '<div style="margin-top:14px">' +
@@ -527,13 +560,8 @@ const UG_RELIEF = (function () {
      inventory and appends a record in one action so stock and ledger never
      drift apart. */
   function dRecords(st) {
-    ensureInventory();
-    const mine = scopedBrgy(st);
-    const all = (UG.DATA.distributionLog || []).slice().sort((a, b) =>
-      (Date.parse(b.distributed_at) || 0) - (Date.parse(a.distributed_at) || 0));
-    const rows = all.filter((r) => !mine || r.barangay === mine);
-    const brgyFilter = st.recBrgyFilter || 'All';
-    const filtered = rows.filter((r) => brgyFilter === 'All' || r.barangay === brgyFilter);
+    const vis = visibleRecords(st);
+    const mine = vis.mine, rows = vis.rows, brgyFilter = vis.brgyFilter, filtered = vis.filtered;
     const barangays = mine ? [mine] : ['All'].concat(U.DATA.barangays);
     /* aggregate: total packs per barangay, so the duty officer can see who has
        been served the most / the least in the current response. */
@@ -580,6 +608,7 @@ const UG_RELIEF = (function () {
   }
 
   return { mRelief, mReliefVerify, dRelief, fmtDate, fmtDateTime, head,
+    visibleSchedules, visibleBeneficiaries, visibleInventory, visibleRecords, scopedBrgy,
     ensureInventory, lowStockItems, DEFAULT_INVENTORY, DEFAULT_DISTRIBUTIONS_LOG,
     INV_CATEGORIES, CAT_COLOR, RELIEF_TABS, invDetailModal, distDetailModal };
 })();

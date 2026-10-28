@@ -220,7 +220,7 @@ const UG = (() => {
     /* if k.nav is set, wrap the card in a clickable button that routes to the
        corresponding module (Section 4: incident count cards open records). */
     const inner = '<div class="s-top"><span class="ug-lab">' + esc(k.label) + '</span>' +
-      '<span class="s-ico" style="background:rgba(255,255,255,.05);color:var(--ug-' + k.tone + ')">' + icon(k.icon, 17) + '</span></div>' +
+      '<span class="s-ico" style="background:rgba(var(--ug-tint, 255,255,255),.05);color:var(--ug-' + k.tone + ')">' + icon(k.icon, 17) + '</span></div>' +
       '<div class="s-val">' + esc(k.value) + '</div>' +
       '<div class="s-delta ' + k.dir + '">' + (k.dir === 'up' ? '&#9650;' : k.dir === 'down' ? '&#9660;' : '&#8226;') + ' ' + esc(k.delta) + '</div>';
     if (k.nav) {
@@ -264,7 +264,7 @@ const UG = (() => {
     return '<div class="ug-col ug-gap6" style="gap:6px">' +
       '<div class="ug-rowf ug-between" style="font-size:11.5px"><span class="ug-dimmer">Independent Corroborations</span>' +
       '<span class="ug-mono" style="color:' + cls + '">' + Math.min(n,3) + ' / 3</span></div>' +
-      '<div style="height:5px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden">' +
+      '<div style="height:5px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.09);overflow:hidden">' +
       '<div style="height:100%;width:' + pct + '%;background:' + cls + ';border-radius:3px"></div></div>' +
       '<div class="ug-dimmer" style="font-size:10.5px">' + (n >= 3 ? 'Threshold reached. This report is auto-verified.' : (3 - n) + ' more nearby confirmation' + (3 - n === 1 ? '' : 's') + ' within 6 hours will auto-verify it.') + '</div>' +
     '</div>';
@@ -305,15 +305,15 @@ const UG = (() => {
        along the top of the grid instead of the bottom */
     const land = '<path d="M0 96 C90 120 172 104 252 118 C342 134 432 128 522 108 C612 90 702 96 760 110 L760 0 L0 0 Z" ' +
       'fill="rgba(52,150,214,.16)" stroke="rgba(120,190,215,.22)" stroke-width="1"/>';
-    let roads = '<path d="M60 250 C180 236 300 268 470 232 S640 196 720 214" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="2"/>' +
-                '<path d="M170 60 C200 150 250 200 300 300 S380 380 500 400" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="2"/>';
+    let roads = '<path d="M60 250 C180 236 300 268 470 232 S640 196 720 214" fill="none" style="stroke:rgba(var(--ug-tint, 255,255,255),.10)" stroke-width="2"/>' +
+                '<path d="M170 60 C200 150 250 200 300 300 S380 380 500 400" fill="none" style="stroke:rgba(var(--ug-tint, 255,255,255),.08)" stroke-width="2"/>';
     let river = '';
     let nodeMarks = nodes.map(n => {
       const left = n[4] === -1;
       return '<circle cx="'+n[1]+'" cy="'+n[2]+'" r="'+(n[3]?4.5:3)+'" fill="'+(n[3]?'#34D6F0':'#7E92AF')+'"/>' +
       '<text x="'+(n[1] + (left ? -9 : 9))+'" y="'+(n[2]+4)+'" text-anchor="'+(left ? 'end' : 'start')+'" ' +
       'font-family="IBM Plex Mono, monospace" font-size="10.5" ' +
-      'style="paint-order:stroke;stroke:#061020;stroke-width:3.6px;stroke-linejoin:round" ' +
+      'style="paint-order:stroke;stroke:var(--ug-map-bg, #061020);stroke-width:3.6px;stroke-linejoin:round" ' +
       'fill="'+(n[3]?'#DCEDFB':'#A9BDD6')+'">'+n[0]+'</text>';
     }).join('');
     let marks = '';
@@ -323,7 +323,7 @@ const UG = (() => {
       marks += '<circle cx="'+cx+'" cy="'+cy+'" r="'+rr+'" fill="'+col+'" opacity=".10"/>' +
                '<circle cx="'+cx+'" cy="'+cy+'" r="'+rr+'" fill="none" stroke="'+col+'" stroke-opacity=".45" stroke-width="1" stroke-dasharray="4 5"/>' +
                '<circle cx="'+cx+'" cy="'+cy+'" r="5" fill="'+col+'"/>' +
-               '<circle cx="'+cx+'" cy="'+cy+'" r="1.9" fill="#050910"/>';
+               '<circle cx="'+cx+'" cy="'+cy+'" r="1.9" style="fill:var(--ug-bg, #050910)"/>';
     });
     DATA.incidents.filter(i => i.units > 0).forEach(i => {
       const cx = i.x * W + 22, cy = i.y * H - 20;
@@ -333,8 +333,8 @@ const UG = (() => {
       '<path d="M300 200 L300 60 A140 140 0 0 1 430 150 Z" fill="rgba(52,214,240,.10)"/></g>' : '';
     return '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Live operations map of Lingayen showing active incident perimeters and deployed units">' +
       '<defs><pattern id="uggrid" width="38" height="38" patternUnits="userSpaceOnUse">' +
-      '<path d="M38 0H0V38" fill="none" stroke="rgba(255,255,255,.045)" stroke-width="1"/></pattern></defs>' +
-      '<rect width="'+W+'" height="'+H+'" fill="#061020"/>' +
+      '<path d="M38 0H0V38" fill="none" style="stroke:rgba(var(--ug-tint, 255,255,255),.045)" stroke-width="1"/></pattern></defs>' +
+      '<rect width="'+W+'" height="'+H+'" style="fill:var(--ug-map-bg, #061020)"/>' +
       '<rect width="'+W+'" height="'+H+'" fill="url(#uggrid)"/>' +
       contours + land + roads + river + nodeMarks + sweep + marks +
       '<text x="16" y="'+(H-14)+'" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#7E92AF">LINGAYEN GRID · WGS84 · ZOOM 12</text>' +
@@ -348,14 +348,30 @@ const UG = (() => {
     '</div>';
   }
 
+  /* The Triad Shield emblem (Oct 2026 design): left = barangay, right = LDRRMO
+     command, keel = residents, joined by the beacon hub. Each role recolours it
+     through --ug-em-* (css/design.css). Path data from the React app's
+     src/brand/TriadEmblem.tsx. */
+  function triadEmblem(px){
+    return '<svg class="ug-emblem" viewBox="0 0 64 64" width="'+px+'" height="'+px+'" aria-hidden="true">' +
+      '<path style="fill:var(--ug-em-left)" d="M30.4 5.3C24 8.2 17.5 9.9 9.5 11.2V30C9.5 32.3 9.7 34.4 10.1 36.4H30.4Z"/>' +
+      '<path style="fill:var(--ug-em-right)" d="M33.6 5.3C40 8.2 46.5 9.9 54.5 11.2V30C54.5 32.3 54.3 34.4 53.9 36.4H33.6Z"/>' +
+      '<path style="fill:var(--ug-em-keel)" d="M10.9 40.2C16.8 37.6 22.6 42.8 32 40.2C41.4 37.6 47.2 42.8 53.1 40.2C49.6 48.8 42.2 55.6 32 60.5C21.8 55.6 14.4 48.8 10.9 40.2Z"/>' +
+      '<circle cx="32" cy="21.5" r="5.6" style="fill:var(--ug-em-hub)"/>' +
+      '<circle cx="32" cy="21.5" r="2.4" style="fill:var(--ug-em-dot)"/></svg>';
+  }
+  /* the original shield icon; css/design.css swaps it for the emblem */
+  function shieldIcon(px){
+    return '<svg class="ug-mark-classic" viewBox="0 0 24 24" width="'+px+'" height="'+px+'" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M12 2.6 4.6 5.7v5.8c0 4.5 3.1 8.2 7.4 9.6 4.3-1.4 7.4-5.1 7.4-9.6V5.7L12 2.6Z"/><path d="M8.6 12.2 11 14.6l4.6-4.9"/></svg>';
+  }
   function brandMark(size){
     size = size || 34;
     return '<span class="ug-mark" style="width:'+size+'px;height:'+size+'px">' +
-      '<svg viewBox="0 0 24 24" width="'+Math.round(size*0.6)+'" height="'+Math.round(size*0.6)+'" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">' +
-      '<path d="M12 2.6 4.6 5.7v5.8c0 4.5 3.1 8.2 7.4 9.6 4.3-1.4 7.4-5.1 7.4-9.6V5.7L12 2.6Z"/><path d="M8.6 12.2 11 14.6l4.6-4.9"/></svg></span>';
+      shieldIcon(Math.round(size*0.6)) + triadEmblem(size) + '</span>';
   }
 
-  return { ICONS, icon, DATA, SEV, STAGES, esc, badge, sevBadge, ladder, stageBadge, stat, thumb, photo, pipeline, corrMeter, mapSVG, mapLegend, brandMark };
+  return { ICONS, icon, DATA, SEV, STAGES, esc, badge, sevBadge, ladder, stageBadge, stat, thumb, photo, pipeline, corrMeter, mapSVG, mapLegend, brandMark, triadEmblem, shieldIcon };
 })();
 
 const UG_SCREENS = (() => {
@@ -388,7 +404,7 @@ const UG_SCREENS = (() => {
   const occBar = (occ, cap) => {
     const pct = Math.min(100, Math.round(occ / cap * 100));
     const col = pct >= 100 ? 'var(--ug-warning)' : 'var(--ug-prepared)';
-    return '<div style="height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden">' +
+    return '<div style="height:5px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.08);overflow:hidden">' +
       '<div style="height:100%;width:' + pct + '%;background:' + col + '"></div></div>';
   };
   const catBar = (n) => {
@@ -407,7 +423,7 @@ const UG_SCREENS = (() => {
     const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
     const area = line + ' L' + W + ' ' + H + ' L0 ' + H + ' Z';
     let grid = '';
-    for (let i = 1; i <= 4; i++) grid += '<line x1="0" y1="' + H / 4 * i + '" x2="' + W + '" y2="' + H / 4 * i + '" stroke="rgba(255,255,255,.05)"/>';
+    for (let i = 1; i <= 4; i++) grid += '<line x1="0" y1="' + H / 4 * i + '" x2="' + W + '" y2="' + H / 4 * i + '" style="stroke:rgba(var(--ug-tint, 255,255,255),.05)"/>';
     const dots = pts.map((p, i) => i % 2 === 0 ? '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.4" fill="#34D6F0"/>' : '').join('');
     return '<div style="display:flex;gap:10px;align-items:stretch">' +
         '<div style="display:flex;flex-direction:column;justify-content:space-between;width:26px;text-align:right;' +
@@ -448,8 +464,7 @@ const UG_SCREENS = (() => {
     return '<div class="ug-appbar">' +
       '<button class="ug-brand ug-brand-btn"' + A('nav', attr({ route: 'home' })) + ' aria-label="Go to the home screen">' +
         '<span class="ug-mark" style="width:30px;height:30px;border-radius:8px">' +
-          '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">' +
-          '<path d="M12 2.6 4.6 5.7v5.8c0 4.5 3.1 8.2 7.4 9.6 4.3-1.4 7.4-5.1 7.4-9.6V5.7L12 2.6Z"/><path d="M8.6 12.2 11 14.6l4.6-4.9"/></svg></span>' +
+          U.shieldIcon(17) + U.triadEmblem(30) + '</span>' +
         '<span class="ug-col" style="gap:0;min-width:0">' +
           '<span style="font-family:var(--ug-display);font-weight:700;font-size:13px">' + esc(title) + '</span>' +
           '<span class="ug-dimmer" style="font-size:10px">' + esc(sub) + '</span>' +
@@ -496,7 +511,7 @@ const UG_SCREENS = (() => {
     const openCenters = U.DATA.centers.filter(c => c.status === 'open');
     const isEmergency = top && top.severity === 'emergency';
     const readout = (v, l, tone) =>
-      '<div class="ug-col" style="gap:3px;padding:11px 12px;background:rgba(255,255,255,.03);border:1px solid var(--ug-line);border-radius:10px;flex:1;min-width:0">' +
+      '<div class="ug-col" style="gap:3px;padding:11px 12px;background:rgba(var(--ug-tint, 255,255,255),.03);border:1px solid var(--ug-line);border-radius:10px;flex:1;min-width:0">' +
         '<span class="ug-mono" style="font-size:17px;font-weight:600;color:' + tone + '">' + v + '</span>' +
         '<span class="ug-dimmer" style="font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;overflow-wrap:anywhere;line-height:1.3">' + l + '</span></div>';
 
@@ -975,7 +990,7 @@ const UG_SCREENS = (() => {
         '<span style="transform:rotate(180deg);display:flex">' + I('chevron', 14) + '</span>' + esc(T('action.back')) + '</button>' +
       /* the banner with the severity strip + title — same gradient as before,
          still the visual anchor. */
-      '<div class="ug-banner" style="min-height:140px;background:linear-gradient(135deg,' + sev.color + '40,#0C1524)">' +
+      '<div class="ug-banner" style="min-height:140px;background:linear-gradient(135deg,' + sev.color + '40,var(--ug-surface, #0C1524))">' +
         '<div class="bn-in"><div class="ug-rowf ug-gap8" style="gap:6px;margin-bottom:6px">' + U.sevBadge(a.severity) + U.badge('id', a.type) + '</div>' +
         '<h2 style="font-size:18px;line-height:1.3">' + esc(a.title) + '</h2>' +
         '<div class="ug-dimmer" style="font-size:11px;margin-top:6px">' + esc(a.area || UG_GEO.PLACE.areaAll) + ' · ' + esc(a.time || 'just now') + '</div></div></div>' +
@@ -1204,9 +1219,14 @@ const UG_SCREENS = (() => {
     const route = st.route === 'incident' ? 'incidents' : st.route === 'relief-verify' ? 'relief' : st.route;
     /* T() is defined at the UG_SCREENS module scope (line 362) — reused here. */
     return '<aside class="ug-side" id="ug-console-nav">' +
-      '<button class="ug-brand ug-brand-btn"' + A('nav', attr({ route: 'dashboard' })) + ' aria-label="Go to the dashboard">' + U.brandMark(32) +
+      /* the Super Admin's logo goes back to their home screen (Overview, Accounts, Activity) */
+      (role.superAdmin
+        ? '<button class="ug-brand ug-brand-btn"' + A('nav', attr({ route: 'admin-home' })) + ' aria-label="Go to the Super Admin home">'
+        : '<button class="ug-brand ug-brand-btn"' + A('nav', attr({ route: 'dashboard' })) + ' aria-label="Go to the dashboard">') + U.brandMark(32) +
         '<span class="ug-col" style="gap:0"><span class="ug-wordmark" style="font-size:15.5px">Uni<em>Guard</em></span>' +
         '<span class="ug-dimmer" style="font-size:9px;letter-spacing:.1em;text-transform:uppercase">Command console</span></span></button>' +
+      /* Super Admin only: back to the main screen (Overview, Accounts, Activity) */
+      (role.superAdmin ? '<button class="ug-nav ug-sa-back-nav"' + A('nav', attr({ route: 'admin-home' })) + '>' + I('chevron', 18, 'ug-flip') + '<span>Main screen</span></button>' : '') +
       DNAV.filter(n => (!n[4] || n[4].indexOf(role.role) !== -1) && (n[5] !== 'super' || role.superAdmin)).map(n => '<button class="ug-nav' + (route === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '>' +
         I(n[2], 18) + '<span>' + T(n[1]) + '</span>' + (navCount(n[0]) ? '<span class="n-cnt">' + navCount(n[0]) + '</span>' : '') + '</button>').join('') +
       '<div style="margin-top:auto" class="ug-col ug-gap6" style="gap:6px">' +
@@ -1228,6 +1248,8 @@ const UG_SCREENS = (() => {
     return '<header class="ug-top">' +
       '<button class="ug-ico-btn ug-menubtn" data-act="toggle-nav" aria-label="Open the navigation menu" ' +
         'aria-expanded="false" aria-controls="ug-console-nav">' + I('menu', 18) + '</button>' +
+      /* Super Admin only: always-visible way back to the main screen */
+      (role.superAdmin ? '<button class="ug-sa-back"' + A('nav', attr({ route: 'admin-home' })) + ' aria-label="Back to the main screen">' + I('chevron', 15, 'ug-flip') + '<span>Main screen</span></button>' : '') +
       '<div class="ug-col" style="gap:0;min-width:150px">' +
         '<span style="font-family:var(--ug-display);font-weight:700;font-size:13.5px">' + esc(title) + '</span>' +
         '<span class="ug-dimmer" style="font-size:10.5px">' + esc(sub) + '</span></div>' +
@@ -1336,7 +1358,7 @@ const UG_SCREENS = (() => {
         '</div></div>'
       : '';
     return '<div class="ug-col" style="gap:14px">' +
-      pageHead(T('title.dashboard'), T('dashboard.subtitle') + ' ' +  + U.DATA.city + '.',
+      pageHead(T('title.dashboard'), T('dashboard.subtitle') + ' ' + U.DATA.city + '.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('nav', attr({ route: 'analytics' })) + '>' + I('layers', 15) + 'Analytics</button>' +
         /* only LGU / LDRRMC may declare (RPC declare_emergency, migration 009) */
         (st.session && st.session.role === 'lgu_ldrrmc'
@@ -1379,7 +1401,7 @@ const UG_SCREENS = (() => {
               const max = Math.max(rows[0][1], 4);
               return rows.map(x => '<div class="ug-col" style="gap:5px"><div class="ug-rowf ug-between" style="font-size:11.5px">' +
                 '<span>' + esc(x[0]) + '</span><span class="ug-mono">' + x[1] + '</span></div>' +
-                '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden">' +
+                '<div style="height:6px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.07);overflow:hidden">' +
                 '<div style="height:100%;width:' + Math.round(x[1] / max * 100) + '%;background:' + x[2] + '"></div></div></div>').join('');
             })() +
           '</div></div>' +
@@ -1473,11 +1495,13 @@ const UG_SCREENS = (() => {
         return '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('edit-report', attr({ id: i.id })) + '>' + I('settings', 14) + 'Edit</button>';
       }
       if (i.status === 'reported') {
-        /* LGU sees both Verify (barangay-style) and LGU-Verify; barangay officials
-           only see the standard Verify. Super Admin gets neither (handled above). */
+        /* One Verify button. For LDRRMO staff it runs the LGU verification
+           (records the LDRRMO as verifier, keeps the note, notifies the
+           reporter); showing it next to the generic Verify put two buttons
+           that did the same thing on every row. Barangay officials keep the
+           standard Verify. Super Admin gets neither (handled above). */
         if (st.session && st.session.role === 'lgu_ldrrmc') {
-          return '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('lgu-verify', attr({ id: i.id })) + '>' + I('shield', 14) + 'LGU-Verify</button>' +
-                 '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Verify</button>';
+          return '<button class="ug-btn ug-btn--sm"' + A('lgu-verify', attr({ id: i.id })) + ' title="Verified by the LDRRMO; an optional note is kept in the activity log">' + I('shield', 14) + 'Verify</button>';
         }
         return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Verify</button>';
       }
@@ -1580,12 +1604,14 @@ const UG_SCREENS = (() => {
                 ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>'
                 : '')
             ) :
-            (status !== 'resolved' && status !== 'rejected' ? '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('check', 15) + (status === 'verified' ? 'Dispatch Response' : 'Advance Status') + '</button>' +
-          (status === 'dispatched' ? '<button class="ug-btn ug-btn--sm"' + A('dispatch-open', attr({ id: i.id })) + '>' + I('truck', 15) + 'Add Team</button>' : '') +
-          /* LGU-only second verify path: only shows while the report is still
-             unverified, so an inactive barangay is not a blind spot. The Super
-             Admin never gets this button — they must not verify reports. */
-          (isLGU && status === 'reported' && !st.session.superAdmin ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('lgu-verify', attr({ id: i.id })) + '>' + I('shield', 15) + 'LGU-Verify</button>' : '') +
+            (status !== 'resolved' && status !== 'rejected' ? (
+              /* LDRRMO staff verify through the LGU verification (one button,
+                 not "Advance Status" plus a second "LGU-Verify") */
+              isLGU && status === 'reported'
+                ? '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('lgu-verify', attr({ id: i.id })) + ' title="Verified by the LDRRMO; an optional note is kept in the activity log">' + I('shield', 15) + 'Verify Report</button>'
+                : '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('check', 15) + (status === 'verified' ? 'Dispatch Response' : 'Advance Status') + '</button>') +
+          (status === 'dispatched' ? '<button class="ug-btn ug-btn--sm"' + A('incident-add-team', attr({ id: i.id })) + '>' + I('truck', 15) + 'Add Team</button>' : '') +
+
           '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>' : '')
           ) +
         '</div>' +
@@ -1663,8 +1689,12 @@ const UG_SCREENS = (() => {
        colored chip so the duty officer can see the level at a glance. */
     const levelChip = (key, label) => {
       const sev = U.SEV[key] || UG_THEME.PREPARED;
+      /* U.SEV has no soft/text shades (this wrote background:undefined): read
+         them from the theme, and the text through the light/dark-aware variable */
+      const th = UG_THEME.SEVERITY[key] || UG_THEME.PREPARED;
+      const txt = 'var(--ug-' + (UG_THEME.SEVERITY[key] ? 'sev-' + key : 'prepared') + '-text, ' + th.text + ')';
       return '<button class="ug-chip ug-ladder-chip' + (d.sev === key ? ' is-on' : '') + '"' + A('adv-sev', attr({ v: key })) +
-        ' style="' + (d.sev === key ? 'background:' + sev.soft + ';border-color:' + sev.color + ';color:' + sev.text : '') + '">' +
+        ' style="' + (d.sev === key ? 'background:' + th.soft + ';border-color:' + th.color + ';color:' + txt : '') + '">' +
         '<span class="ug-ladder-dot" style="background:' + sev.color + '"></span>' + label + '</button>';
     };
     return '<div class="ug-col" style="gap:18px">' +
@@ -1736,7 +1766,7 @@ const UG_SCREENS = (() => {
         '<div class="ug-col" style="gap:18px">' +
           '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(T('advisories.preview')) + '</h3><span class="ug-dimmer" style="font-size:10.5px">' + (d.lang === 'fil' ? esc(T('settings.filipino')) : esc(T('settings.english'))) + ' · Lock Screen</span></div>' +
             '<div class="ug-card-b ug-col" style="gap:10px">' +
-              '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:flex-start;background:rgba(255,255,255,.03);border:1px solid var(--ug-line);border-radius:10px;padding:11px">' +
+              '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:flex-start;background:rgba(var(--ug-tint, 255,255,255),.03);border:1px solid var(--ug-line);border-radius:10px;padding:11px">' +
                 U.brandMark(26) +
                 '<span class="ug-col" style="gap:2px;min-width:0"><span class="ug-rowf" style="gap:6px"><span style="font-size:11.5px;font-weight:700">UniGuard</span>' +
                 '<span class="ug-dimmer ug-mono" style="font-size:9.5px">now</span></span>' +
@@ -1920,7 +1950,7 @@ const UG_SCREENS = (() => {
               const pct = total ? Math.round(n / total * 100) : 0;
               return '<div class="ug-col" style="gap:6px"><div class="ug-rowf ug-between" style="font-size:11.5px">' +
                 '<span style="color:' + s.color + ';font-weight:600">' + s.label + '</span><span class="ug-mono">' + n + (n === 1 ? ' report' : ' reports') + '</span></div>' +
-                '<div style="height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden">' +
+                '<div style="height:5px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.08);overflow:hidden">' +
                 (n ? '<div style="height:100%;width:' + Math.max(4, pct) + '%;background:' + s.color + '"></div>' : '') + '</div></div>';
             }).join('') + '</div></div>' +
           '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">Statuses move one step at a time — Reported, Verified, Response Dispatched, Resolved. Rejected is final. Open an incident to advance it.</div></div>' +
@@ -1990,7 +2020,8 @@ const UG_SCREENS = (() => {
     const hotlineActions = (h) => {
       const call = '<a class="ug-btn ug-btn--sm" style="flex:1;text-decoration:none" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '">' + I('phone', 14) + esc(T('action.call')) + '</a>';
       if (isSuper) {
-        return '<div class="ug-rowf ug-gap8" style="gap:6px">' + call +
+        /* four buttons: a 2 x 2 grid so none is cut off on a narrow card */
+        return '<div class="ug-hl-acts">' + call +
           '<button class="ug-btn ug-btn--sm" data-act="open-hotline-detail" data-id="' + esc(h.id) + '">' + I('doc', 13) + esc(T('hotlines.viewDetails')) + '</button>' +
           '<button class="ug-btn ug-btn--sm" data-act="edit-hotline" data-id="' + esc(h.id) + '">' + I('settings', 13) + esc(T('action.edit')) + '</button>' +
           '<button class="ug-btn ug-btn--sm ug-btn--danger" data-act="delete-hotline" data-id="' + esc(h.id) + '">' + I('x', 13) + esc(T('action.delete')) + '</button>' +
@@ -2047,7 +2078,9 @@ const UG_SCREENS = (() => {
      a comparison to the previous equivalent reporting period where applicable.
      The barangay filter applies to every card so the Super Admin / LGU can
      see one barangay across the whole page. No fake numbers anywhere. */
-  function dAnalytics(st){
+  /* The numbers behind the Analytics screen, shared with its PDF / Excel / CSV
+     exports (js/exports.js) so a document can never disagree with the screen. */
+  function analyticsModel(st){
     const an = U.DATA.analytics || {};
     const cnt = U.DATA.counts || {};
     const trendDaily = (an.daily && an.daily.length && typeof an.daily[0] === 'object') ? an.daily.map(d => d.total) : (an.daily || []);
@@ -2159,6 +2192,11 @@ const UG_SCREENS = (() => {
     const week = (trendDaily.length >= 7) ? trendDaily.slice(-7).reduce((a, b) => a + b, 0) : 0;
     const prev = (trendDaily.length >= 14) ? trendDaily.slice(0, 7).reduce((a, b) => a + b, 0) : 0;
     const weekDelta = prev ? Math.round(((week - prev) / prev) * 100) : 0;
+    return { an, cnt, trendDaily, trend, fmtDur, isLGU, brgyFilter, inc, adv, cen, relief, byHaz, hazRows, byBrgy, brgyRows, stages, openCount, openIncidents, oldest, oldestAgeMin, staleThreshold, overThresholdCount, unitBuckets, dispatches, unitStats, perTeam, teamRows, verified, unverified, rejected, total, autoVerified, totalCap, totalOcc, fullShelters, openShelters, reliefPerBrgy, reliefRows, reliefPhases, distLog, totalRecipients, week, prev, weekDelta };
+  }
+
+  function dAnalytics(st){
+    const { an, cnt, trendDaily, trend, fmtDur, isLGU, brgyFilter, inc, adv, cen, relief, byHaz, hazRows, byBrgy, brgyRows, stages, openCount, openIncidents, oldest, oldestAgeMin, staleThreshold, overThresholdCount, unitBuckets, dispatches, unitStats, perTeam, teamRows, verified, unverified, rejected, total, autoVerified, totalCap, totalOcc, fullShelters, openShelters, reliefPerBrgy, reliefRows, reliefPhases, distLog, totalRecipients, week, prev, weekDelta } = analyticsModel(st);
 
     /* barangay filter dropdown */
     const brgyOpts = ['All'].concat(U.DATA.barangays).map((b) =>
@@ -2211,7 +2249,7 @@ const UG_SCREENS = (() => {
                 '<span style="color:' + x[2] + ';display:flex">' + I('alert', 12) + '</span>' +
                 '<span style="color:var(--ug-ink);font-weight:600">' + esc(x[0]) + '</span></button>' +
               '<span class="ug-mono">' + x[1] + '</span></div>' +
-              '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.round(x[1] / Math.max(hazRows[0][1], 1) * 100) + '%;background:' + x[2] + '"></div></div></div>').join('')
+              '<div style="height:6px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.07);overflow:hidden"><div style="height:100%;width:' + Math.round(x[1] / Math.max(hazRows[0][1], 1) * 100) + '%;background:' + x[2] + '"></div></div></div>').join('')
               : '<div class="ug-dim" style="font-size:12px">No reports recorded yet.</div>') +
             '<div class="ug-dim" style="font-size:11px;line-height:1.55">Includes "Others". Tap a row label to filter the incident queue by hazard.</div>' +
           '</div></div>' +
@@ -2222,7 +2260,7 @@ const UG_SCREENS = (() => {
             ((brgyRows.length) ? brgyRows.slice(0, 10).map(b =>
               '<div class="ug-col" style="gap:5px"><button class="ug-rowf ug-between" style="gap:8px;font-size:11.5px;background:transparent;border:0;cursor:pointer;color:inherit;padding:0;font:inherit;text-align:left" data-act="sev-filter" data-v="all" title="Open ' + esc(b.brgy) + ' reports">' +
                 '<span>' + esc(b.brgy || '—') + '</span><span class="ug-mono">' + b.total + ' reports</span></button>' +
-                '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, b.total * 4) + '%;background:var(--ug-signal)"></div></div></div>').join('')
+                '<div style="height:6px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, b.total * 4) + '%;background:var(--ug-signal)"></div></div></div>').join('')
               : '<div class="ug-dim" style="font-size:12px">No incidents in the selected range.</div>') +
             '<div class="ug-dim" style="font-size:11px">' + (isLGU ? 'Municipality-wide comparison across all barangays.' : 'Your barangay only — the scope is enforced server side.') + '</div>' +
           '</div></div>' +
@@ -2264,7 +2302,7 @@ const UG_SCREENS = (() => {
           '<div class="ug-card-b ug-col" style="gap:9px">' +
             (teamRows.length ? teamRows.slice(0, 8).map((t) => '<div class="ug-col" style="gap:5px"><div class="ug-rowf ug-between" style="font-size:11.5px">' +
               '<span>' + esc(t.team) + '</span><span class="ug-mono">' + t.count + ' dispatch' + (t.count === 1 ? '' : 'es') + '</span></div>' +
-              '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, t.count / Math.max(teamRows[0].count, 1) * 100) + '%;background:var(--ug-st-dispatched)"></div></div></div>').join('')
+              '<div style="height:6px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, t.count / Math.max(teamRows[0].count, 1) * 100) + '%;background:var(--ug-st-dispatched)"></div></div></div>').join('')
               : '<div class="ug-dim" style="font-size:12px">No dispatches recorded yet.</div>') +
             /* unit support request acknowledgement time — gap closure from the
                previous audit. unit_requests.decided_at exists in the schema
@@ -2305,7 +2343,7 @@ const UG_SCREENS = (() => {
           '<div class="ug-card-b ug-col" style="gap:14px">' +
             '<div><div class="ug-mono" style="font-size:30px;font-weight:700;color:var(--ug-prepared)">' + totalOcc + ' / ' + totalCap + '</div>' +
               '<div class="ug-dimmer" style="font-size:10.5px">current occupancy / total capacity</div></div>' +
-            '<div style="height:8px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, totalCap ? Math.round(totalOcc / totalCap * 100) : 0) + '%;background:' + (totalCap && totalOcc / totalCap >= 0.85 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + '"></div></div>' +
+            '<div style="height:8px;border-radius:4px;background:rgba(var(--ug-tint, 255,255,255),.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, totalCap ? Math.round(totalOcc / totalCap * 100) : 0) + '%;background:' + (totalCap && totalOcc / totalCap >= 0.85 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + '"></div></div>' +
             (fullShelters.length ? '<div class="ug-col" style="gap:6px;margin-top:8px"><div class="ug-lab">At capacity</div>' + fullShelters.slice(0, 5).map((c) =>
               '<button class="ug-rowf ug-between" style="gap:8px;font-size:11px;background:transparent;border:0;cursor:pointer;color:inherit;padding:3px 0;font:inherit;text-align:left;width:100%" data-act="center-detail" data-id="' + esc(c.uuid || c.id) + '"><span>' + esc(c.name) + '</span><span class="ug-mono" style="color:var(--ug-warning)">' + c.occ + '/' + c.cap + '</span></button>').join('') + '</div>' : '') +
           '</div></div>' +
@@ -2325,7 +2363,7 @@ const UG_SCREENS = (() => {
           '<div class="ug-col" style="gap:6px"><div class="ug-lab">Per barangay</div>' +
             (reliefRows.length ? reliefRows.slice(0, 8).map((r) =>
               '<div class="ug-col" style="gap:5px"><div class="ug-rowf ug-between" style="font-size:11.5px"><span>' + esc(r.brgy) + '</span><span class="ug-mono">' + r.count + '</span></div>' +
-              '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, r.count / Math.max(reliefRows[0].count, 1) * 100) + '%;background:var(--ug-prepared)"></div></div></div>').join('')
+              '<div style="height:6px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.07);overflow:hidden"><div style="height:100%;width:' + Math.min(100, r.count / Math.max(reliefRows[0].count, 1) * 100) + '%;background:var(--ug-prepared)"></div></div></div>').join('')
               : '<div class="ug-dim" style="font-size:12px">No distributions recorded.</div>') +
           '</div>' +
         '</div></div>' +
@@ -2509,8 +2547,11 @@ const UG_SCREENS = (() => {
       case 'dispatch-units': return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.dispatchUnits) ? UG_ADMIN.dispatchUnits(st) : dDashboard(st);
       case 'settings': return (typeof UG_SETTINGS !== 'undefined') ? UG_SETTINGS.dSettings(st) : dDashboard(st);
       case 'reporting': return (typeof UG_REPORTING !== 'undefined') ? UG_REPORTING.dReporting(st) : dDashboard(st);
-      case 'offline': return '<div class="ug-col" style="gap:18px">' + pageHead('Offline sync', 'Progressive web app cache keeps essentials available when networks fail.') +
-        '<div style="max-width:760px">' + mOffline(st) + '</div></div>';
+      /* the same two-column Offline Readiness page residents get on a wide screen
+         (the phone layout squeezed into one narrow column looked unfinished) */
+      case 'offline': return (typeof UG_WEB !== 'undefined' && UG_WEB.cwOffline) ? UG_WEB.cwOffline(st)
+        : '<div class="ug-col" style="gap:18px">' + pageHead('Offline sync', 'Progressive web app cache keeps essentials available when networks fail.') +
+          '<div style="max-width:760px">' + mOffline(st) + '</div></div>';
       default: return (typeof UG_ADMIN !== 'undefined' && UG_ADMIN.handles(st.route)) ? UG_ADMIN.body(st) : dDashboard(st);
     }
   }
@@ -2548,6 +2589,9 @@ const UG_SCREENS = (() => {
         ? UG_DISPATCH.frame(Object.assign({}, st, { session: sess(st) }))
         : frameDesktop(Object.assign({}, st, { session: sess(st) }));
     }
+    /* the Super Admin's home screen (js/screens.superadmin.js); every other
+       route and role keeps the console below */
+    if (typeof UG_SUPERADMIN !== 'undefined' && UG_SUPERADMIN.handles(st)) return UG_SUPERADMIN.frame(st);
     return frameDesktop(Object.assign({}, st, { route: DESK(st.route), session: sess(st) }));
   }
 
@@ -2555,5 +2599,5 @@ const UG_SCREENS = (() => {
   const MOB = (r) => ({ notifications:'notifications', offline:'offline', advisories:'advisories', centers:'centers', hotlines:'hotlines', home:'home', report:'report', reports:'reports' })[r] || r;
   const DESK = (r) => ({ notifications:'notifications', offline:'offline', advisories:'advisories', centers:'centers', hotlines:'hotlines', dashboard:'dashboard', home:'dashboard', incidents:'incidents', analytics:'analytics' })[r] || r;
 
-  return { login, frame, frameMobile, frameDesktop, mobileBody, desktopBody, MOB, DESK, sess };
+  return { login, frame, frameMobile, frameDesktop, mobileBody, desktopBody, MOB, DESK, sess, analyticsModel };
 })();

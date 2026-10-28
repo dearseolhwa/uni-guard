@@ -45,7 +45,12 @@ uniguard/
 │
 ├── js/
 │   ├── config.js                  env, feature flags, business constants
-│   ├── util.js                    escape, relative time, formatting, CSV, validation
+│   ├── util.js                    escape, relative time, formatting, validation
+│   ├── export-core.js             shared export layer: metadata, filenames, PHT dates, CSV, scope checks
+│   ├── pdf.js                     the formal PDF template (jsPDF + autotable)
+│   ├── xlsx-lite.js               formatted .xlsx workbooks (no dependency)
+│   ├── exports.js                 every export outside Reports and Documentation
+│   ├── reporting.js               Reports and Documentation (situation report, incident summary, damage and needs)
 │   ├── screens.js                 render layer: icons, components, mobile and console screens
 │   ├── screens.web.js             role definitions and the citizen web shell
 │   ├── screens.auth.js            sign in, create account, confirm, forgot, set password

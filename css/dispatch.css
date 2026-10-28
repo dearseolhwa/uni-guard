@@ -15,12 +15,12 @@
 .ug-badge--ready { background: rgba(47, 208, 138, .14); color: var(--ug-prepared); }
 .ug-badge--needs_repair { background: rgba(255, 179, 64, .14); color: var(--ug-warning); }
 .ug-badge--missing, .ug-badge--out_of_service, .ug-badge--unavailable { background: rgba(255, 90, 95, .14); color: var(--ug-emergency); }
-.ug-badge--unknown { background: rgba(255, 255, 255, .06); color: var(--ug-ink-3); }
+.ug-badge--unknown { background: rgba(var(--ug-tint, 255,255,255),.06); color: var(--ug-ink-3); }
 .ug-badge--available { background: rgba(47, 208, 138, .14); color: var(--ug-prepared); }
 .ug-badge--deployed { background: rgba(77, 155, 255, .14); color: var(--ug-advisory); }
 .ug-badge--maintenance { background: rgba(255, 179, 64, .14); color: var(--ug-warning); }
 .ug-badge--on, .ug-badge--open { background: rgba(47, 208, 138, .14); color: var(--ug-prepared); }
-.ug-badge--off, .ug-badge--closed { background: rgba(255, 255, 255, .06); color: var(--ug-ink-3); }
+.ug-badge--off, .ug-badge--closed { background: rgba(var(--ug-tint, 255,255,255),.06); color: var(--ug-ink-3); }
 .ug-badge--pending { background: rgba(255, 179, 64, .14); color: var(--ug-warning); }
 .ug-badge--approved { background: rgba(47, 208, 138, .14); color: var(--ug-prepared); }
 .ug-badge--declined { background: rgba(255, 90, 95, .14); color: var(--ug-emergency); }

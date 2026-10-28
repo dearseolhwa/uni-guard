@@ -724,14 +724,14 @@ const UG_SETTINGS = (function () {
   }
 
   function exportTemplates() {
+    /* a configuration backup, not a document: the plain JSON array is kept
+       exactly as before so it stays re-importable; only the file name and the
+       download path follow the shared export standard (js/export-core.js) */
     const list = loadTemplates();
-    const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'uniguard-message-templates.json'; a.style.display = 'none';
-    document.body.appendChild(a); a.click();
-    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
-    UGTOST(list.length + ' templates exported', 'prepared');
+    if (!list.length) { UGTOST('There are no message templates to export', 'info'); return; }
+    const filename = UG_EXPORT.buildFilename({ type: 'Message Templates', ext: 'json' });
+    UG_EXPORT.download(new Blob([JSON.stringify(list, null, 2)], { type: 'application/json;charset=utf-8' }), filename);
+    UGTOST(list.length + ' template' + (list.length === 1 ? '' : 's') + ' saved \u00b7 ' + filename, 'prepared');
   }
 
   return {

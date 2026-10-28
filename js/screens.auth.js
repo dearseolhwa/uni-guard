@@ -184,7 +184,7 @@ const UG_AUTH = (function () {
     const email = a.pendingEmail || (a.form && a.form.email) || '';
     const body =
       '<div class="ug-auth-done">' + I('megaphone', 24) + '</div>' +
-      '<div class="ug-rowf ug-between" style="gap:10px;font-size:12.5px;padding:11px 13px;border:1px solid var(--ug-line);border-radius:10px;background:rgba(0,0,0,.24)">' +
+      '<div class="ug-rowf ug-between" style="gap:10px;font-size:12.5px;padding:11px 13px;border:1px solid var(--ug-line);border-radius:10px;background:var(--ug-field-bg, rgba(0,0,0,.24))">' +
         '<span class="ug-dim">Confirmation sent to</span><span class="ug-mono">' + esc(email) + '</span></div>' +
       '<div class="ug-dim" style="font-size:11.5px;line-height:1.55;margin-top:12px">Open the link in that email to activate your account, then come back and sign in.</div>' +
       '<button type="button" class="ug-btn ug-btn--block" style="margin-top:14px" data-act="resend"' + (a.loading ? ' disabled' : '') + '>' +

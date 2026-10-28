@@ -714,10 +714,10 @@ const UG_DISPATCH = (function () {
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>'
         : '';
       return '<tr' + overdueClass + '>' +
-        '<td><div style="font-weight:600">' + esc(r.identifier || r.custom_label || 'Equipment') + '</div>' +
-          '<div class="ug-dimmer" style="font-size:10.5px">' + esc(r.notes || '') + '</div></td>' +
-        '<td>' + badge(r.status, r.status) + '</td>' +
-        '<td>' + badge(r.condition, r.condition) + '</td>' +
+        '<td><div style="font-weight:600">' + esc(r.identifier || equipmentLabel(r)) + '</div>' +
+          '<div class="ug-dimmer" style="font-size:10.5px">' + esc([r.identifier ? equipmentLabel(r) : '', r.notes || ''].filter(Boolean).join(' · ')) + '</div></td>' +
+        '<td>' + badge(r.status, statusLabel(r.status)) + '</td>' +
+        '<td>' + badge(r.condition, conditionLabel(r.condition)) + '</td>' +
         '<td class="t-num">' + (r.last_checked_at ? ago(r.last_checked_at) : 'never') + '</td>' +
         '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-check" data-id="' + esc(r.id) + '">Check</button>' +
@@ -1220,15 +1220,30 @@ const UG_DISPATCH = (function () {
        The barangay_official + LGU paths live in js/screens.admin.js and
        js/app.js; the same openAddEquipmentModal / openEditEquipmentModal /
        openRemoveEquipmentModal functions are reused there. */
-    'equipment-add': (d) => openAddEquipmentModal({
-      ownerUnitId: d.ownerUnit || (state.data.unit && state.data.unit.id) || null,
-      ownerBarangayId: d.ownerBarangay || null,
-      unitType: d.unitType || (state.data.unit && state.data.unit.unit_type)
-    }),
+    /* Fix (Oct 28 2026): js/app.js merges these actions AFTER its own, so
+       this handler also serves the barangay Response Team button, which
+       sets data-owner-brgy (dataset.ownerBrgy). It read d.ownerBarangay
+       only, so the barangay official always got "not linked to a dispatch
+       unit". Barangay owner wins; otherwise the button's unit or this
+       console's unit. */
+    'equipment-add': (d) => {
+      const brgy = d.ownerBrgy || d.ownerBarangay || null;
+      if (brgy) {
+        openAddEquipmentModal({ ownerUnitId: null, ownerBarangayId: brgy, unitType: 'Barangay' });
+      } else if (d.unitType === 'Barangay') {
+        /* The LGU has no barangay of its own: let it pick one. The
+           add_equipment RPC lets the LGU add to any barangay and still
+           limits an official to their own. */
+        openAddEquipmentModal({ ownerUnitId: null, ownerBarangayId: null, unitType: 'Barangay', pickBarangay: true });
+      } else {
+        openAddEquipmentModal({ ownerUnitId: d.ownerUnit || (state.data.unit && state.data.unit.id) || null,
+          ownerBarangayId: null, unitType: d.unitType || null });
+      }
+    },
     'equipment-edit': (d) => openEditEquipmentModal(d.id, {}),
     'equipment-remove': (d) => openRemoveEquipmentModal(d.id, {}),
 
-    'dispatch-csv': () => exportCsv(),
+    'dispatch-csv': () => UG_EXPORTS.run('dispatch-csv'),
     'dispatch-request-new': () => openRequestModal(),
     'dispatch-capacity-edit': () => openCapacityModal(),
     'dispatch-notif-read': async (d) => {
@@ -1245,18 +1260,95 @@ const UG_DISPATCH = (function () {
     }
   };
 
-  /* ------------------------------------------------------------- modals & CSV */
-  function openCheckModal(id) {
-    const eq = (state.data.equipment || []).find((e) => e.id === id);
-    if (!eq) return;
-    const condOpts = ['ready', 'needs_repair', 'missing', 'out_of_service', 'unknown'].map((c) => '<option value="' + c + '">' + c + '</option>').join('');
+  /* ------------------------------------------------------------- modals (CSV export: js/exports.js) */
+
+  /* 054 (Oct 28 2026): condition <option>s with readable labels. The values
+     stay the DB values the RPCs validate (ready, needs_repair, missing,
+     out_of_service, unknown); only the visible text changes. */
+  const CONDITION_LABELS = [
+    ['ready', 'Ready'],
+    ['needs_repair', 'Needs repair'],
+    ['missing', 'Missing'],
+    ['out_of_service', 'Out of service'],
+    ['unknown', 'Unknown']
+  ];
+  function conditionOptions(selected) {
+    return CONDITION_LABELS.map((p) =>
+      '<option value="' + p[0] + '"' + (p[0] === selected ? ' selected' : '') + '>' + p[1] + '</option>'
+    ).join('');
+  }
+  const STATUS_LABELS = [
+    ['available', 'Available'],
+    ['deployed', 'Deployed'],
+    ['maintenance', 'Maintenance'],
+    ['unavailable', 'Unavailable']
+  ];
+  function labelFrom(pairs, value) {
+    const hit = pairs.find((p) => p[0] === value);
+    return hit ? hit[1] : (value || '');
+  }
+  function conditionLabel(v) { return labelFrom(CONDITION_LABELS, v); }
+  function statusLabel(v) { return labelFrom(STATUS_LABELS, v); }
+
+  /* Fix (Oct 28 2026): the Check / Status / Edit / Remove modals looked only
+     in this console's own list (state.data.equipment), which is empty for
+     the barangay official and the LGU. Fall back to the shared directory. */
+  function findEquipment(id) {
+    const local = (state.data.equipment || []).find((e) => e.id === id);
+    if (local) return local;
+    const all = (typeof UG !== 'undefined' && UG.DATA && UG.DATA.dispatchEquipment) || [];
+    return all.find((e) => e.id === id) || null;
+  }
+
+  /* After any equipment write: refresh this console's list, then either the
+     caller's onSaved or the shared directory (barangay / LGU screens read
+     UG.DATA.dispatchEquipment), then tell open lists (the LGU per-unit
+     modal in js/app.js) to redraw. */
+  async function afterEquipmentChange(opts) {
+    try { await loadEquipment(); } catch (e) {}
+    if (opts && typeof opts.onSaved === 'function') {
+      try { await opts.onSaved(); } catch (e) {}
+    } else if (typeof Repo !== 'undefined' && Repo.loadDispatchDirectory) {
+      try { await Repo.loadDispatchDirectory(); } catch (e) {}
+    }
+    try { window.dispatchEvent(new CustomEvent('ug:equipment-changed')); } catch (e) {}
+    app().render();
+  }
+
+  function openCheckModal(id, opts) {
+    const eq = findEquipment(id);
+    if (!eq) {
+      app().toast('That equipment is no longer in the list. Refresh and try again.', 'warning');
+      return;
+    }
+    /* First option (Ready) stays the default, as before. */
+    const condOpts = conditionOptions(null);
+    /* Fix (Oct 28 2026): the catalog's readiness checklist was never shown,
+       and every check was saved with p_items: []. Show it as tick boxes and
+       save [{ item, ok }] in equipment_checks.items. Custom equipment has no
+       checklist, so the section is left out. */
+    const cat = eq.catalog_id ? catalogList().find((c) => c.id === eq.catalog_id) : null;
+    const items = (cat && Array.isArray(cat.checklist)) ? cat.checklist.filter((x) => typeof x === 'string' && x.trim()) : [];
+    const checklistHtml = items.length
+      ? '<div class="ug-field"><label class="ug-lab">Checklist · ' + esc(cat.label) + '</label>' +
+          '<div class="ug-col" style="gap:6px" data-ck-items>' +
+          items.map((it, i) => '<label class="ug-rowf" style="gap:8px;align-items:center;font-size:13px">' +
+            '<input type="checkbox" data-ck-item="' + i + '"> <span>' + esc(it) + '</span></label>').join('') +
+          '</div><div class="ug-help" data-ck-tally>0 of ' + items.length + ' OK</div></div>'
+      : '';
     openModal({
-      title: 'Readiness check · ' + (eq.identifier || eq.custom_label || 'equipment'),
-      body: '<div class="ug-field"><label class="ug-lab">Condition</label><select class="ug-sel" data-ck-cond>' + condOpts + '</select></div>' +
+      title: 'Readiness check · ' + (eq.identifier || equipmentLabel(eq)),
+      body: checklistHtml +
+            '<div class="ug-field"><label class="ug-lab">Condition</label><select class="ug-sel" data-ck-cond>' + condOpts + '</select></div>' +
             '<div class="ug-field"><label class="ug-lab">Level (fuel / pressure / etc.)</label><input class="ug-in" type="text" data-ck-level placeholder="e.g. 80% or 200 bar"></div>' +
             '<div class="ug-field"><label class="ug-lab">Notes</label><textarea class="ug-ta" rows="2" data-ck-notes></textarea></div>',
       footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-ck-save>Save check</button>',
       onMount: (wrap, close) => {
+        const boxes = Array.prototype.slice.call(wrap.querySelectorAll('[data-ck-item]'));
+        const tally = wrap.querySelector('[data-ck-tally]');
+        boxes.forEach((b) => b.addEventListener('change', () => {
+          if (tally) tally.textContent = boxes.filter((x) => x.checked).length + ' of ' + boxes.length + ' OK';
+        }));
         wrap.querySelector('[data-ck-save]').addEventListener('click', async () => {
           const btn = wrap.querySelector('[data-ck-save]');
           if (btn.disabled) return;
@@ -1265,11 +1357,11 @@ const UG_DISPATCH = (function () {
             await rpc('record_equipment_check', {
               p_equipment_id: id, p_condition: wrap.querySelector('[data-ck-cond]').value,
               p_level: wrap.querySelector('[data-ck-level]').value, p_notes: wrap.querySelector('[data-ck-notes]').value,
-              p_photo: null, p_items: []
+              p_photo: null,
+              p_items: boxes.map((b) => ({ item: items[Number(b.getAttribute('data-ck-item'))], ok: b.checked }))
             });
             app().toast('Check recorded', 'prepared');
-            await loadEquipment();
-            app().render();
+            await afterEquipmentChange(opts);
             close();
           } catch (e) {
             app().toast(e.message || 'Could not record the check', 'warning');
@@ -1280,12 +1372,15 @@ const UG_DISPATCH = (function () {
     });
   }
 
-  function openStatusModal(id) {
-    const eq = (state.data.equipment || []).find((e) => e.id === id);
-    if (!eq) return;
-    const statusOpts = ['available', 'deployed', 'maintenance', 'unavailable'].map((s) => '<option value="' + s + '"' + (s === eq.status ? ' selected' : '') + '>' + s + '</option>').join('');
+  function openStatusModal(id, opts) {
+    const eq = findEquipment(id);
+    if (!eq) {
+      app().toast('That equipment is no longer in the list. Refresh and try again.', 'warning');
+      return;
+    }
+    const statusOpts = STATUS_LABELS.map((p) => '<option value="' + p[0] + '"' + (p[0] === eq.status ? ' selected' : '') + '>' + p[1] + '</option>').join('');
     openModal({
-      title: 'Set status · ' + (eq.identifier || eq.custom_label || 'equipment'),
+      title: 'Set status · ' + (eq.identifier || equipmentLabel(eq)),
       body: '<div class="ug-field"><label class="ug-lab">Status</label><select class="ug-sel" data-st-status>' + statusOpts + '</select></div>' +
             '<div class="ug-field"><label class="ug-lab">Notes</label><textarea class="ug-ta" rows="2" data-st-notes>' + esc(eq.notes || '') + '</textarea></div>',
       footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-st-save>Save</button>',
@@ -1300,8 +1395,7 @@ const UG_DISPATCH = (function () {
               p_condition: null, p_notes: wrap.querySelector('[data-st-notes]').value
             });
             app().toast('Status updated', 'prepared');
-            await loadEquipment();
-            app().render();
+            await afterEquipmentChange(opts);
             close();
           } catch (e) {
             app().toast(e.message || 'Could not update status', 'warning');
@@ -1489,12 +1583,31 @@ const UG_DISPATCH = (function () {
    * also exists for callers that want a server-side filter.
    */
 
+  function catalogList() {
+    return (window.UG_DATA && UG_DATA.equipmentCatalog) ||
+           (typeof UG !== 'undefined' && UG.DATA && UG.DATA.equipmentCatalog) || [];
+  }
+
+  /* 054: rows loaded before migration 054 have no category; treat them as
+     'General' (the column default) so the form still works. */
+  function catalogCategory(c) {
+    return (c && c.category) || 'General';
+  }
+
+  /* 054: the distinct categories of the owner's catalog rows, sorted. */
+  function catalogCategoriesForUnitType(unitType) {
+    const seen = {};
+    catalogList().forEach((c) => { if (c.unit_type === unitType) seen[catalogCategory(c)] = true; });
+    return Object.keys(seen).sort((a, b) => a.localeCompare(b));
+  }
+
   /* Render the catalog <option>s for the Add form's Type dropdown. The
-     owner unit's unit_type determines which catalog rows to show. */
-  function catalogOptionsForUnitType(unitType, selectedId) {
-    const list = (window.UG_DATA && UG_DATA.equipmentCatalog) ||
-                 (typeof UG !== 'undefined' && UG.DATA && UG.DATA.equipmentCatalog) || [];
-    const filtered = list.filter((c) => c.unit_type === unitType);
+     owner unit's unit_type determines which catalog rows to show.
+     054: optional `category` narrows the list to one category. */
+  function catalogOptionsForUnitType(unitType, selectedId, category) {
+    const list = catalogList();
+    const filtered = list.filter((c) => c.unit_type === unitType &&
+      (category == null || catalogCategory(c) === category));
     const opts = filtered.map((c) =>
       '<option value="' + esc(c.id) + '"' + (c.id === selectedId ? ' selected' : '') + '>' + esc(c.label) + '</option>'
     ).join('');
@@ -1514,27 +1627,53 @@ const UG_DISPATCH = (function () {
   }
 
   function openAddEquipmentModal(opts) {
-    /* opts: { ownerUnitId, ownerBarangayId, unitType, onSaved } */
-    if (!state.data.unit && !opts.ownerBarangayId) {
+    /* opts: { ownerUnitId, ownerBarangayId, unitType, onSaved, pickBarangay } */
+    /* 054: check the owner passed in, not the dispatch console's own unit.
+       The LGU has no dispatch unit, so the old check (!state.data.unit)
+       blocked the LGU from adding equipment to any unit. add_equipment
+       still enforces who may add to which owner. */
+    if (!opts.ownerUnitId && !opts.ownerBarangayId && !opts.pickBarangay) {
       app().toast('Your account is not linked to a dispatch unit. Ask the LGU or Super Admin to assign one before adding equipment.', 'warning');
       return;
     }
-    const unitType = opts.unitType || (state.data.unit && state.data.unit.unit_type) || 'Barangay';
-    const catalogOpts = catalogOptionsForUnitType(unitType, null);
+    const ownerUnit = opts.ownerUnitId
+      ? (((typeof UG !== 'undefined' && UG.DATA && UG.DATA.dispatchUnits) || []).find((u) => u.id === opts.ownerUnitId) ||
+         (state.data.unit && state.data.unit.id === opts.ownerUnitId ? state.data.unit : null))
+      : null;
+    const unitType = opts.unitType || (ownerUnit && ownerUnit.unit_type) ||
+                     (state.data.unit && state.data.unit.unit_type) || 'Barangay';
+
+    /* 054: Category -> Type. The Category field is hidden when the owner's
+       catalog has one category or none; then Type lists every row. */
+    const categories = catalogCategoriesForUnitType(unitType);
+    const showCategory = categories.length > 1;
+    const firstCategory = categories.length ? categories[0] : null;
+    const categoryOpts = categories.map((cat, i) =>
+      '<option value="' + esc(cat) + '"' + (i === 0 ? ' selected' : '') + '>' + esc(cat) + '</option>'
+    ).join('');
+    /* Type options for one category; the first catalog row is preselected,
+       "Other (custom)" (value "") is always last. */
+    const typeOptsFor = (cat) => {
+      const first = catalogList().find((c) => c.unit_type === unitType && catalogCategory(c) === cat);
+      return catalogOptionsForUnitType(unitType, first ? first.id : null, cat);
+    };
 
     openModal({
-      title: 'Add equipment' + (opts.ownerUnitId ? ' · ' + (state.data.unit && state.data.unit.name || '') : ''),
-      body: '<div class="ug-field"><label class="ug-lab">Type</label>' +
-          '<select class="ug-sel" data-eq-catalog>' + catalogOpts + '</select></div>' +
+      title: 'Add equipment' + (ownerUnit && ownerUnit.name ? ' · ' + ownerUnit.name : ''),
+      body: (opts.pickBarangay
+          ? '<div class="ug-field"><label class="ug-lab">Barangay</label>' +
+              '<select class="ug-sel" data-eq-brgy><option value="">Loading barangays…</option></select></div>'
+          : '') +
+        '<div class="ug-field" data-eq-category-field' + (showCategory ? '' : ' hidden') + '><label class="ug-lab">Category</label>' +
+          '<select class="ug-sel" data-eq-category>' + categoryOpts + '</select></div>' +
+        '<div class="ug-field"><label class="ug-lab">Type</label>' +
+          '<select class="ug-sel" data-eq-catalog>' + typeOptsFor(firstCategory) + '</select></div>' +
         '<div class="ug-field" data-eq-custom-field hidden><label class="ug-lab">Custom label</label>' +
           '<input class="ug-in" type="text" data-eq-custom placeholder="e.g. Portable Pump"></div>' +
         '<div class="ug-field"><label class="ug-lab">Identifier (plate / tag / unit number)</label>' +
           '<input class="ug-in" type="text" data-eq-identifier placeholder="e.g. Fire Truck #2"></div>' +
         '<div class="ug-field"><label class="ug-lab">Starting condition</label>' +
-          '<select class="ug-sel" data-eq-condition>' +
-            ['ready','needs_repair','missing','out_of_service','unknown'].map((c) =>
-              '<option value="' + c + '"' + (c === 'unknown' ? ' selected' : '') + '>' + c + '</option>').join('') +
-          '</select></div>' +
+          '<select class="ug-sel" data-eq-condition>' + conditionOptions('unknown') + '</select></div>' +
         '<div class="ug-field"><label class="ug-lab">Notes</label>' +
           '<textarea class="ug-ta" rows="2" data-eq-notes placeholder="Anything the next shift should know"></textarea></div>',
       footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-eq-save>Add</button>',
@@ -1544,6 +1683,23 @@ const UG_DISPATCH = (function () {
         const customField = wrap.querySelector('[data-eq-custom-field]');
         const refreshCustom = () => { customField.hidden = !!catalogSel.value; };
         catalogSel.addEventListener('change', refreshCustom);
+        const brgySel = wrap.querySelector('[data-eq-brgy]');
+        if (brgySel) {
+          Promise.resolve(typeof Repo !== 'undefined' && Repo.listBarangays ? Repo.listBarangays() : [])
+            .then((list) => {
+              /* 'local-N' ids are offline placeholders, not real rows. */
+              const rows = (list || []).filter((b) => b && b.id && String(b.id).indexOf('local-') !== 0);
+              brgySel.innerHTML = '<option value="">Choose a barangay</option>' +
+                rows.map((b) => '<option value="' + esc(b.id) + '">' + esc(b.name) + '</option>').join('');
+            })
+            .catch(() => { brgySel.innerHTML = '<option value="">Could not load barangays</option>'; });
+        }
+        /* 054: a new category refills Type with that category's rows. */
+        const categorySel = wrap.querySelector('[data-eq-category]');
+        categorySel.addEventListener('change', () => {
+          catalogSel.innerHTML = typeOptsFor(categorySel.value);
+          refreshCustom();
+        });
         refreshCustom();
 
         const saveBtn = wrap.querySelector('[data-eq-save]');
@@ -1554,6 +1710,11 @@ const UG_DISPATCH = (function () {
           const identifier = (wrap.querySelector('[data-eq-identifier]').value || '').trim();
           const condition = wrap.querySelector('[data-eq-condition]').value;
           const notes = (wrap.querySelector('[data-eq-notes]').value || '').trim();
+          const ownerBrgy = brgySel ? (brgySel.value || null) : (opts.ownerBarangayId || null);
+          if (brgySel && !ownerBrgy) {
+            app().toast('Choose the barangay that owns this equipment.', 'warning');
+            return;
+          }
           if (!catalogId && !customLabel) {
             app().toast('Pick a type from the catalog, or write a custom label.', 'warning');
             return;
@@ -1562,7 +1723,7 @@ const UG_DISPATCH = (function () {
           try {
             await rpc('add_equipment', {
               p_owner_unit_id: opts.ownerUnitId || null,
-              p_owner_barangay_id: opts.ownerBarangayId || null,
+              p_owner_barangay_id: ownerBrgy,
               p_catalog_id: catalogId,
               p_custom_label: customLabel,
               p_identifier: identifier,
@@ -1570,12 +1731,9 @@ const UG_DISPATCH = (function () {
               p_notes: notes
             });
             app().toast('Equipment added', 'prepared');
-            /* Refresh the equipment list. For the dispatch_team console
-               that's loadEquipment(); for the LGU/barangay screen the
-               caller's onSaved callback is used. */
-            if (typeof loadEquipment === 'function') { await loadEquipment(); }
-            if (typeof opts.onSaved === 'function') { try { await opts.onSaved(); } catch (e) {} }
-            app().render();
+            /* Refresh this console's list, the caller's onSaved (or the
+               shared directory) and any open per-unit list. */
+            await afterEquipmentChange(opts);
             close();
           } catch (e) {
             app().toast(e.message || 'Could not add the equipment', 'warning');
@@ -1590,15 +1748,14 @@ const UG_DISPATCH = (function () {
     /* opts: { onSaved } — for the LGU/barangay screen, which doesn't share
        UG_DISPATCH.state.data.equipment, the caller passes the row + a
        refresh callback. */
-    const localRow = (state.data.equipment || []).find((e) => e.id === id);
-    const allRows = (typeof UG !== 'undefined' && UG.DATA && UG.DATA.dispatchEquipment) || [];
-    const row = localRow || allRows.find((e) => e.id === id);
+    const row = findEquipment(id);
     if (!row) {
       app().toast('That equipment is no longer in the list. Refresh and try again.', 'warning');
       return;
     }
+    /* The modal escapes the title itself; esc() here showed "&amp;". */
     openModal({
-      title: 'Edit · ' + esc(row.identifier || equipmentLabel(row)),
+      title: 'Edit · ' + (row.identifier || equipmentLabel(row)),
       body: '<div class="ug-field"><label class="ug-lab">Type</label>' +
           '<input class="ug-in" type="text" value="' + esc(equipmentLabel(row)) + '" disabled></div>' +
         '<div class="ug-field"' + (row.catalog_id ? ' hidden' : '') + ' data-eq-custom-field><label class="ug-lab">Custom label</label>' +
@@ -1606,10 +1763,7 @@ const UG_DISPATCH = (function () {
         '<div class="ug-field"><label class="ug-lab">Identifier</label>' +
           '<input class="ug-in" type="text" data-eq-identifier value="' + esc(row.identifier || '') + '"></div>' +
         '<div class="ug-field"><label class="ug-lab">Condition</label>' +
-          '<select class="ug-sel" data-eq-condition>' +
-            ['ready','needs_repair','missing','out_of_service','unknown'].map((c) =>
-              '<option value="' + c + '"' + (c === row.condition ? ' selected' : '') + '>' + c + '</option>').join('') +
-          '</select></div>' +
+          '<select class="ug-sel" data-eq-condition>' + conditionOptions(row.condition) + '</select></div>' +
         '<div class="ug-field"><label class="ug-lab">Notes</label>' +
           '<textarea class="ug-ta" rows="2" data-eq-notes>' + esc(row.notes || '') + '</textarea></div>' +
         '<div class="ug-help">Owner cannot be changed. Retire + add a new row to change ownership.</div>',
@@ -1632,9 +1786,7 @@ const UG_DISPATCH = (function () {
               p_notes: notes
             });
             app().toast('Equipment updated', 'prepared');
-            if (typeof loadEquipment === 'function') { await loadEquipment(); }
-            if (typeof opts === 'object' && opts && typeof opts.onSaved === 'function') { try { await opts.onSaved(); } catch (e) {} }
-            app().render();
+            await afterEquipmentChange(opts);
             close();
           } catch (e) {
             app().toast(e.message || 'Could not update the equipment', 'warning');
@@ -1647,9 +1799,7 @@ const UG_DISPATCH = (function () {
 
   function openRemoveEquipmentModal(id, opts) {
     /* opts: { onSaved } */
-    const localRow = (state.data.equipment || []).find((e) => e.id === id);
-    const allRows = (typeof UG !== 'undefined' && UG.DATA && UG.DATA.dispatchEquipment) || [];
-    const row = localRow || allRows.find((e) => e.id === id);
+    const row = findEquipment(id);
     if (!row) {
       app().toast('That equipment is no longer in the list. Refresh and try again.', 'warning');
       return;
@@ -1657,7 +1807,7 @@ const UG_DISPATCH = (function () {
     /* Block the modal entirely while deployed. */
     if (row.status === 'deployed') {
       openModal({
-        title: 'Cannot remove · ' + esc(row.identifier || equipmentLabel(row)),
+        title: 'Cannot remove · ' + (row.identifier || equipmentLabel(row)),
         body: '<div class="ug-note">This equipment is currently deployed to a dispatch. ' +
               'Release it from the dispatch (or mark the dispatch Done) before removing or retiring it.</div>',
         footer: '<button class="ug-btn" data-modal-close>Close</button>'
@@ -1667,17 +1817,13 @@ const UG_DISPATCH = (function () {
     /* Fetch the dispatch history count so we can pre-empt the "has been
        used" case in the UI. The RPC will reject server-side anyway, so
        this is purely for a friendlier modal. */
-    const refreshAfter = async () => {
-      if (typeof loadEquipment === 'function') { await loadEquipment(); }
-      if (typeof opts === 'object' && opts && typeof opts.onSaved === 'function') { try { await opts.onSaved(); } catch (e) {} }
-      app().render();
-    };
+    const refreshAfter = () => afterEquipmentChange(opts);
     const c = client();
     /* Default the body text — the actual history count is fetched
        asynchronously; if the count is 0 we show "Remove" + "Retire";
        if >0 we show only "Retire". */
     openModal({
-      title: 'Retire or remove · ' + esc(row.identifier || equipmentLabel(row)),
+      title: 'Retire or remove · ' + (row.identifier || equipmentLabel(row)),
       body: '<div class="ug-note" data-eq-status>Loading dispatch history…</div>',
       footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
               '<button class="ug-btn ug-btn--ghost" data-eq-retire hidden>Retire (status = unavailable)</button>' +
@@ -1689,10 +1835,14 @@ const UG_DISPATCH = (function () {
         let useCount = 0;
         if (c) {
           try {
-            const { data, error } = await c.from('dispatch_equipment_use')
+            /* Fix (Oct 28 2026): with head:true supabase-js puts the
+               number on the response's `count`, not on data (which is
+               null), so this always read 0 and the fallback below capped
+               the message at "1 dispatch(es)". */
+            const { count, error } = await c.from('dispatch_equipment_use')
               .select('id', { count: 'exact', head: true })
               .eq('equipment_id', id);
-            useCount = (error ? 0 : (data && data.count) || 0);
+            useCount = (error ? 0 : (typeof count === 'number' ? count : 0));
             /* head:true returns count in the response meta, but the supabase
                JS client returns it as `count` on the response. If head:true
                returned no count, fall back to a normal select + length. */
@@ -1744,20 +1894,6 @@ const UG_DISPATCH = (function () {
   }
 
 
-  function exportCsv() {
-    const rows = state.data.dispatches || [];
-    if (!rows.length) { app().toast('No data to export', 'warning'); return; }
-    const head = ['dispatched_at', 'ack_at', 'on_scene_at', 'done_at', 'dispatch_status', 'team', 'instructions', 'report_code', 'report_barangay'];
-    const lines = [head.join(',')].concat(rows.map((d) => head.map((k) => {
-      let v = d[k]; if (k.startsWith('report_')) v = d.report ? d.report[k.replace('report_', '')] : '';
-      v = String(v == null ? '' : v).replace(/"/g, '""');
-      return /[",\n]/.test(v) ? '"' + v + '"' : v;
-    }).join(',')));
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-    if (UG_UTIL.downloadBlob) UG_UTIL.downloadBlob(blob, 'dispatch-stats.csv');
-    else { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'dispatch-stats.csv'; a.click(); }
-  }
-
   /* ----------------------------------------------------------------- exports */
   return {
     state, frame, body, loadAll, loadRoute, actions,
@@ -1770,7 +1906,11 @@ const UG_DISPATCH = (function () {
     openEditEquipmentModal,
     openRemoveEquipmentModal,
     catalogOptionsForUnitType,
-    equipmentLabel
+    catalogCategoriesForUnitType,
+    equipmentLabel,
+    openCheckModal,
+    conditionLabel,
+    statusLabel
   };
 })();
 

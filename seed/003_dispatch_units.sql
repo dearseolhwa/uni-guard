@@ -7,7 +7,9 @@
 --  Lingayen MDRRMO records before production use, then delete anything that
 --  is wrong. The barangays themselves are the PSA list (already in 001).
 --
---  Safe to re-run: everything is guarded by ON CONFLICT DO NOTHING.
+--  Safe to re-run: everything is guarded by ON CONFLICT (DO NOTHING, or for
+--  the 054 block DO UPDATE SET category only).
+--  Run AFTER migrations 054 and 055 (needs the category column).
 -- ============================================================================
 
 -- ---------------------------------------------------- equipment_catalog
@@ -72,6 +74,104 @@ select v.unit_type, v.label, v.checklist::jsonb
     ('Barangay', 'Generator',   '["Fuel level","Oil level","Start test","Output V"]'::text)
   ) as v(unit_type, label, checklist)
 on conflict (unit_type, label) do nothing;
+
+-- ------------------------------------------ equipment categories (054)
+-- Mirrors migrations/054_equipment_categories.sql. Needs the category column
+-- from 054, so run this seed AFTER the migrations. The UPDATEs are repeated
+-- here because on a fresh install the rows above did not exist yet when
+-- 054 ran.
+
+-- b) ------------------------------------------------- group the existing rows
+-- Barangay rows are left 'General' on purpose: the barangay form stays a
+-- single Type list (the Category field hides when there is one category).
+update public.equipment_catalog set category = 'Vehicles'
+ where label in ('Fire Truck','Water Tanker','Aerial Ladder','Patrol Car','Ambulance','Rescue Boat')
+   and unit_type <> 'Barangay'
+   and category is distinct from 'Vehicles';
+
+update public.equipment_catalog set category = 'Communications'
+ where label in ('Radio','Radios','Megaphone')
+   and unit_type <> 'Barangay'
+   and category is distinct from 'Communications';
+
+update public.equipment_catalog set category = 'Protective gear'
+ where label in ('Breathing Apparatus (SCBA)')
+   and unit_type <> 'Barangay'
+   and category is distinct from 'Protective gear';
+
+update public.equipment_catalog set category = 'Rescue equipment'
+ where label in ('Stretcher','First-Aid Kit','Extrication Tools','Rope and Rappel Set')
+   and unit_type <> 'Barangay'
+   and category is distinct from 'Rescue equipment';
+
+-- c) ----------------------------------------------------------- BFP catalog
+-- Labels Fire Truck, Water Tanker, Aerial Ladder, Breathing Apparatus (SCBA)
+-- and Hose Set match seed/003 exactly, so a later seed run does not
+-- duplicate them.
+insert into public.equipment_catalog (unit_type, label, category, checklist)
+select v.unit_type, v.label, v.category, v.checklist::jsonb
+  from (values
+    -- Vehicles
+    ('BFP', 'Fire Truck',                 'Vehicles', '["Water level","Hose condition","Pump test","Fuel level","Engine start"]'::text),
+    ('BFP', 'Water Tanker',               'Vehicles', '["Water volume","Valve operation","Hose connection","Fuel level"]'::text),
+    ('BFP', 'Aerial Ladder',              'Vehicles', '["Hydraulic test","Ladder extension","Stabilisers","Controls"]'::text),
+    ('BFP', 'Rescue Truck',               'Vehicles', '["Fuel level","Engine start","Tool compartments","Lights and siren","Winch"]'::text),
+    ('BFP', 'Ambulance',                  'Vehicles', '["Fuel level","Tyres","Stretcher","Oxygen tank","Lights and siren"]'::text),
+    ('BFP', 'Command Vehicle',            'Vehicles', '["Fuel level","Engine start","Radio","Lights and siren"]'::text),
+    ('BFP', 'Rescue Boat',                'Vehicles', '["Engine start","Fuel level","Life vests","Paddles","Hull"]'::text),
+    -- Firefighting equipment
+    ('BFP', 'Portable Pump',              'Firefighting equipment', '["Fuel level","Start test","Suction hose","Priming"]'::text),
+    ('BFP', 'Hose Set',                   'Firefighting equipment', '["Nozzles","Couplings","Pressure test","Length"]'::text),
+    ('BFP', 'Nozzle',                     'Firefighting equipment', '["Spray pattern","Shut-off valve","Threads","Gasket"]'::text),
+    ('BFP', 'Fire Extinguisher',          'Firefighting equipment', '["Pressure gauge","Safety pin and seal","Hose and nozzle","Inspection tag"]'::text),
+    ('BFP', 'Foam Unit',                  'Firefighting equipment', '["Foam concentrate level","Eductor","Pick-up tube","Nozzle"]'::text),
+    ('BFP', 'Generator',                  'Firefighting equipment', '["Fuel level","Oil level","Start test","Output V"]'::text),
+    ('BFP', 'Floodlight',                 'Firefighting equipment', '["Lamp test","Cables","Stand","Power source"]'::text),
+    -- Protective gear
+    ('BFP', 'Firefighting Suit',          'Protective gear', '["Count","Tears and burns","Reflective strips","Closures"]'::text),
+    ('BFP', 'Helmet',                     'Protective gear', '["Count","Shell cracks","Visor","Chin strap"]'::text),
+    ('BFP', 'Breathing Apparatus (SCBA)', 'Protective gear', '["Cylinder pressure","Face mask seal","Regulator","Airflow"]'::text),
+    ('BFP', 'Boots and Gloves',           'Protective gear', '["Count and sizes","Soles","Tears","Dryness"]'::text),
+    -- Rescue equipment
+    ('BFP', 'Hydraulic Rescue Tool',      'Rescue equipment', '["Hydraulic pump","Cutter","Spreader","Hoses","Fluid level"]'::text),
+    ('BFP', 'Chainsaw',                   'Rescue equipment', '["Fuel mix","Chain tension","Chain brake","Start test"]'::text),
+    ('BFP', 'Rope and Rappel Set',        'Rescue equipment', '["Rope integrity","Carabiners","Harnesses","Descenders","Anchors"]'::text),
+    ('BFP', 'Stretcher',                  'Rescue equipment', '["Straps","Frame","Wheels","Cleanliness"]'::text),
+    ('BFP', 'Life Vest',                  'Rescue equipment', '["Count","Buckles","Straps","Tear check"]'::text),
+    ('BFP', 'Thermal Imaging Camera',     'Rescue equipment', '["Battery","Power-on test","Lens","Display"]'::text),
+    ('BFP', 'First-Aid Kit',              'Rescue equipment', '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text),
+    -- Communications
+    ('BFP', 'Handheld Radio',             'Communications', '["Battery","Channel scan","Antenna","Speaker"]'::text),
+    ('BFP', 'Base Radio',                 'Communications', '["Power","Channel scan","Antenna","Backup battery"]'::text),
+    ('BFP', 'Megaphone',                  'Communications', '["Battery","Volume test","Microphone","Siren"]'::text)
+  ) as v(unit_type, label, category, checklist)
+on conflict (unit_type, label) do update set category = excluded.category;
+
+-- ------------------------------------------ categories for PNP / Rescue / Hospital (055)
+-- Mirrors section 1 of migrations/055_equipment_catalogs_and_check_fix.sql.
+insert into public.equipment_catalog (unit_type, label, category, checklist)
+select v.unit_type, v.label, v.category, v.checklist::jsonb
+  from (values
+    -- PNP
+    ('PNP', 'Patrol Car',          'Vehicles',                   '["Fuel level","Radio battery","Lights and siren","First-aid kit"]'::text),
+    ('PNP', 'Motorcycle',          'Vehicles',                   '["Fuel level","Tyres","Lights","Radio battery"]'::text),
+    ('PNP', 'Radios',              'Communications',             '["Battery","Channel scan","Antenna","Speaker"]'::text),
+    ('PNP', 'Barriers and Cones',  'Traffic and crowd control',  '["Count","Reflective condition","Stands","Bag"]'::text),
+    ('PNP', 'Crowd-Control Kit',   'Traffic and crowd control',  '["Vests","Megaphone","Baton","Whistle"]'::text),
+    -- Rescue Unit
+    ('Rescue', 'Rescue Boat',         'Vehicles',          '["Engine start","Fuel level","Life vests","Paddles","Hull"]'::text),
+    ('Rescue', 'Extrication Tools',   'Rescue equipment',  '["Hydraulic pump","Cutter","Spreader","Ram","Hoses"]'::text),
+    ('Rescue', 'Rope and Rappel Set', 'Rescue equipment',  '["Rope integrity","Carabiners","Harnesses","Descenders","Anchors"]'::text),
+    ('Rescue', 'Stretcher',           'Rescue equipment',  '["Straps","Frame","Wheels","Cleanliness"]'::text),
+    ('Rescue', 'First-Aid Kit',       'Rescue equipment',  '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text),
+    -- Hospital
+    ('Hospital', 'Ambulance',     'Vehicles',  '["Fuel level","Tyres","Stretcher","Oxygen tank","Defibrillator"]'::text),
+    ('Hospital', 'ER Beds',       'Medical',   '["Available count","Bedding","Monitors","Oxygen outlets"]'::text),
+    ('Hospital', 'ICU Beds',      'Medical',   '["Available count","Ventilators","Monitors","Power"]'::text),
+    ('Hospital', 'Oxygen',        'Medical',   '["Cylinder count","Pressure","Backup supply","Flow meters"]'::text),
+    ('Hospital', 'Blood Supply',  'Medical',   '["A+","A-","B+","B-","AB+","AB-","O+","O-","Storage temp"]'::text)
+  ) as v(unit_type, label, category, checklist)
+on conflict (unit_type, label) do update set category = excluded.category;
 
 -- --------------------------------------------------------------- dispatch_units
 -- SAMPLE units — one per type. Replace these with the real MDRRMO partner

@@ -133,7 +133,7 @@ const UG_WEB = (() => {
       '</div>' +
       '<div class="ug-wgrid-main">' +
         '<div class="ug-col" style="gap:18px;min-width:0">' +
-          '<div class="ug-banner" style="height:120px;background:linear-gradient(135deg,' + U.SEV[top.severity].color + '40,#0C1524)">' + U.thumb('surge', 'bn-img') +
+          '<div class="ug-banner" style="height:120px;background:linear-gradient(135deg,' + U.SEV[top.severity].color + '40,var(--ug-surface, #0C1524))">' + U.thumb('surge', 'bn-img') +
             '<div class="bn-in">' +
               '<div class="ug-rowf ug-gap8" style="gap:6px">' + U.sevBadge(top.severity) + U.badge('id', 'Push alert') + '</div>' +
               '<h3 style="font-size:17px;line-height:1.3">' + esc(top.title) + '</h3>' +
@@ -330,7 +330,7 @@ const UG_WEB = (() => {
     const occBar = (occ, cap) => {
       const pct = Math.min(100, Math.round(occ / cap * 100));
       const col = pct >= 100 ? 'var(--ug-warning)' : 'var(--ug-prepared)';
-      return '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden">' +
+      return '<div style="height:6px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.08);overflow:hidden">' +
         '<div style="height:100%;width:' + pct + '%;background:' + col + '"></div></div>';
     };
     return '<div class="ug-col" style="gap:18px">' +
@@ -500,10 +500,16 @@ const UG_WEB = (() => {
     const tmp = document.createElement('div');
     tmp.innerHTML = body;
     const header = tmp.firstElementChild && tmp.firstElementChild.firstElementChild;
-    if (header && header.querySelector('.ug-lab')) header.remove();
+    /* keep the mobile header's action buttons (e.g. the guide PDF downloads):
+       they move into the desktop header instead of disappearing with it */
+    let actions = '';
+    if (header && header.querySelector('.ug-lab')) {
+      actions = Array.prototype.map.call(header.querySelectorAll('button[data-act]'), (b) => b.outerHTML).join('');
+      header.remove();
+    }
 
     return '<div class="ug-col ug-cw-page" style="gap:18px">' +
-      cwHead(title, sub) +
+      cwHead(title, sub, actions) +
       '<div>' + tmp.innerHTML + '</div>' +
     '</div>';
   }
@@ -524,5 +530,5 @@ const UG_WEB = (() => {
     '</div>';
   }
 
-  return { ROLE_INFO, ROLES, SUPER_ADMIN_LABEL, frameCitizenWeb, cwBody };
+  return { ROLE_INFO, ROLES, SUPER_ADMIN_LABEL, frameCitizenWeb, cwBody, cwOffline };
 })();

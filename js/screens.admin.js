@@ -62,15 +62,7 @@ const UG_ADMIN = (function () {
         '<button class="ug-btn ug-btn--sm" data-act="admin-load" style="margin-top:10px">Try Again</button>') + '</div>';
 
     const allUsers = UG.DATA.users || [];
-    /* user search box: filter by name, email, role or barangay */
-    const uq = (st.userSearch || '').trim().toLowerCase();
-    const users = uq
-      ? allUsers.filter((u) => (u.full_name || '').toLowerCase().indexOf(uq) >= 0 ||
-                                (u.email || '').toLowerCase().indexOf(uq) >= 0 ||
-                                (u.role || '').toLowerCase().indexOf(uq) >= 0 ||
-                                (u.barangay || '').toLowerCase().indexOf(uq) >= 0 ||
-                                (u.unit_role || '').toLowerCase().indexOf(uq) >= 0)
-      : allUsers;
+    const users = filterUsers(st);
     const barangays = (st.barangays || []).map((b) => ({ id: b.id, name: b.name }));
 
     const rows = users.map((u) => {
@@ -127,15 +119,18 @@ const UG_ADMIN = (function () {
   };
   const entityLabel = (e) => ENTITY_LABEL[e] || (e ? String(e).replace(/_/g, ' ') : 'System');
   const actorOf = (a) => a.actor_name || (a.actor_id ? String(a.actor_id).slice(0, 8) : 'System');
-  const short = (v) => {
+  const shortText = (v) => {
     if (v === null || v === undefined || v === '') return '(empty)';
     const t = (typeof v === 'object') ? JSON.stringify(v) : String(v);
     return t.length > 60 ? t.slice(0, 57) + '…' : t;
   };
 
   /* One readable line for "what changed" instead of raw JSON. */
-  function describe(a) {
+  /* full = true (used by the activity-log export) keeps every value and key
+     untruncated; the on-screen table stays one short line. */
+  function describe(a, full) {
     const m = a.meta || {};
+    const short = full ? (v) => (v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v))) : shortText;
     try {
       if (m.changed && typeof m.changed === 'object') {
         return Object.keys(m.changed).map((k) => k.replace(/_/g, ' ') + ': ' + short(m.changed[k].from) + ' → ' + short(m.changed[k].to)).join('; ');
@@ -148,8 +143,22 @@ const UG_ADMIN = (function () {
       }
       const keys = Object.keys(m);
       if (!keys.length) return '';
-      return keys.slice(0, 5).map((k) => k.replace(/_/g, ' ') + ': ' + short(m[k])).join('; ');
+      return (full ? keys : keys.slice(0, 5)).map((k) => k.replace(/_/g, ' ') + ': ' + short(m[k])).join('; ');
     } catch (e) { return ''; }
+  }
+
+  /* user search box: filter by name, email, role or barangay. Shared with the
+     account export so the PDF lists exactly the accounts on screen. */
+  function filterUsers(st) {
+    const allUsers = UG.DATA.users || [];
+    const uq = (st.userSearch || '').trim().toLowerCase();
+    return uq
+      ? allUsers.filter((u) => (u.full_name || '').toLowerCase().indexOf(uq) >= 0 ||
+                                (u.email || '').toLowerCase().indexOf(uq) >= 0 ||
+                                (u.role || '').toLowerCase().indexOf(uq) >= 0 ||
+                                (u.barangay || '').toLowerCase().indexOf(uq) >= 0 ||
+                                (u.unit_role || '').toLowerCase().indexOf(uq) >= 0)
+      : allUsers;
   }
 
   function filterAudit(st) {
@@ -434,16 +443,20 @@ const UG_ADMIN = (function () {
         return c ? c.label : (r.custom_label || r.identifier || 'Equipment');
       })();
       const canManage = (me.role === 'barangay_official' || isLgu);
+      /* Fix (Oct 28 2026): record_equipment_check lets the official (own
+         barangay) and the LGU run readiness checks, but this table had no
+         Check button, so barangay equipment always showed "never". */
       const manageBtns = canManage
-        ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + esc(r.id) + '">Edit</button>' +
+        ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-check" data-id="' + esc(r.id) + '">Check</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + esc(r.id) + '">Edit</button>' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>'
         : '';
       return '<tr>' +
         '<td><div style="font-weight:600">' + esc(r.identifier || label) + '</div>' +
           '<div class="ug-dimmer" style="font-size:10.5px">' + esc(r.notes || '') + '</div></td>' +
         '<td>' + esc(label) + '</td>' +
-        '<td>' + U.badge(r.status, r.status) + '</td>' +
-        '<td>' + U.badge(r.condition, r.condition) + '</td>' +
+        '<td>' + U.badge(r.status, (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.statusLabel) ? UG_DISPATCH.statusLabel(r.status) : r.status) + '</td>' +
+        '<td>' + U.badge(r.condition, (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.conditionLabel) ? UG_DISPATCH.conditionLabel(r.condition) : r.condition) + '</td>' +
         '<td class="t-num">' + (r.last_checked_at ? esc(UG_UTIL.relTime(r.last_checked_at) || '') : 'never') + '</td>' +
         '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' + manageBtns + '</div></td>' +
       '</tr>';
@@ -514,7 +527,7 @@ const UG_ADMIN = (function () {
            The button opens a modal listing this unit's equipment, with
            Add / Edit / Retire / Remove buttons. */
         '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-unit-equipment" data-id="' + esc(u.id) + '" data-unit-type="' + esc(u.unit_type) + '" data-unit-name="' + esc(u.name) + '" title="Equipment">' + I('shield', 14) + 'Equipment</button>' +
-        (canDelete ? '<button class="ug-btn ug-btn--sm" data-act="admin-delete-unit" data-id="' + esc(u.id) + '" title="' + esc(T('action.delete')) + '" style="background:linear-gradient(180deg,#EF4444 0%,#B91C1C 100%);color:#fff;border:1px solid rgba(255,255,255,.15)">' + I('x', 14) + esc(T('action.delete')) + '</button>' : '') +
+        (canDelete ? '<button class="ug-btn ug-btn--sm" data-act="admin-delete-unit" data-id="' + esc(u.id) + '" title="' + esc(T('action.delete')) + '" style="background:linear-gradient(180deg,#EF4444 0%,#B91C1C 100%);color:#fff;border:1px solid rgba(var(--ug-tint, 255,255,255),.15)">' + I('x', 14) + esc(T('action.delete')) + '</button>' : '') +
       '</div></td>' +
     '</tr>';
     const requestRow = (r) => '<tr>' +
@@ -585,5 +598,5 @@ const UG_ADMIN = (function () {
     return '';
   }
 
-  return { handles, body, users, audit, responseTeam, dispatchUnits, assignmentPanel, ROLE_LABEL, roleOf, describe, filterAudit, entityLabel, head, statePanel };
+  return { handles, body, users, audit, responseTeam, dispatchUnits, assignmentPanel, ROLE_LABEL, roleOf, describe, filterAudit, filterUsers, actionBucket, entityLabel, head, statePanel };
 })();

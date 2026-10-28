@@ -1,5 +1,44 @@
 # Changes
 
+## 2026-10-28 — System-wide export standard (PDF, Excel, CSV)
+- **One shared export layer.** `js/export-core.js` (new: metadata, filenames, Philippine-time dates, CSV, scope checks, busy/toast wrapper), `js/pdf.js` (rewritten: one formal PDF template), `js/xlsx-lite.js` (formatted workbooks), `js/exports.js` (new: every export outside Reports and Documentation). Every export button goes through it; the per-screen download code is gone.
+- **Formal PDFs:** LGU letterhead from Settings → General, title, metadata block (export ID marked as not an official number, generated time in PHT, prepared by, source module, period, scope, filters, record count), notices, repeating table headers, "Page X of Y" footers, document properties.
+- **Excel:** Summary sheet + one sheet per dataset; real numbers, dates (PHT) and percentages; IDs as text; frozen header row, auto-filter, print titles, page-numbered footer; strings are never formulas.
+- **CSV:** UTF-8 with BOM, CRLF, RFC 4180 quoting, ISO 8601 dates with +08:00, formula-injection guard, readable column names, no title rows.
+- **Filenames:** `UniGuard_<Type>_<Scope>_<Date or period>.<ext>`.
+- **Fixed:** inventory and distribution-log CSV exports crashed (`csvCell is not defined`) and ignored the on-screen filters; desktop citizen site hid the guide download buttons; guide PDF dropped the summary and Before/During/After text and cut bodies at 1,800 characters; activity-log export cut entries at 400 characters; user export ignored the search box; user and activity-log exports had no Super Admin check; damage assessments kept on a shared device were visible and exportable across barangays; documents printed relative times, dates without a year and garbled →, ≥, ₱; analytics CSV said it applied the date range but did not, and mixed several tables in one file; situation reports printed a register number that had not been issued (now "Draft" until saved).
+- Analytics screen figures moved into `UG_SCREENS.analyticsModel()`, shared by the screen and its exports. Relief filters moved into `UG_RELIEF.visible*()`, account search into `UG_ADMIN.filterUsers()`.
+- Service worker v21 (precaches `js/export-core.js`, `js/exports.js`).
+- Full audit, coverage matrix and test results: `docs/EXPORT_AUDIT.md`.
+
+---
+
+## 2026-10-28 — New design: light, one colour per role
+- The look of the React app: light screens, a palette per role (sign-in red, residents crimson, barangay navy, LDRRMO charcoal, Super Admin gold, dispatch orange), the Triad Shield emblem, Plus Jakarta Sans, rounded cards and pill buttons. Layouts and behaviour unchanged.
+- All in `css/design.css`; delete its three lines in `index.html` to return to the dark design (tested pixel-identical).
+- Readable on white: badge text 5.07:1 or better, warning/status text 4.5:1 or better on every role's background (`js/theme.js`).
+- **Fixed:** "overview for NaN." on the dashboard subtitle; unreadable selected alert level in the advisory composer; black lines between report rows; pale trend arrows.
+- Service worker v20, now saving `css/design.css` for offline use.
+- Details and screenshots: `docs/DESIGN_2026.md`, `docs/design-2026/`.
+
+## 2026-10-28 — Equipment categories, all unit catalogs, equipment bug fixes
+- **Add equipment** form: **Category** dropdown above **Type**; Type lists only that category's items with "Other (custom)" last. Category is hidden when the owner has one category or none (Barangay stays one list). The first item of the chosen category is preselected.
+- **Catalogs**: BFP (28 items, 054); PNP, Rescue and Hospital (from the never-run seed/003 design, 055). Every item has a readiness checklist.
+- **Readiness check** now shows the item's checklist as tick boxes ("2 of 4 OK") and saves them in `equipment_checks.items` (it always saved `[]`).
+- **Readable labels** for condition and status in every equipment form and table. Stored values unchanged.
+- **Fixed — barangay official could not add equipment**: `app.js` merges `UG_DISPATCH.actions` last, so the dispatch handler served the barangay button but read the wrong data attribute; the official always got "not linked to a dispatch unit".
+- **Fixed — LGU could not add equipment** to a unit (form checked the LGU's own unit) or to a barangay (no barangay to send). The LGU now gets a Barangay picker on the Response Team screen.
+- **Fixed — lists not refreshing** after Edit / Retire / Remove on the barangay screen and in the LGU per-unit modal.
+- **Fixed — `record_equipment_check` saved the condition as the level** (055); the typed fuel / pressure level was lost.
+- **Fixed — Remove dialog** always read 0 (then at most 1) past dispatches; modal titles showed `&amp;` for "&".
+- Barangay table has a **Check** button (the server already allowed officials and the LGU to run checks). Dispatch picker options show type and tag ("Fire Truck · FT-02").
+- Files: `migrations/054_equipment_categories.sql`, `migrations/055_equipment_catalogs_and_check_fix.sql` (new); `seed/003_dispatch_units.sql`, `js/dispatch.js`, `js/app.js`, `js/screens.admin.js`, `js/repo.js`, `sw.js` (cache v19).
+- Run order: 054, 055, then the app files. Seed 003 (if used) must run after 055.
+
+---
+
+# Changes
+
 ## 2026-10-12 — LDRRMO core modules G (reports) and H (admin and security)
 - **Reports and Documentation** (new console screen `#reporting`, LDRRMO and barangay officials): auto-generated Situation Report (11 sections compiled from incidents, dispatches, evacuation centers, relief, road status, advisories and damage assessments, with a numbered register), Incident Summary (details, status timeline, response, linked damage), and a Damage and Needs Assessment form and register (draft → submitted → validated; only the LGU validates).
 - **Export to PDF and Excel** for those three documents. Excel is a real `.xlsx` written by `js/xlsx-lite.js` (no library, no CDN) and exists in this module only; every other export stays PDF.

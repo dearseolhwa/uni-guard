@@ -7,8 +7,12 @@
  *   · Incident Summary   one incident: details, status timeline, response
  *   · Damage and Needs Assessment   a form + register, per barangay
  *
- * Every document exports to PDF (js/pdf.js) AND Excel (js/xlsx-lite.js). This
- * is the only module with an Excel export.
+ * Every document exports to PDF and Excel through the shared export layer:
+ * js/export-core.js (metadata, filenames, dates, scope checks), js/pdf.js (the
+ * formal PDF template) and js/xlsx-lite.js (the formatted workbook). Sections
+ * carry typed columns (`types`, parallel to `head`) and raw values, so the
+ * preview, the PDF and the workbook format dates, numbers and money the same
+ * way and the workbook keeps real numbers and dates.
  *
  * The module owns its own state and actions, the same way js/dispatch.js does;
  * app.js merges `actions` into its action table and calls loadRoute() when the
@@ -43,7 +47,7 @@ const UG_REPORTING = (function () {
     eventName: '', remarks: '',
     incidentId: '', history: {},
     dna: [], dnaMode: 'device', dnaBrgy: 'All',
-    issued: [],
+    issued: [], lastSaved: null,
     loaded: false, loading: false
   };
 
@@ -202,7 +206,9 @@ const UG_REPORTING = (function () {
     const dt = dnaTotals(dna);
     const relief = (UG.DATA.relief || []).filter((r) => inScope(r.barangay) && inPeriod(r.distribution_at));
     const distLog = (UG.DATA.distributionLog || []).filter((r) => inScope(r.barangay) && inPeriod(r.distributed_at || r.date || r.created_at));
-    const inventory = UG.DATA.inventory || [];
+    /* same rule as the relief inventory screen: an official sees their own
+       barangay's store and the shared (unassigned) MDRRMO stock */
+    const inventory = (UG.DATA.inventory || []).filter((i) => !isOfficial() || !i.barangay || (i.barangay || 'MDRRMO Warehouse') === me().barangay);
 
     const byStatus = {};
     incidents.forEach((i) => { byStatus[i.status] = (byStatus[i.status] || 0) + 1; });
@@ -212,7 +218,7 @@ const UG_REPORTING = (function () {
     const dispatchRows = [];
     incidents.forEach((i) => {
       ((UG.DATA.dispatches || {})[i.uuid] || []).forEach((d) => {
-        dispatchRows.push([i.id, i.brgy, d.unit_name || d.team || '', d.status || 'dispatched', when(d.dispatched_at), when(d.eta), d.instructions || '']);
+        dispatchRows.push([i.id, i.brgy, d.unit_name || d.team || '', UG_EXPORT.titleCase(d.status || 'dispatched'), d.dispatched_at || null, d.eta || null, d.instructions || '']);
       });
     });
 
@@ -231,7 +237,7 @@ const UG_REPORTING = (function () {
 
     const sections = [
       { key: 'summary', name: 'I. Situation overview', note: 'Headline figures for the reporting period and scope.',
-        head: ['Indicator', 'Value'], widths: [44, 22],
+        head: ['Indicator', 'Value'], types: ['text', 'int'], widths: [44, 22],
         rows: [
           ['Incidents reported', incidents.length],
           ['Awaiting verification', byStatus.reported || 0],
@@ -243,48 +249,53 @@ const UG_REPORTING = (function () {
           ['Persons inside evacuation centers', evacuees],
           ['Affected families (assessed)', dt.affected_families],
           ['Affected persons (assessed)', dt.affected_persons],
-          ['Dead / Injured / Missing', dt.dead + ' / ' + dt.injured + ' / ' + dt.missing],
-          ['Houses totally / partially damaged', dt.houses_totally + ' / ' + dt.houses_partially],
-          ['Estimated infrastructure damage', php(dt.infra_damage_php)],
-          ['Estimated agriculture damage', php(dt.agri_damage_php)],
+          ['Dead', dt.dead],
+          ['Injured', dt.injured],
+          ['Missing', dt.missing],
+          ['Houses totally damaged', dt.houses_totally],
+          ['Houses partially damaged', dt.houses_partially],
+          ['Estimated infrastructure damage (PHP)', { v: dt.infra_damage_php, t: 'money' }],
+          ['Estimated agriculture damage (PHP)', { v: dt.agri_damage_php, t: 'money' }],
           ['Roads not passable', roads.length],
           ['Advisories issued', advisories.length]
         ] },
       { key: 'incidents', name: 'II. Incidents monitored', note: 'Every report filed in the period, newest first.',
-        head: ['Code', 'Reported', 'Barangay', 'Hazard', 'Severity', 'Status', 'Details'], widths: [16, 20, 20, 24, 12, 20, 60],
-        rows: incidents.map((i) => [i.id, when(i.created_at) || i.time || '', i.brgy, i.hazard, sevLabel(i.sev), statusLabel(i.status), i.desc || '']) },
+        head: ['Code', 'Reported', 'Barangay', 'Hazard', 'Severity', 'Status', 'Details'], types: ['id', 'datetime', 'text', 'text', 'status', 'status', 'longtext'], widths: [16, 20, 20, 24, 12, 20, 60],
+        rows: incidents.map((i) => [i.id, i.created_at || null, i.brgy, i.hazard, sevLabel(i.sev), statusLabel(i.status), i.desc || '']) },
       { key: 'matrix', name: 'III. Incidents by barangay', note: 'Count of reports per barangay and where each sits in the status pipeline.',
-        head: ['Barangay', 'Reported', 'Verified', 'Dispatched', 'Resolved', 'Rejected', 'Total'], widths: [24, 12, 12, 12, 12, 12, 10],
-        rows: matrixRows },
+        head: ['Barangay', 'Reported', 'Verified', 'Dispatched', 'Resolved', 'Rejected', 'Total'], types: ['text', 'int', 'int', 'int', 'int', 'int', 'int'], widths: [24, 12, 12, 12, 12, 12, 10],
+        rows: matrixRows,
+        total: matrixRows.length ? ['TOTAL'].concat([1, 2, 3, 4, 5, 6].map((k) => matrixRows.reduce((n, r) => n + r[k], 0))) : null },
       { key: 'damage', name: 'IV. Affected population and damage', note: 'From the Damage and Needs Assessments dated within the period.',
         head: ['Barangay', 'Families', 'Persons', 'Displaced fam.', 'Displaced pers.', 'Dead', 'Injured', 'Missing', 'Houses total', 'Houses partial', 'Infrastructure (PHP)', 'Agriculture (PHP)', 'Status'],
+        types: ['text', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'money', 'money', 'status'],
         widths: [22, 10, 10, 13, 13, 8, 9, 9, 12, 13, 20, 20, 12],
         rows: dna.map((d) => [d.barangay, num(d.affected_families), num(d.affected_persons), num(d.displaced_families), num(d.displaced_persons),
           num(d.dead), num(d.injured), num(d.missing), num(d.houses_totally), num(d.houses_partially), num(d.infra_damage_php), num(d.agri_damage_php), DNA_STATUS[d.status] || d.status || '']),
         total: dna.length ? ['TOTAL', dt.affected_families, dt.affected_persons, dt.displaced_families, dt.displaced_persons, dt.dead, dt.injured, dt.missing,
           dt.houses_totally, dt.houses_partially, dt.infra_damage_php, dt.agri_damage_php, ''] : null },
       { key: 'centers', name: 'V. Evacuation centers', note: 'Status and occupancy at the time this report was generated.',
-        head: ['Center', 'Barangay', 'Status', 'Occupancy', 'Capacity', 'Used %', 'Contact'], widths: [34, 20, 12, 12, 12, 10, 28],
-        rows: centers.map((c) => [c.name, c.brgy, c.status, num(c.occ), num(c.cap), c.cap ? Math.round(num(c.occ) / num(c.cap) * 100) : 0,
+        head: ['Center', 'Barangay', 'Status', 'Occupancy', 'Capacity', 'Used', 'Contact'], types: ['text', 'text', 'status', 'int', 'int', 'pct', 'text'], widths: [34, 20, 12, 12, 12, 10, 28],
+        rows: centers.map((c) => [c.name, c.brgy, UG_EXPORT.titleCase(c.status), num(c.occ), num(c.cap), c.cap ? Math.round(num(c.occ) / num(c.cap) * 1000) / 10 : null,
           [c.contact_person, c.contact_phone].filter(Boolean).join(' · ')]) },
       { key: 'response', name: 'VI. Response actions', note: 'Teams and units dispatched to the incidents listed above.',
-        head: ['Incident', 'Barangay', 'Team / unit', 'Status', 'Dispatched', 'ETA', 'Instructions'], widths: [16, 20, 26, 14, 20, 20, 50],
+        head: ['Incident', 'Barangay', 'Team / unit', 'Status', 'Dispatched', 'ETA', 'Instructions'], types: ['id', 'text', 'text', 'status', 'datetime', 'datetime', 'longtext'], widths: [16, 20, 26, 14, 20, 20, 50],
         rows: dispatchRows },
       { key: 'relief', name: 'VII. Relief operations', note: 'Scheduled distributions in the period and the distribution log.',
-        head: ['Type', 'Barangay', 'Item / activity', 'Quantity', 'When', 'Details'], widths: [16, 20, 34, 12, 20, 44],
-        rows: relief.map((r) => ['Scheduled', r.barangay, r.title, '', when(r.distribution_at), r.location_name || ''])
-          .concat(distLog.map((r) => ['Distributed', r.barangay || '', r.item_name || r.item || '', num(r.qty || r.quantity), when(r.distributed_at || r.date || r.created_at), r.family || r.recipient || r.note || ''])) },
+        head: ['Type', 'Barangay', 'Item / activity', 'Quantity', 'When', 'Details'], types: ['status', 'text', 'text', 'int', 'datetime', 'longtext'], widths: [16, 20, 34, 12, 20, 44],
+        rows: relief.map((r) => ['Scheduled', r.barangay, r.title, null, r.distribution_at || null, r.location_name || ''])
+          .concat(distLog.map((r) => ['Distributed', r.barangay || '', r.item_name || r.item || '', num(r.qty || r.quantity), r.distributed_at || r.date || r.created_at || null, r.family || r.recipient || r.note || ''])) },
       { key: 'stock', name: 'VIII. Relief stock on hand', note: 'Current inventory; items at or below their reorder point are flagged.',
-        head: ['Item', 'Category', 'Stock', 'Unit', 'Reorder at', 'Flag', 'Location'], widths: [30, 18, 10, 12, 12, 12, 28],
+        head: ['Item', 'Category', 'Stock', 'Unit', 'Reorder at', 'Flag', 'Location'], types: ['text', 'text', 'int', 'text', 'int', 'status', 'text'], widths: [30, 18, 10, 12, 12, 12, 28],
         rows: inventory.map((i) => [i.name, i.category || '', num(i.stock), i.unit || '', num(i.reorder), num(i.stock) <= num(i.reorder) ? 'LOW STOCK' : '', i.location || '']) },
       { key: 'roads', name: 'IX. Roads not passable', note: 'Road sections reported closed or with limited access.',
-        head: ['Road', 'Barangay', 'Status', 'Cause', 'Since', 'Expected reopening'], widths: [30, 20, 16, 30, 20, 20],
-        rows: roads.map((r) => [r.road_name, r.barangay, r.status, r.cause || r.note || '', when(r.started_at), when(r.estimated_reopen)]) },
+        head: ['Road', 'Barangay', 'Status', 'Cause', 'Since', 'Expected reopening'], types: ['text', 'text', 'status', 'longtext', 'datetime', 'datetime'], widths: [30, 20, 16, 30, 20, 20],
+        rows: roads.map((r) => [r.road_name, r.barangay, UG_EXPORT.titleCase(r.status), r.cause || r.note || '', r.started_at || null, r.estimated_reopen || null]) },
       { key: 'advisories', name: 'X. Advisories issued', note: 'Official broadcasts published in the period.',
-        head: ['Published', 'Alert level', 'Type', 'Title', 'Area'], widths: [20, 14, 18, 50, 28],
-        rows: advisories.map((a) => [when(a.created_at), sevLabel(a.severity), a.alert_type || a.type || '', a.title, a.citywide ? UG_GEO.PLACE.areaAll : a.area]) },
+        head: ['Published', 'Alert level', 'Type', 'Title', 'Area'], types: ['datetime', 'status', 'text', 'longtext', 'text'], widths: [20, 14, 18, 50, 28],
+        rows: advisories.map((a) => [a.created_at || null, sevLabel(a.severity), a.alert_type || a.type || '', a.title, a.citywide ? UG_GEO.PLACE.areaAll : a.area]) },
       { key: 'needs', name: 'XI. Priority needs', note: 'Needs flagged in the damage assessments, by number of barangay assessments requesting them.',
-        head: ['Need', 'Assessments requesting'], widths: [40, 24],
+        head: ['Need', 'Assessments requesting'], types: ['text', 'int'], widths: [40, 24],
         rows: Object.keys(needsCount).sort((a, b) => needsCount[b] - needsCount[a]).map((k) => [k, needsCount[k]]) }
     ];
     return { sections: sections, counts: { incidents: incidents.length, evacuees: evacuees, openCenters: openCenters, dna: dna.length, families: dt.affected_families, persons: dt.affected_persons } };
@@ -301,50 +312,68 @@ const UG_REPORTING = (function () {
   }
 
   /* ---------------------------------------------------------------- exports */
-  function toPdf(opts, sections) {
-    UG_PDF.exportDoc(Object.assign({ flow: true, generatedBy: signer(), scope: scopeLabel() }, opts, {
-      tables: sections.map((s) => ({
-        name: s.name, note: s.note, head: s.head,
-        rows: (s.rows.length ? s.rows.map((r) => r.map((c) => (typeof c === 'number' ? c.toLocaleString('en-PH') : c))) : [['Nothing to report'].concat(s.head.slice(1).map(() => ''))])
-          .concat(s.total ? [s.total.map((c) => (typeof c === 'number' ? c.toLocaleString('en-PH') : c))] : [])
-      }))
-    }));
+  const X = () => UG_EXPORT;
+  const columnsOf = (s) => s.head.map((h, i) => ({ label: h, type: (s.types || [])[i] || 'text', width: (s.widths || [])[i] }));
+  const periodText = () => X().periodLabel(state.from, state.to) || 'All dates';
+  const DEVICE_NOTICE = 'Damage assessments and the situation report register in this document are saved on this device only (migration 044 not yet applied). They are not shared with other devices.';
+  const STOCK_NOTICE = 'Relief stock on hand and the distribution log are kept in this browser session (they are not yet stored in the database). Treat those figures as a working record, not an official inventory.';
+
+  function guardRole() {
+    return X().validateScope({ roles: ['lgu_ldrrmc', 'barangay_official'] });
   }
 
-  function toXlsx(filename, title, metaLines, sections) {
-    const cover = [[{ v: title, s: 'title' }], [{ v: 'UniGuard · ' + UG_GEO.PLACE.office + ' · ' + UG_GEO.PLACE.label, s: 'muted' }], []];
-    metaLines.forEach((m) => cover.push([{ v: m[0], s: 'bold' }, m[1]]));
-    cover.push([]);
-    cover.push([{ v: 'Sheets in this workbook', s: 'bold' }]);
-    sections.forEach((s) => cover.push([s.name, s.rows.length + ' row' + (s.rows.length === 1 ? '' : 's')]));
-    const sheets = [{ name: 'Cover', cols: [34, 60], rows: cover }];
-    sections.forEach((s) => {
-      const rows = [[{ v: s.name, s: 'title' }], [{ v: s.note || '', s: 'muted' }], [],
-        s.head.map((h) => ({ v: h, s: 'head' }))];
-      (s.rows.length ? s.rows : [['Nothing to report']]).forEach((r) => rows.push(r.map((c) => ({ v: c, s: (typeof c === 'string' && c.length > 40) ? 'wrap' : 'cell' }))));
-      if (s.total) rows.push(s.total.map((c) => ({ v: c, s: 'total' })));
-      sheets.push({ name: s.name.replace(/^[IVX]+\.\s*/, ''), cols: s.widths, rows: rows });
-    });
-    UG_XLSX.download(filename, { sheets: sheets });
+  /* sections → formal PDF (shared template, js/pdf.js) */
+  function toPdf(meta, opts, sections) {
+    const blocks = [];
+    if (opts.kpis && opts.kpis.length) blocks.push({ type: 'kpis', name: 'Key figures', items: opts.kpis });
+    sections.forEach((s) => blocks.push({ type: 'table', name: s.name, note: s.note, columns: columnsOf(s), rows: s.rows, total: s.total || null,
+      emptyText: 'Nothing to report for this period and scope.' }));
+    return UG_PDF.formal({ meta: meta, subtitle: opts.subtitle, landscape: opts.landscape !== false, filename: opts.filename,
+      signoff: opts.signoff, blocks: blocks });
   }
 
-  const stamp = () => iso(today());
-  const periodText = () => (state.from || 'start') + ' to ' + (state.to || 'today');
+  /* sections → formatted workbook (Summary sheet + one sheet per section) */
+  function toXlsx(meta, opts, sections) {
+    return UG_XLSX.report({ meta: meta, filename: opts.filename, keyFigures: opts.keyFigures || [],
+      sheets: sections.map((s) => ({ name: s.name.replace(/^[IVX]+\.\s*/, ''), title: s.name, note: s.note, columns: columnsOf(s), rows: s.rows, total: s.total || null })) });
+  }
+
+  /* The register number is only printed once the report is in the register.
+     Before that the document says it is a draft and which number it will get. */
+  function sitrepReference() {
+    const ls = state.lastSaved;
+    const same = ls && ls.event === state.eventName.trim().toLowerCase() && ls.from === state.from && ls.to === state.to && ls.scope === scopeLabel();
+    if (same) return { title: 'Situation Report No. ' + ls.no + (state.eventName.trim() ? ' \u00b7 ' + state.eventName.trim() : ''), reference: 'Situation report register No. ' + ls.no, draft: false };
+    return { title: 'Situation Report' + (state.eventName.trim() ? ' \u00b7 ' + state.eventName.trim() : '') + ' (Draft)', reference: '', draft: true,
+      note: 'Draft: not yet saved to the situation report register. When saved it will be Situation Report No. ' + nextSitrepNo() + ' for this event.' };
+  }
 
   function exportSitrep(kind) {
+    guardRole();
     const built = sitrepSections();
-    const title = sitrepTitle();
+    const ref = sitrepReference();
     const sections = built.sections;
-    if (state.remarks.trim()) sections.push({ key: 'remarks', name: 'XII. Remarks and actions taken', note: '', head: ['Remarks'], widths: [110], rows: [[state.remarks.trim()]] });
+    if (state.remarks.trim()) sections.push({ key: 'remarks', name: 'XII. Remarks and actions taken', note: 'As entered by the preparer.', head: ['Remarks'], types: ['longtext'], widths: [110], rows: [[state.remarks.trim()]] });
+    const total = built.counts.incidents;
+    const notices = [ref.note, 'Undated records are always included; a record is otherwise included when its date falls within the reporting period. Evacuation centers, stock and road status are as of the time of export.',
+      state.dnaMode === 'server' ? '' : DEVICE_NOTICE, STOCK_NOTICE];
+    const meta = X().buildMetadata({
+      title: ref.title, kind: 'Situation Report', module: 'Reports and Documentation \u00b7 Situation Report', reference: ref.reference,
+      scope: scopeLabel(), from: state.from, to: state.to, period: periodText(),
+      filters: [isLgu() ? 'Barangay: ' + (state.brgy === 'All' ? 'All barangays' : state.brgy) : '', state.eventName.trim() ? 'Event: ' + state.eventName.trim() : ''],
+      count: total, countLabel: 'Incidents in period', notices: notices
+    });
+    const scopeFile = scopeBrgy() && scopeBrgy() !== 'All' ? scopeBrgy() : UG_GEO.PLACE.town;
+    const filename = X().buildFilename({ type: 'Situation Report' + (ref.draft ? ' Draft' : ' No ' + state.lastSaved.no), scope: scopeFile, from: state.from, to: state.to, ext: kind === 'pdf' ? 'pdf' : 'xlsx' });
+    const c = built.counts;
     if (kind === 'pdf') {
-      toPdf({ title: title, subtitle: 'Compiled from the UniGuard operations record.', kind: 'Situation Report',
-        landscape: true, meta: 'Reporting period: ' + periodText(), filename: 'uniguard-sitrep-' + stamp() + '.pdf',
+      return toPdf(meta, { subtitle: 'Compiled from the UniGuard operations record' + (state.eventName.trim() ? ' for ' + state.eventName.trim() : '') + '.', filename: filename,
+        kpis: [{ label: 'Incidents in period', value: fmt(c.incidents) }, { label: 'Persons in evacuation centers', value: fmt(c.evacuees), sub: c.openCenters + ' center(s) open' },
+          { label: 'Affected families (assessed)', value: fmt(c.families), sub: fmt(c.persons) + ' persons' }, { label: 'Damage assessments included', value: fmt(c.dna) }],
         signoff: [{ label: 'Prepared by', name: me().name || '', title: me().title || '' }, { label: 'Noted by', name: '', title: 'LDRRMO Head' }] }, sections);
-    } else {
-      toXlsx('uniguard-sitrep-' + stamp() + '.xlsx', title,
-        [['Reporting period', periodText()], ['Scope', scopeLabel()], ['Generated', new Date().toLocaleString()], ['Prepared by', signer()]], sections);
     }
-    return built;
+    return toXlsx(meta, { filename: filename, keyFigures: [['Incidents in period', c.incidents, 'int'], ['Persons in evacuation centers', c.evacuees, 'int'],
+      ['Evacuation centers open', c.openCenters, 'int'], ['Affected families (assessed)', c.families, 'int'], ['Affected persons (assessed)', c.persons, 'int'], ['Damage assessments included', c.dna, 'int']] }, sections);
   }
 
   async function saveSitrep() {
@@ -366,6 +395,7 @@ const UG_REPORTING = (function () {
       writeLocal(LOCAL_SITREP, rows);
       state.issued = rows;
     }
+    state.lastSaved = { no: row.sitrep_no, event: state.eventName.trim().toLowerCase(), from: state.from, to: state.to, scope: scopeLabel() };
     return row;
   }
 
@@ -374,47 +404,53 @@ const UG_REPORTING = (function () {
     const hist = state.history[inc.uuid] || [];
     const disp = (UG.DATA.dispatches || {})[inc.uuid] || [];
     const dna = (state.dna || []).filter((d) => d.report_id && (d.report_id === inc.uuid || d.report_id === inc.id));
-    const timeline = [[when(inc.created_at) || inc.time || '', 'Reported', inc.mine ? 'Filed by you' : 'Filed by a resident']]
-      .concat(hist.map((h) => [when(h.created_at), statusLabel(h.from_status) + ' → ' + statusLabel(h.to_status), h.reason || '']));
+    const timeline = [[inc.created_at || null, 'Reported', inc.mine ? 'Filed by you' : 'Filed by a resident']]
+      .concat(hist.map((h) => [h.created_at || null, statusLabel(h.from_status) + ' \u2192 ' + statusLabel(h.to_status), h.reason || '']));
     return [
-      { key: 'details', name: 'Incident details', note: 'The report as filed and its current status.', head: ['Field', 'Value'], widths: [28, 80],
+      { key: 'details', name: 'Incident details', note: 'The report as filed and its current status.', head: ['Field', 'Value'], types: ['text', 'longtext'], widths: [28, 80],
         rows: [
           ['Incident code', inc.id], ['Hazard', inc.hazard], ['Severity', sevLabel(inc.sev)], ['Current status', statusLabel(inc.status)],
           ['Barangay', inc.brgy], ['Location', inc.area || ''], ['Location note', inc.location_note || ''],
           ['Coordinates', (typeof inc.lat === 'number' && typeof inc.lng === 'number') ? inc.lat.toFixed(6) + ', ' + inc.lng.toFixed(6) : 'Not recorded'],
-          ['Reported', when(inc.created_at) || inc.time || ''],
-          ['Corroborations', num(inc.corr)],
-          ['Verified by', inc.verified_by_name ? inc.verified_by_name + (inc.verified_at ? ' · ' + when(inc.verified_at) : '') : 'Not yet verified'],
+          ['Reported', { v: inc.created_at || null, t: 'datetime' }],
+          ['Corroborations', { v: num(inc.corr), t: 'int' }],
+          ['Verified by', inc.verified_by_name ? inc.verified_by_name + (inc.verified_at ? ' · ' + UG_EXPORT.formatDateTime(inc.verified_at, true) : '') : 'Not yet verified'],
           ['Photo attached', inc.remote_photo ? 'Yes' : 'No'],
           ['Description', inc.desc || '']
         ] },
-      { key: 'timeline', name: 'Status timeline', note: 'Each move through the status pipeline, oldest first.', head: ['When', 'Change', 'Note'], widths: [24, 36, 60], rows: timeline },
-      { key: 'response', name: 'Response dispatched', note: 'Teams and units sent to this incident.', head: ['Team / unit', 'Status', 'Dispatched', 'ETA', 'By', 'Instructions'], widths: [26, 14, 22, 22, 22, 50],
-        rows: disp.map((d) => [d.unit_name || d.team || '', d.status || 'dispatched', when(d.dispatched_at), when(d.eta), d.dispatched_by_name || '', d.instructions || '']) },
-      { key: 'dna', name: 'Damage and needs', note: 'Assessments linked to this incident.', head: ['Assessed', 'Families', 'Persons', 'Dead', 'Injured', 'Missing', 'Houses total', 'Houses partial', 'Needs'], widths: [16, 10, 10, 8, 9, 9, 12, 13, 50],
-        rows: dna.map((d) => [d.assessed_on || '', num(d.affected_families), num(d.affected_persons), num(d.dead), num(d.injured), num(d.missing), num(d.houses_totally), num(d.houses_partially), (d.needs || []).join(', ')]) }
+      { key: 'timeline', name: 'Status timeline', note: 'Each move through the status pipeline, oldest first. These are historical changes; the current status is in the details above.', head: ['When', 'Change', 'Note'], types: ['datetime', 'text', 'longtext'], widths: [24, 36, 60], rows: timeline },
+      { key: 'response', name: 'Response dispatched', note: 'Teams and units sent to this incident.', head: ['Team / unit', 'Status', 'Dispatched', 'ETA', 'By', 'Instructions'], types: ['text', 'status', 'datetime', 'datetime', 'text', 'longtext'], widths: [26, 14, 22, 22, 22, 50],
+        rows: disp.map((d) => [d.unit_name || d.team || '', UG_EXPORT.titleCase(d.status || 'dispatched'), d.dispatched_at || null, d.eta || null, d.dispatched_by_name || '', d.instructions || '']) },
+      { key: 'dna', name: 'Damage and needs', note: 'Assessments linked to this incident.', head: ['Assessed', 'Families', 'Persons', 'Dead', 'Injured', 'Missing', 'Houses total', 'Houses partial', 'Needs'], types: ['date', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'longtext'], widths: [16, 10, 10, 8, 9, 9, 12, 13, 50],
+        rows: dna.map((d) => [d.assessed_on || null, num(d.affected_families), num(d.affected_persons), num(d.dead), num(d.injured), num(d.missing), num(d.houses_totally), num(d.houses_partially), (d.needs || []).join(', ')]) }
     ];
   }
 
   function exportIncident(kind) {
+    guardRole();
     const inc = findIncident(state.incidentId);
-    if (!inc) { toast('Choose an incident first', 'info'); return; }
+    if (!inc) { toast('Choose an incident first', 'info'); return null; }
+    if (!inScope(inc.brgy)) throw new Error('You can only export incidents in Barangay ' + (me().barangay || '') + '.');
     const sections = incidentSections(inc);
-    const title = 'Incident Summary · ' + inc.id;
-    const file = 'uniguard-incident-' + String(inc.id).replace(/[^A-Za-z0-9-]+/g, '-');
+    const meta = X().buildMetadata({
+      title: 'Incident Summary Report \u00b7 ' + inc.id, kind: 'Incident Summary Report', module: 'Reports and Documentation \u00b7 Incident Summary',
+      reference: 'Incident code ' + inc.id, scope: 'Barangay ' + inc.brgy, period: '', count: 1, countLabel: 'Incidents',
+      filters: ['Incident: ' + inc.id], notices: [inc.created_at ? '' : 'The report time was not recorded with an absolute date on this device.']
+    });
+    const filename = X().buildFilename({ type: 'Incident Summary ' + inc.id, scope: inc.brgy, ext: kind === 'pdf' ? 'pdf' : 'xlsx' });
     if (kind === 'pdf') {
-      toPdf({ title: title, subtitle: inc.hazard + ' · Barangay ' + inc.brgy, kind: 'Incident Summary',
-        scope: 'Barangay ' + inc.brgy, filename: file + '.pdf',
+      return toPdf(meta, { subtitle: inc.hazard + ' \u00b7 Barangay ' + inc.brgy + ' \u00b7 current status: ' + statusLabel(inc.status), filename: filename, landscape: false,
         signoff: [{ label: 'Prepared by', name: me().name || '', title: me().title || '' }] }, sections);
-    } else {
-      toXlsx(file + '.xlsx', title, [['Hazard', inc.hazard], ['Barangay', inc.brgy], ['Status', statusLabel(inc.status)],
-        ['Generated', new Date().toLocaleString()], ['Prepared by', signer()]], sections);
     }
+    return toXlsx(meta, { filename: filename, keyFigures: [['Hazard', inc.hazard], ['Barangay', inc.brgy], ['Current status', statusLabel(inc.status)], ['Severity', sevLabel(inc.sev)]] }, sections);
   }
 
   /* -------------------------------------------- damage assessment exports */
+  /* An official only ever sees their own barangay's assessments. On the server
+     row level security already guarantees this; on a shared device (assessments
+     kept in this browser) the filter here is what keeps other barangays out. */
   function dnaVisible() {
-    return (state.dna || []).filter((d) => isOfficial() ? true : (state.dnaBrgy === 'All' || d.barangay === state.dnaBrgy));
+    return (state.dna || []).filter((d) => isOfficial() ? d.barangay === (me().barangay || '') : (state.dnaBrgy === 'All' || d.barangay === state.dnaBrgy));
   }
 
   function dnaSections(rows) {
@@ -422,35 +458,50 @@ const UG_REPORTING = (function () {
     return [
       { key: 'register', name: 'Damage and needs register', note: 'One row per barangay assessment.',
         head: ['Assessed', 'Barangay', 'Event / hazard', 'Families', 'Persons', 'Displaced fam.', 'Displaced pers.', 'Dead', 'Injured', 'Missing', 'Houses total', 'Houses partial', 'Infrastructure (PHP)', 'Agriculture (PHP)', 'Status'],
+        types: ['date', 'text', 'text', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'money', 'money', 'status'],
         widths: [14, 20, 26, 10, 10, 13, 13, 8, 9, 9, 12, 13, 20, 20, 12],
-        rows: rows.map((d) => [d.assessed_on || '', d.barangay, [d.event_name, d.hazard_type].filter(Boolean).join(' · '), num(d.affected_families), num(d.affected_persons),
+        rows: rows.map((d) => [d.assessed_on || null, d.barangay, [d.event_name, d.hazard_type].filter(Boolean).join(' · '), num(d.affected_families), num(d.affected_persons),
           num(d.displaced_families), num(d.displaced_persons), num(d.dead), num(d.injured), num(d.missing), num(d.houses_totally), num(d.houses_partially),
           num(d.infra_damage_php), num(d.agri_damage_php), DNA_STATUS[d.status] || d.status || '']),
         total: rows.length ? ['TOTAL', '', '', t.affected_families, t.affected_persons, t.displaced_families, t.displaced_persons, t.dead, t.injured, t.missing,
           t.houses_totally, t.houses_partially, t.infra_damage_php, t.agri_damage_php, ''] : null },
       { key: 'lifelines', name: 'Lifelines and needs', note: 'Utility status and the needs each barangay flagged.',
-        head: ['Barangay', 'Assessed', 'Power', 'Water', 'Communications', 'Needs', 'Priority notes', 'Assessed by'], widths: [20, 14, 20, 20, 20, 44, 44, 24],
-        rows: rows.map((d) => [d.barangay, d.assessed_on || '', d.power_status || '', d.water_status || '', d.comms_status || '', (d.needs || []).join(', '), d.needs_notes || '', d.assessed_by_name || '']) },
+        head: ['Barangay', 'Assessed', 'Power', 'Water', 'Communications', 'Needs', 'Priority notes', 'Assessed by'], types: ['text', 'date', 'status', 'status', 'status', 'longtext', 'longtext', 'text'], widths: [20, 14, 20, 20, 20, 44, 44, 24],
+        rows: rows.map((d) => [d.barangay, d.assessed_on || null, d.power_status || '', d.water_status || '', d.comms_status || '', (d.needs || []).join(', '), d.needs_notes || '', d.assessed_by_name || '']) },
       { key: 'notes', name: 'Damage descriptions', note: 'Narrative detail behind the cost estimates.',
-        head: ['Barangay', 'Infrastructure', 'Agriculture', 'Remarks'], widths: [20, 50, 50, 50],
+        head: ['Barangay', 'Infrastructure', 'Agriculture', 'Remarks'], types: ['text', 'longtext', 'longtext', 'longtext'], widths: [20, 50, 50, 50],
         rows: rows.map((d) => [d.barangay, d.infra_notes || '', d.agri_notes || '', d.remarks || '']) }
     ];
   }
 
   function exportDna(kind, onlyId) {
-    const rows = onlyId ? (state.dna || []).filter((d) => d.id === onlyId) : dnaVisible();
-    if (!rows.length) { toast('No assessments to export', 'info'); return; }
+    guardRole();
+    /* a single assessment is still taken from the visible (scoped) rows */
+    const rows = onlyId ? dnaVisible().filter((d) => String(d.id) === String(onlyId)) : dnaVisible();
+    if (!rows.length) { toast('No assessments to export', 'info'); return null; }
     const one = onlyId ? rows[0] : null;
-    const title = one ? 'Damage and Needs Assessment · Barangay ' + one.barangay : 'Damage and Needs Assessment';
+    const title = one ? 'Damage and Needs Assessment \u00b7 Barangay ' + one.barangay : 'Damage and Needs Assessment Register';
     const scope = one ? 'Barangay ' + one.barangay : (isOfficial() ? 'Barangay ' + (me().barangay || '') : (state.dnaBrgy === 'All' ? UG_GEO.PLACE.scope : 'Barangay ' + state.dnaBrgy));
-    const file = 'uniguard-damage-needs-' + stamp();
+    const dates = rows.map((d) => d.assessed_on).filter(Boolean).sort();
     const sections = dnaSections(rows);
+    const t = dnaTotals(rows);
+    const meta = X().buildMetadata({
+      title: title, kind: 'Damage and Needs Assessment', module: 'Reports and Documentation \u00b7 Damage and Needs Assessment',
+      scope: scope, period: dates.length ? X().periodLabel(dates[0], dates[dates.length - 1]) + ' (assessment dates)' : '',
+      filters: isLgu() && !one ? ['Barangay: ' + (state.dnaBrgy === 'All' ? 'All barangays' : state.dnaBrgy)] : (one ? ['Single assessment dated ' + (X().formatDate(one.assessed_on) || '')] : []),
+      count: rows.length, countLabel: 'Assessments',
+      notices: [state.dnaMode === 'server' ? '' : DEVICE_NOTICE, 'Status shows where each assessment is in the Draft / Submitted / Validated workflow. Only LDRRMO staff can validate.']
+    });
+    const filename = X().buildFilename({ type: one ? 'Damage and Needs Assessment' : 'Damage and Needs Register', scope: one ? one.barangay : (isOfficial() ? me().barangay : (state.dnaBrgy === 'All' ? UG_GEO.PLACE.town : state.dnaBrgy)),
+      date: one ? one.assessed_on : '', from: !one && dates.length ? dates[0] : '', to: !one && dates.length ? dates[dates.length - 1] : '', ext: kind === 'pdf' ? 'pdf' : 'xlsx' });
     if (kind === 'pdf') {
-      toPdf({ title: title, subtitle: 'Rapid damage and needs assessment record.', kind: 'Damage & Needs', landscape: true, scope: scope,
-        filename: file + '.pdf', signoff: [{ label: 'Prepared by', name: me().name || '', title: me().title || '' }, { label: 'Validated by', name: '', title: 'LDRRMO' }] }, sections);
-    } else {
-      toXlsx(file + '.xlsx', title, [['Scope', scope], ['Assessments', rows.length], ['Generated', new Date().toLocaleString()], ['Prepared by', signer()]], sections);
+      return toPdf(meta, { subtitle: 'Rapid damage and needs assessment record.', filename: filename,
+        kpis: [{ label: 'Affected families', value: fmt(t.affected_families), sub: fmt(t.affected_persons) + ' persons' }, { label: 'Displaced families', value: fmt(t.displaced_families), sub: fmt(t.displaced_persons) + ' persons' },
+          { label: 'Dead / injured / missing', value: fmt(t.dead) + ' / ' + fmt(t.injured) + ' / ' + fmt(t.missing) }, { label: 'Estimated damage (PHP)', value: num(t.infra_damage_php + t.agri_damage_php).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }],
+        signoff: [{ label: 'Prepared by', name: me().name || '', title: me().title || '' }, { label: 'Validated by', name: '', title: 'LDRRMO' }] }, sections);
     }
+    return toXlsx(meta, { filename: filename, keyFigures: [['Assessments', rows.length, 'int'], ['Affected families', t.affected_families, 'int'], ['Affected persons', t.affected_persons, 'int'],
+      ['Estimated infrastructure damage', t.infra_damage_php, 'money'], ['Estimated agriculture damage', t.agri_damage_php, 'money']] }, sections);
   }
 
   /* ----------------------------------------------------------------- render */
@@ -466,7 +517,9 @@ const UG_REPORTING = (function () {
 
   function previewTable(s, cap) {
     const rows = s.rows.slice(0, cap || 6);
-    const cell = (c) => '<td' + (typeof c === 'number' ? ' class="t-num"' : '') + ' style="max-width:320px">' + esc(typeof c === 'number' ? fmt(c) : c) + '</td>';
+    const types = s.types || [];
+    const cell = (c, i) => { const t = (c && typeof c === 'object' && 't' in c) ? c.t : types[i];
+      return '<td' + (UG_EXPORT.isNumericType(t) ? ' class="t-num"' : '') + ' style="max-width:320px">' + esc(typeof c === 'string' && UG_EXPORT.isNumericType(t) ? c : UG_EXPORT.formatCell(c, t)) + '</td>'; };
     return '<div class="ug-card" style="overflow:hidden"><div class="ug-card-h"><h3>' + esc(s.name) + '</h3>' +
         '<span class="ug-chip">' + s.rows.length + ' row' + (s.rows.length === 1 ? '' : 's') + '</span></div>' +
       (s.rows.length
@@ -735,8 +788,10 @@ const UG_REPORTING = (function () {
       loadRoute();
     },
 
-    'rp-sitrep-pdf': guard(() => { exportSitrep('pdf'); toast('Situation report exported as PDF', 'info'); }),
-    'rp-sitrep-xlsx': guard(() => { exportSitrep('xlsx'); toast('Situation report exported as Excel', 'info'); }),
+    /* exports run through UG_EXPORT.run: busy state, no double clicks, and the
+       success message only after the file was actually generated */
+    'rp-sitrep-pdf': () => UG_EXPORT.run('rp-sitrep-pdf', () => exportSitrep('pdf'), { label: 'situation report PDF' }),
+    'rp-sitrep-xlsx': () => UG_EXPORT.run('rp-sitrep-xlsx', () => exportSitrep('xlsx'), { label: 'situation report workbook' }),
     'rp-sitrep-save': guard(async () => {
       if (!state.eventName.trim()) { toast('Give the event a name before saving it to the register', 'warning'); return; }
       const row = await saveSitrep();
@@ -744,8 +799,8 @@ const UG_REPORTING = (function () {
       rerender();
     }),
 
-    'rp-inc-pdf': guard(() => { exportIncident('pdf'); }),
-    'rp-inc-xlsx': guard(() => { exportIncident('xlsx'); }),
+    'rp-inc-pdf': () => UG_EXPORT.run('rp-inc-pdf', () => exportIncident('pdf'), { label: 'incident summary PDF' }),
+    'rp-inc-xlsx': () => UG_EXPORT.run('rp-inc-xlsx', () => exportIncident('xlsx'), { label: 'incident summary workbook' }),
 
     'rp-dna-add': () => dnaForm(null),
     'rp-dna-edit': (d) => { const row = (state.dna || []).find((x) => String(x.id) === String(d.id)); if (row) dnaForm(row); },
@@ -766,9 +821,9 @@ const UG_REPORTING = (function () {
       toast('Assessment marked ' + (DNA_STATUS[d.v] || d.v).toLowerCase(), 'prepared');
       rerender();
     }),
-    'rp-dna-pdf': guard(() => { exportDna('pdf'); }),
-    'rp-dna-xlsx': guard(() => { exportDna('xlsx'); }),
-    'rp-dna-one-pdf': guard((d) => { exportDna('pdf', (state.dna || []).filter((x) => String(x.id) === String(d.id)).map((x) => x.id)[0]); }),
+    'rp-dna-pdf': () => UG_EXPORT.run('rp-dna-pdf', () => exportDna('pdf'), { label: 'damage and needs PDF' }),
+    'rp-dna-xlsx': () => UG_EXPORT.run('rp-dna-xlsx', () => exportDna('xlsx'), { label: 'damage and needs workbook' }),
+    'rp-dna-one-pdf': (d) => UG_EXPORT.run('rp-dna-one-pdf', () => exportDna('pdf', d.id), { label: 'assessment PDF' }),
     'rp-dna-sample': () => {
       if (!UG_CONFIG.DEV) return;
       writeLocal(LOCAL_DNA, sampleRows()); state.dna = readLocal(LOCAL_DNA); rerender();
