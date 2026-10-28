@@ -120,12 +120,17 @@ const UG = (() => {
        mapSVG below); lat/lng position it on the real Leaflet map (js/map.js)
        and are kept in the same relative spots via UG_GEO.project(). */
     incidents: [
-      { id:'UG-2026-0142', hazard:'Flood',              brgy:'Pangapisan North', area:'Coastal road near the barangay hall', status:'dispatched', sev:'emergency', time:'10m ago',  desc:'Knee-deep water across the coastal road; two households requesting evacuation assistance.', corr:3, thumb:'flood',     units:2, lat:16.0552, lng:120.2238 },
-      { id:'UG-2026-0141', hazard:'Landslide / Soil Erosion', brgy:'Malawa',   area:'Slope along the barangay road',       status:'verified',   sev:'warning',   time:'45m ago',  desc:'Soil and debris covering the inner lane; one vehicle stalled, no injuries reported.',        corr:3, thumb:'landslide', units:1, lat:16.0038, lng:120.2361 },
-      { id:'UG-2026-0140', hazard:'Storm Surge',        brgy:'Wawa',          area:'Seawall along the gulf side',         status:'reported',   sev:'advisory',  time:'1h 12m ago', desc:'Waves overtopping the seawall at high tide; the shoreline path is closed to the public.',  corr:1, thumb:'surge',     units:0, lat:16.0513, lng:120.2452 },
-      { id:'UG-2026-0139', hazard:'Fallen Tree',        brgy:'Domalandan West', area:'Along the barangay access road',    status:'resolved',   sev:'advisory',  time:'3h ago',   desc:'Fallen tree cleared by the barangay team; lane reopened to traffic.',                       corr:4, thumb:null,        units:0, lat:16.0421, lng:120.2059 },
+      /* Coordinates are polygon-verified against the official PSA barangay
+         boundaries (migration 053) — see scripts/validate_proposed_coords.py.
+         One earlier revision had "Pangapisan North" points out in the gulf and
+         a Malawa incident plotted in Quibaol; every row below now sits inside
+         the ring of the barangay it names. */
+      { id:'UG-2026-0142', hazard:'Flood',              brgy:'Pangapisan North', area:'Coastal road near the barangay hall', status:'dispatched', sev:'emergency', time:'10m ago',  desc:'Knee-deep water across the coastal road; two households requesting evacuation assistance.', corr:3, thumb:'flood',     units:2, lat:16.0385, lng:120.2090 },
+      { id:'UG-2026-0141', hazard:'Landslide / Soil Erosion', brgy:'Malawa',   area:'Slope along the barangay road',       status:'verified',   sev:'warning',   time:'45m ago',  desc:'Soil and debris covering the inner lane; one vehicle stalled, no injuries reported.',        corr:3, thumb:'landslide', units:1, lat:15.9558, lng:120.2713 },
+      { id:'UG-2026-0140', hazard:'Storm Surge',        brgy:'Sabangan',      area:'Seawall along the gulf side',         status:'reported',   sev:'advisory',  time:'1h 12m ago', desc:'Waves overtopping the seawall at high tide; the shoreline path is closed to the public.',  corr:1, thumb:'surge',     units:0, lat:16.0290, lng:120.1560 },
+      { id:'UG-2026-0139', hazard:'Fallen Tree',        brgy:'Domalandan West', area:'Along the barangay access road',    status:'resolved',   sev:'advisory',  time:'3h ago',   desc:'Fallen tree cleared by the barangay team; lane reopened to traffic.',                       corr:4, thumb:null,        units:0, lat:16.0090, lng:120.1840 },
       { id:'UG-2026-0138', hazard:'Fire',               brgy:'Poblacion',     area:'Near the public market',              status:'verified',   sev:'emergency', time:'2h 5m ago', desc:'Contained stall fire behind the market row; BFP monitoring for flare-ups.',                corr:2, thumb:null,        units:3, lat:16.0223, lng:120.2312 },
-      { id:'UG-2026-0137', hazard:'River Overflow',     brgy:'Estanza',       area:'Low-lying farmland',                  status:'reported',   sev:'warning',   time:'22m ago',  desc:'Water level rising toward the first flood marker; residents advised to prepare go-bags.',   corr:2, thumb:'flood',     units:0, lat:15.9878, lng:120.2497 },
+      { id:'UG-2026-0137', hazard:'River Overflow',     brgy:'Estanza',       area:'Low-lying farmland',                  status:'reported',   sev:'warning',   time:'22m ago',  desc:'Water level rising toward the first flood marker; residents advised to prepare go-bags.',   corr:2, thumb:'flood',     units:0, lat:16.0230, lng:120.1715 },
     ],
     advisories: [
       { id:'ADV-2026-061', title:'Flood Warning: Pangapisan North',        severity:'emergency', type:'Emergency',     area:'Pangapisan North, Pangapisan Sur', time:'12m ago', body:'Water has reached the first flood marker along the Pangapisan North coastal road. Residents within 200 m of the shoreline must prepare to move to the Pangapisan North Multi-Purpose Center. Bring water, medication, and identification.' },
@@ -135,10 +140,10 @@ const UG = (() => {
       { id:'ADV-2026-057', title:'Go-Bag Checklist for the Wet Season',    severity:'prepared',  type:'Preparedness',  area:UG_GEO.PLACE.areaAll,               time:'4d ago',  body:'Keep a go-bag ready: three days of water and non-perishable food, flashlight, batteries, first-aid kit, whistle, copies of documents, and a power bank.' },
     ],
     centers: [
-      { id:'EC-01', name:'Pangapisan North Multi-Purpose Center', brgy:'Pangapisan North', status:'open',   occ:118, cap:250, note:'Priority for coastal households', lat:16.0555, lng:120.2245, facilities:['Medical station','Kitchen','Generator','Pet-friendly area'], contact_person:'Brgy. Captain Office', contact_phone:'0917-408-2210' },
+      { id:'EC-01', name:'Pangapisan North Multi-Purpose Center', brgy:'Pangapisan North', status:'open',   occ:118, cap:250, note:'Priority for coastal households', lat:16.0330, lng:120.2080, facilities:['Medical station','Kitchen','Generator','Pet-friendly area'], contact_person:'Brgy. Captain Office', contact_phone:'0917-408-2210' },
       { id:'EC-02', name:'Narciso Ramos Sports and Civic Center', brgy:'Poblacion',        status:'full',   occ:620, cap:620, note:'No remaining slots', lat:16.03192, lng:120.22529, facilities:['Cots','Generator','Medical station','Feeding area'], contact_person:'MDRRMO Shelter Desk', contact_phone:'(075) 632-2222' },
       { id:'EC-03', name:'Lingayen Central Elementary School',    brgy:'Poblacion',         status:'open',   occ:84,  cap:300, note:'Medical station on site', lat:16.0219, lng:120.2320, facilities:['Classrooms','Medical station','Water supply'], contact_person:'Principal\'s Office', contact_phone:'(075) 632-2333' },
-      { id:'EC-04', name:'Domalandan West Barangay Hall',         brgy:'Domalandan West',   status:'closed', occ:0,   cap:90,  note:'Undergoing roof repair', lat:16.0418, lng:120.2065, facilities:['Function hall','Water supply'], contact_person:'Brgy. Captain', contact_phone:'0917-408-2240' },
+      { id:'EC-04', name:'Domalandan West Barangay Hall',         brgy:'Domalandan West',   status:'closed', occ:0,   cap:90,  note:'Undergoing roof repair', lat:16.0083, lng:120.1823, facilities:['Function hall','Water supply'], contact_person:'Brgy. Captain', contact_phone:'0917-408-2240' },
       { id:'EC-05', name:'Pangasinan National High School',       brgy:'Poblacion',         status:'open',   occ:210, cap:400, note:'Pet-friendly area available', lat:16.031292, lng:120.230322, facilities:['Classrooms','Pet-friendly area','Cots','Generator'], contact_person:'School DRRM Coordinator', contact_phone:'(075) 632-2344' },
     ],
     hotlines: [
@@ -1926,7 +1931,7 @@ const UG_SCREENS = (() => {
     return '<div class="ug-col" style="gap:18px">' +
       pageHead(T('title.command'), 'Focused operational view: live map, open incidents and the pipeline. Scope: ' +  + esc(sess(st).scope || ''),
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('nav', attr({ route: 'incidents' })) + '>' + I('x', 15) + 'Exit Command View</button>') +
-      '<div class="ug-card" style="padding:0;overflow:hidden"><div class="ug-map" data-map="live" style="height:400px">' + U.mapSVG({ animated: true }) + '</div></div>' +
+      '<div class="ug-card" style="padding:0;overflow:hidden"><div class="ug-map" data-map="live" style="height:clamp(320px,52vh,480px)">' + U.mapSVG({ animated: true }) + '</div></div>' +
       '<div class="ug-dgrid-main">' +
         '<div class="ug-card ug-col" style="min-height:0"><div class="ug-card-h"><div><h3>Active Incidents</h3>' +
           '<span class="ug-dimmer" style="font-size:10.5px">Reported · Verified · Response Dispatched — tap to open</span></div>' +
@@ -2410,28 +2415,34 @@ const UG_SCREENS = (() => {
     }
   }
 
-  /* the dedicated Hazard Map screen: an interactive Leaflet map with
-     toggleable layers (hazards, relief, evacuation centers, road status).
-     The map itself is mounted by js/app.js's mountMaps() when this screen
-     renders. */
-  function mMap(st) {
+  /* the four category filter chips shared by the mobile screen and the console
+     screen — same action, same look, so filters behave identically everywhere */
+  function mapLayerChips(st) {
     const layers = st.mapLayers || { hazards: true, relief: true, centers: true, roadStatus: true };
     const toggle = (k, label, shape, color) =>
       '<button class="ug-chip' + (layers[k] ? ' is-on' : '') + '" aria-pressed="' + !!layers[k] + '" data-act="map-layer-toggle" data-layer="' + k + '">' +
         '<span class="swatch shape-' + shape + '" style="background:' + color + ';width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:middle"></span>' +
         label + '</button>';
+    return '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' +
+      toggle('hazards', 'Hazards', 'octagon', 'var(--ug-emergency)') +
+      toggle('relief', 'Relief', 'square', '#8B5CF6') +
+      toggle('centers', 'Shelters', 'square', 'var(--ug-shelter-open)') +
+      toggle('roadStatus', 'Road status', 'diamond', 'var(--ug-warning)') +
+    '</div>';
+  }
+
+  /* the dedicated Hazard Map screen: an interactive Leaflet map with
+     toggleable layers (hazards, relief, evacuation centers, road status).
+     The map itself is mounted by js/app.js's mountMaps() when this screen
+     renders. */
+  function mMap(st) {
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">Live Operations Map</div>' +
       '<h2 style="font-size:19px;margin-top:3px">Hazard Map</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Hazards, relief centers, evacuation centers and road status. Toggle the layers off to focus on one. Tap any marker for details.</p></div>' +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' +
-        toggle('hazards', 'Hazards', 'octagon', 'var(--ug-emergency)') +
-        toggle('relief', 'Relief', 'square', '#8B5CF6') +
-        toggle('centers', 'Shelters', 'square', 'var(--ug-shelter-open)') +
-        toggle('roadStatus', 'Road status', 'diamond', 'var(--ug-warning)') +
-      '</div>' +
+      mapLayerChips(st) +
       '<div class="ug-card" style="padding:0;overflow:hidden">' +
-        '<div class="ug-map" data-map="live" data-toggles="inline" style="height:380px">' + U.mapSVG({ animated: true }) + '</div>' +
+        '<div class="ug-map" data-map="live" data-toggles="inline" style="height:clamp(300px,55vh,430px)">' + U.mapSVG({ animated: true }) + '</div>' +
       '</div>' +
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
         '<span style="color:var(--ug-warning);display:flex">' + I('info', 17) + '</span>' +
@@ -2522,7 +2533,8 @@ const UG_SCREENS = (() => {
       case 'sos': return UG_SOS.dSos(st);
       case 'map': return (function () {
         return '<div class="ug-col" style="gap:18px">' + pageHead('Hazard Map', 'Live operations map with toggleable layers and road-status overlay.') +
-          '<div class="ug-card" style="padding:0;overflow:hidden"><div class="ug-map" data-map="live" style="height:540px">' + U.mapSVG({ animated: true }) + '</div></div></div>';
+          mapLayerChips(st) +
+          '<div class="ug-card" style="padding:0;overflow:hidden"><div class="ug-map" data-map="live" data-toggles="inline" style="height:clamp(340px,56vh,620px)">' + U.mapSVG({ animated: true }) + '</div></div></div>';
       })();
       case 'others-review': return (function () {
         const rows = UG.DATA.othersReview || [];

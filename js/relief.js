@@ -103,8 +103,8 @@ const UG_RELIEF = (function () {
       },
       {
         id: 'RD-02', barangay: 'Pangapisan North', title: 'Coastal Relief Distribution',
-        location_name: 'Pangapisan North Multi-Purpose Center', address: 'Coastal Rd, Pangapisan North',
-        lat: 16.0555, lng: 120.2245,
+        location_name: 'Pangapisan North Multi-Purpose Center', address: 'Pangapisan North, Lingayen',
+        lat: 16.0330, lng: 120.2080,
         distribution_at: new Date(Date.now() + 3 * 86400000).toISOString(),
         contact_person: 'Brgy. Captain Office', contact_phone: '0917-408-2210',
         eligibility: ['Coastal household affected by storm surge', 'Evacuated family from shelter'],

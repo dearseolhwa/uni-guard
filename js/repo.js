@@ -1314,7 +1314,7 @@ const Repo = (function () {
 
   async function createGuide(input) {
     const c = client();
-    if (!c) { UG.DATA.guides.push(toGuide(Object.assign({ id: 'local-' + Date.now() }, input))); emit(); return { local: true }; }
+    if (!c) { UG.DATA.guides.push(toGuide(Object.assign({ id: 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7) }, input))); emit(); return { local: true }; }
     const { data, error } = await c.from('preparedness_guides').insert(input).select('*').single();
     if (error) fail(error);
     await loadAll(); return data;

@@ -300,34 +300,42 @@ const UG_EXPORTS = (function () {
   }
 
   /* ======================================================== guides (all) */
+  /* Same data selection and the same step parser as the citizen screen
+     (UG_GUIDES.guidesFor / phaseText / parseSteps), so the PDF shows exactly
+     the instructions a resident sees, one numbered box per step. Each guide
+     row appears once, under the phase it belongs to: the seed stores the
+     same text in `body` and in the phase column, and only one is printed. */
   function guides(hazard) {
     X().validateScope({});
     hazard = hazard || 'all';
-    const all = (UG.DATA.guides || []).filter((g) => g.active !== false);
-    const scoped = hazard === 'all' ? all.slice() : all.filter((g) => g.hazard_type === hazard);
-    if (!scoped.length) return empty('there are no guides for this hazard yet');
-    const order = ['before', 'during', 'after', 'all'];
-    scoped.sort((a, b) => String(a.hazard_type).localeCompare(String(b.hazard_type)) ||
-      (order.indexOf(a.phase) - order.indexOf(b.phase)) || ((a.sort_order || 0) - (b.sort_order || 0)));
-    const phaseLabel = (p) => ({ before: 'Before', during: 'During', after: 'After' })[p] || '';
+    const G = UG_GUIDES;
+    const list = (UG.DATA.guides || []).filter((g) => g.active !== false);
+    const known = G.guideHazards();
+    const extra = Array.from(new Set(list.map((g) => g.hazard_type))).filter((h) => known.indexOf(h) === -1).sort();
+    const hazards = hazard === 'all' ? known.concat(extra) : [hazard];
     const blocks = [];
-    scoped.forEach((g) => {
-      const head = [g.hazard_type, phaseLabel(g.phase)].filter(Boolean).join(' \u00b7 ') + (g.title ? ' \u2014 ' + g.title : '');
-      const parts = [];
-      if (g.summary) parts.push(g.summary);
-      if (g.body_before) parts.push('BEFORE\n' + g.body_before);
-      if (g.body_during) parts.push('DURING\n' + g.body_during);
-      if (g.body_after) parts.push('AFTER\n' + g.body_after);
-      if (g.body) parts.push(g.body);
-      blocks.push({ type: 'text', name: head, text: parts.join('\n\n') || 'No instructions recorded for this guide yet.' });
+    let sections = 0, steps = 0;
+    hazards.forEach((h) => {
+      const perPhase = G.PHASES.map((p) => [p, G.guidesFor(list, h, p)]).filter((x) => x[1].length);
+      if (!perPhase.length) return;
+      if (hazard === 'all') blocks.push({ type: 'heading', text: h, level: 1 });
+      perPhase.forEach(([p, rows]) => {
+        rows.forEach((g) => {
+          const parsed = G.parseSteps(G.phaseText(g, p));
+          sections++; steps += parsed.steps.length;
+          blocks.push({ type: 'steps', name: G.phaseLabel(p).toUpperCase() + ' \u00b7 ' + (g.title || h),
+            note: g.summary || '', content: parsed.blocks, emptyText: 'No instructions recorded for this phase yet.' });
+        });
+      });
     });
+    if (!sections) return empty('there are no guides for this hazard yet');
     const title = hazard === 'all' ? 'Disaster Preparedness Guides' : hazard + ' Preparedness Guide';
     const meta = X().buildMetadata({
       title: title, kind: 'Preparedness Guide', module: 'Preparedness Guides', scope: PLACE().label, period: '',
-      filters: hazard === 'all' ? [] : ['Hazard: ' + hazard], count: scoped.length, countLabel: 'Guides included'
+      filters: hazard === 'all' ? [] : ['Hazard: ' + hazard], count: sections, countLabel: 'Guide sections (hazard and phase)'
     });
     return UG_PDF.formal({
-      meta: meta, subtitle: 'What to do before, during and after a hazard in ' + (PLACE().label || '') + '.',
+      meta: meta, subtitle: 'What to do before, during and after a hazard in ' + (PLACE().label || '') + '. ' + steps + ' numbered steps.',
       filename: X().buildFilename({ type: hazard === 'all' ? 'Preparedness Guides' : hazard + ' Preparedness Guide', ext: 'pdf' }),
       blocks: blocks
     });

@@ -25,7 +25,7 @@ const UG_ROADWORK = (function () {
       { id: 'RW-02', title: 'Drainage repair: Coastal Rd',
         description: 'Open drainage culvert being replaced. Expect closures on the inner lane through the working day.',
         barangay: 'Pangapisan North', road_name: 'Coastal Rd', address: 'Coastal Rd, Pangapisan North',
-        lat: 16.0552, lng: 120.2238,
+        lat: 16.0390, lng: 120.2080,
         expected_start: new Date(Date.now() - 3 * 3600000).toISOString(),
         expected_end:   new Date(Date.now() + 9 * 3600000).toISOString(),
         status: 'active', citywide: false, time: '3h ago' }
@@ -34,10 +34,13 @@ const UG_ROADWORK = (function () {
 
   if (!UG.DATA.roadStatus) {
     UG.DATA.roadStatus = [
+      /* coordinates polygon-verified against the PSA barangay boundaries
+         (migration 053): Coastal Rd sits on the Pangapisan North shore, and
+         Domalandan Access is inside Domalandan West, not 4 km north-east. */
       { id: 'RS-01', road_name: 'Aguila Rd',         barangay: 'Poblacion',         status: 'caution',  note: 'Single lane alternating while clearing is in progress', lat: 16.033513, lng: 120.231519 },
-      { id: 'RS-02', road_name: 'Coastal Rd',        barangay: 'Pangapisan North',  status: 'blocked',  note: 'Closed in both directions until drainage repair completes', lat: 16.0552,    lng: 120.2238 },
+      { id: 'RS-02', road_name: 'Coastal Rd',        barangay: 'Pangapisan North',  status: 'blocked',  note: 'Closed in both directions until drainage repair completes', lat: 16.0390,    lng: 120.2080 },
       { id: 'RS-03', road_name: 'M. Palarca St',     barangay: 'Poblacion',         status: 'passable',note: 'No reported issues', lat: 16.0206,    lng: 120.2306 },
-      { id: 'RS-04', road_name: 'Domalandan Access', barangay: 'Domalandan West',   status: 'passable',note: 'Cleared by the barangay team', lat: 16.0418, lng: 120.2065 }
+      { id: 'RS-04', road_name: 'Domalandan Access', barangay: 'Domalandan West',   status: 'passable',note: 'Cleared by the barangay team', lat: 16.0075, lng: 120.1855 }
     ];
   }
 

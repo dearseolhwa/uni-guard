@@ -18,6 +18,9 @@
  *   { type: 'kpis',     name, items: [{ label, value, sub }] }
  *   { type: 'bars',     name, note, items: [[label, number]], unit }
  *   { type: 'text',     name, text }
+ *   { type: 'heading',  text, level }        a section title kept with what follows
+ *   { type: 'steps',    name, note, content: [{ type: 'p' | 'step', text }] }
+ *                                            numbered instructions, one box per step
  * plus spec.signoff = [{ label, name, title }] for blank signature lines.
  *
  * Tables repeat their header on every page, wrap long text, right-align
@@ -278,8 +281,77 @@ const UG_PDF = (function () {
       y += 8;
     };
 
+    /* section heading that keeps itself with the content after it */
+    const headingBlock = (b) => {
+      ensure(b.keep || 120);
+      if (y > TOP + 4) y += 6;
+      setFont('bold', b.level === 2 ? 12 : 14, INK);
+      textLines(b.text, CW).forEach((l) => { doc.text(l, M, y + 10); y += b.level === 2 ? 15 : 17; });
+      doc.setDrawColor.apply(doc, b.level === 2 ? LINE : NAVY); doc.setLineWidth(b.level === 2 ? 0.5 : 1);
+      doc.line(M, y + 1, W - M, y + 1);
+      y += 10;
+    };
+
+    /* numbered instructions: introduction / notes as paragraphs, then one
+       bordered box per step with its number, text wrapped inside the box.
+       A step that does not fit the rest of the page moves to the next page;
+       a step longer than a whole page continues across pages. */
+    const stepsBlock = (b) => {
+      const content = b.content || [];
+      const numW = 26, padX = 8, padY = 6, lineH = 11.2, gap = 5;
+      const textW = CW - numW - padX * 3;
+      blockHead(b, 60);
+      if (!content.length) {
+        setFont('italic', 8.5, MUTED); doc.text(safe(b.emptyText || 'No instructions recorded yet.'), M, y + 6); y += 20; return;
+      }
+      let n = 0;
+      content.forEach((c) => {
+        if (c.type !== 'step') {
+          setFont('bold', 8.5, INK2);
+          const lines = textLines(c.text, CW - 12);
+          ensure(Math.min(lines.length, 3) * 11 + 10);
+          const h = lines.length * 11 + 8;
+          if (y + h <= H - BOTTOM) {
+            doc.setFillColor.apply(doc, ZEBRA); doc.rect(M, y, CW, h, 'F');
+            doc.setFillColor(51, 85, 140); doc.rect(M, y, 2.2, h, 'F');
+          }
+          lines.forEach((l) => { ensure(11); doc.text(l, M + 9, y + 10); y += 11; });
+          y += 8 + gap;
+          return;
+        }
+        n++;
+        setFont('normal', 9, [30, 41, 59]);
+        let lines = textLines(c.text, textW);
+        const label = (n < 10 ? '0' : '') + n;
+        let first = true;
+        while (lines.length) {
+          const room = Math.floor((H - BOTTOM - y - padY * 2) / lineH);
+          const whole = lines.length * lineH + padY * 2;
+          if (first && whole <= (H - BOTTOM - TOP) && y + whole > H - BOTTOM) { newPage(); continue; }
+          if (room < 1) { newPage(); continue; }
+          const take = lines.slice(0, room);
+          lines = lines.slice(take.length);
+          const h = take.length * lineH + padY * 2;
+          doc.setDrawColor.apply(doc, LINE); doc.setFillColor(255, 255, 255); doc.setLineWidth(0.7);
+          doc.roundedRect(M, y, CW, h, 3, 3, 'FD');
+          if (first) {
+            doc.setFillColor(232, 238, 247); doc.roundedRect(M + padX, y + padY - 1, numW, 14, 2, 2, 'F');
+            setFont('bold', 8.5, NAVY); doc.text(label, M + padX + numW / 2, y + padY + 9, { align: 'center' });
+          }
+          setFont('normal', 9, [30, 41, 59]);
+          take.forEach((l, k) => doc.text(l, M + padX * 2 + numW, y + padY + 8.5 + k * lineH));
+          y += h + (lines.length ? 0 : gap);
+          if (lines.length) newPage();
+          first = false;
+        }
+      });
+      y += 10;
+    };
+
     (spec.blocks || []).forEach((b) => {
       if (!b) return;
+      if (b.type === 'heading') { headingBlock(b); return; }
+      if (b.type === 'steps') { stepsBlock(b); return; }
       if (b.type === 'table') tableBlock(b);
       else if (b.type === 'keyvalue') kvBlock(b);
       else if (b.type === 'kpis') kpiBlock(b);

@@ -791,3 +791,47 @@
 .ug-eq-name { font-weight: 600; }
 .ug-eq-type { margin-left: auto; font-size: 11px; color: var(--ug-ink-3); }
 .ug-eq-empty { padding: 10px; font-size: 12px; color: var(--ug-ink-3); }
+
+/* ---------------------------------------------------------------------------
+   Preparedness guide step cards (js/guides.js · contentHtml)
+   One card per numbered instruction, in a single column, so a resident can
+   follow the steps in order on any screen width. Colours, radii and type come
+   from the existing tokens, so both the dark and the light design apply.
+   --------------------------------------------------------------------------- */
+/* long hazard names ("Strong Wind / Typhoon Damage") must not push the
+   download buttons off a phone screen */
+.ug-guide-actions { max-width: 100%; }
+.ug-guide-actions .ug-btn { white-space: normal; text-align: left; max-width: 100%; height: auto; min-height: 30px; }
+.ug-guide-b { display: flex; flex-direction: column; gap: 12px; }
+.ug-guide-sum { font-size: 13px; line-height: 1.55; color: var(--ug-ink-2); margin: 0; }
+.ug-guide-intro,
+.ug-guide-note {
+  margin: 0; font-size: 12.5px; line-height: 1.6; font-weight: 600; letter-spacing: .01em;
+  color: var(--ug-ink-2); white-space: pre-line; overflow-wrap: anywhere;
+}
+.ug-guide-intro { padding: 10px 12px; border-left: 3px solid var(--ug-signal); background: var(--ug-surface-2); border-radius: var(--ug-r-sm); }
+.ug-guide-note { font-weight: 500; }
+.ug-guide-text { display: flex; flex-direction: column; gap: 10px; }
+.ug-gsteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ug-gstep {
+  display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; align-items: start;
+  padding: 12px 14px; background: var(--ug-surface); border: 1px solid var(--ug-line);
+  border-radius: var(--ug-r-md);
+}
+.ug-gstep-n {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 28px; border-radius: var(--ug-r-sm);
+  background: var(--ug-signal-dim); color: var(--ug-tx-signal, var(--ug-signal));
+  font-family: var(--ug-mono, ui-monospace, monospace); font-size: 12.5px; font-weight: 700;
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.ug-gstep-t {
+  min-width: 0; font-size: 13.5px; line-height: 1.6; color: var(--ug-ink);
+  padding-top: 3px; white-space: pre-line; overflow-wrap: anywhere;
+}
+.ug-vh { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (max-width: 480px) {
+  .ug-gstep { grid-template-columns: 30px minmax(0, 1fr); gap: 10px; padding: 11px 12px; }
+  .ug-gstep-n { width: 30px; height: 26px; font-size: 12px; }
+  .ug-gstep-t { font-size: 13px; }
+}

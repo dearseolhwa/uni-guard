@@ -280,7 +280,7 @@
     if (!live && !detail && !report) return;
 
     const targets = [];
-    if (live) targets.push({ el: live, key: 'live:' + (UG.DATA.incidents || []).length + ':' + (S.offline ? 'o' : 'n'), centers: true });
+    if (live) targets.push({ el: live, key: 'live', centers: true });
     if (detail && S.openId) {
       const inc = (UG.DATA.incidents || []).find((i) => i.id === S.openId || i.uuid === S.openId);
       targets.push({ el: detail, key: 'detail:' + S.openId + ':' + (S.offline ? 'o' : 'n'), only: inc });
@@ -291,10 +291,10 @@
     }
 
     for (const t of targets) {
-      if (t.el.dataset.mounted === t.key) continue;
-      t.el.dataset.mounted = t.key;
-      t.el.innerHTML = '';
       if (t.report) {
+        if (t.el.dataset.mounted === t.key) continue;
+        t.el.dataset.mounted = t.key;
+        t.el.innerHTML = '';
         /* mount a draggable Leaflet pin that updates S.report on drop */
         const ctx = await MapView.mount(t.el, {
           reportPin: { lat: S.report.lat, lng: S.report.lng },
@@ -309,15 +309,46 @@
         });
         continue;
       }
-      const ctx = await MapView.mount(t.el, {
-        incidents: t.only ? [t.only] : (UG.DATA.incidents || []),
-        centers: t.centers ? (UG.DATA.centers || []) : [],
+      if (t.only) {
+        if (t.el.dataset.mounted === t.key) continue;
+        t.el.dataset.mounted = t.key;
+        t.el.innerHTML = '';
+        await MapView.mount(t.el, {
+          incidents: [t.only],
+          relief: UG.DATA.relief || [],
+          roadStatus: UG.DATA.roadStatus || [],
+          zoom: 15
+        });
+        MapView.invalidate();
+        continue;
+      }
+      /* the live operations map: mount once, then refresh the overlays in
+         place. A full remount on every data change (a new report arriving,
+         a status change) threw away the user's pan/zoom and reloaded the
+         tiles; the setters redraw only the marker layer instead. */
+      if (t.el.dataset.mounted === 'live' && MapView.owns(t.el)) {
+        MapView.setIncidents(UG.DATA.incidents || []);
+        MapView.setCenters(UG.DATA.centers || []);
+        MapView.setRelief(UG.DATA.relief || []);
+        MapView.setRoadStatus(UG.DATA.roadStatus || []);
+        MapView.setLayers(S.mapLayers);
+        MapView.invalidate();
+        continue;
+      }
+      t.el.dataset.mounted = 'live';
+      t.el.innerHTML = '';
+      await MapView.mount(t.el, {
+        incidents: UG.DATA.incidents || [],
+        centers: UG.DATA.centers || [],
         relief: UG.DATA.relief || [],
         roadStatus: UG.DATA.roadStatus || [],
-        layers: t.centers ? S.mapLayers : null,
-        zoom: t.only ? 15 : 13
+        layers: S.mapLayers,
+        zoom: 13,
+        /* dedicated map screens fit the view to the records once; dashboard
+           mini-maps keep the plain town-centre overview */
+        fit: t.centers
       });
-      if (ctx && !ctx.fallback) {
+      if (ctx0(t.el)) {
         /* data-toggles: "inline" = the screen draws its own chip row, so no
            floating panel; "chip" = the panel opens from the header Layers chip */
         const mode = t.el.dataset.toggles;
@@ -326,6 +357,12 @@
       }
       MapView.invalidate();
     }
+  }
+  /* mount() resolves to the mounted context; a fallback (no Leaflet) has no map */
+  function ctx0(el) {
+    try {
+      return el.querySelector('.leaflet-container') ? true : false;
+    } catch (e) { return false; }
   }
 
   /* the small floating control that lets a citizen / LGU toggle the four
@@ -3963,7 +4000,7 @@
           '<div class="ug-field"><label class="ug-lab">Before — what to do in advance</label><textarea class="ug-ta" rows="3" data-g-before></textarea></div>' +
           '<div class="ug-field"><label class="ug-lab">During — what to do while it happens</label><textarea class="ug-ta" rows="3" data-g-during></textarea></div>' +
           '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">After — what to do to recover</label><textarea class="ug-ta" rows="3" data-g-after></textarea>' +
-          '<div class="ug-help">Fill at least one section. Citizens see the guide as soon as you save.</div></div>',
+          '<div class="ug-help">Fill at least one section. Put each instruction on its own line starting with its number, for example "1) Prepare a go-bag." Each numbered line becomes its own step card. Citizens see the guide as soon as you save.</div></div>',
         footer:
           '<button class="ug-btn" data-modal-close>Cancel</button>' +
           '<button class="ug-btn ug-btn--signal" data-save>Publish guide</button>',
@@ -3975,15 +4012,22 @@
             const after = wrap.querySelector('[data-g-after]').value.trim();
             if (!title) { toast('Give the guide a title', 'warning'); return; }
             if (!before && !during && !after) { toast('Fill at least one of the three sections', 'warning'); return; }
+            /* One row per filled phase, the same shape as the production seed
+               (phase = before | during | after, text in `body` and in the
+               matching phase column). The table's check constraint
+               (migration 014) only allows those three phase values, so the
+               old single row with phase 'all' could not be saved. */
+            const hazardType = wrap.querySelector('[data-g-hazard]').value;
+            const summary = wrap.querySelector('[data-g-summary]').value.trim();
+            const parts = [['before', before], ['during', during], ['after', after]].filter((x) => x[1]);
             try {
-              await Repo.createGuide({
-                hazard_type: wrap.querySelector('[data-g-hazard]').value,
-                phase: 'all', title: title,
-                summary: wrap.querySelector('[data-g-summary]').value.trim(),
-                body: before || during || after,
-                body_before: before, body_during: during, body_after: after
-              });
-              toast('Guide published', 'prepared');
+              for (const [ph, text] of parts) {
+                const row = { hazard_type: hazardType, phase: ph, title: title, summary: summary, body: text,
+                  body_before: '', body_during: '', body_after: '' };
+                row['body_' + ph] = text;
+                await Repo.createGuide(row);
+              }
+              toast(parts.length === 1 ? 'Guide published' : 'Guide published for ' + parts.length + ' phases', 'prepared');
               close();
             } catch (e) { toast(e.message, 'warning'); }
           });
@@ -3992,31 +4036,45 @@
     },
 
     'guide-edit': async (d) => {
+      if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can manage guides', 'warning'); return; }
       const g = (UG.DATA.guides || []).find((x) => x.id === d.id);
       if (!g) return;
+      const esc = UG_UTIL.esc;
+      /* A phase row (the seed's shape) is edited as that one phase: the form
+         shows its own text and saves it to `body` and the matching phase
+         column together, so the two never drift apart. The old form put a
+         During or After row's text into the Before box and saved it there. */
+      const single = UG_GUIDES.PHASES.indexOf(g.phase) !== -1;
+      const ta = (ph, label, rows) => '<div class="ug-field"><label class="ug-lab">' + label + '</label>' +
+        '<textarea class="ug-ta" rows="' + rows + '" data-g-' + ph + '>' + esc(UG_GUIDES.phaseText(g, ph)) + '</textarea></div>';
       UG_FEATURES.modal({
         title: 'Edit guide',
         body:
-          '<div class="ug-field"><label class="ug-lab">Title</label><input class="ug-in" data-g-title value="' + UG_UTIL.esc(g.title) + '"></div>' +
-          '<div class="ug-field"><label class="ug-lab">Brief summary</label><input class="ug-in" data-g-summary value="' + UG_UTIL.esc(g.summary || '') + '"></div>' +
-          '<div class="ug-field"><label class="ug-lab">Before</label><textarea class="ug-ta" rows="3" data-g-before>' + UG_UTIL.esc(g.body_before || g.body || '') + '</textarea></div>' +
-          '<div class="ug-field"><label class="ug-lab">During</label><textarea class="ug-ta" rows="3" data-g-during>' + UG_UTIL.esc(g.body_during || '') + '</textarea></div>' +
-          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">After</label><textarea class="ug-ta" rows="3" data-g-after>' + UG_UTIL.esc(g.body_after || '') + '</textarea></div>',
+          '<div class="ug-field"><label class="ug-lab">Title</label><input class="ug-in" data-g-title value="' + esc(g.title) + '"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Brief summary</label><input class="ug-in" data-g-summary value="' + esc(g.summary || '') + '"></div>' +
+          (single
+            ? ta(g.phase, UG_GUIDES.phaseLabel(g.phase) + ' · ' + esc(g.hazard_type), 12)
+            : ta('before', 'Before', 5) + ta('during', 'During', 5) + ta('after', 'After', 5)) +
+          '<div class="ug-help">One instruction per line, starting with its number ("1) …"). Each numbered line is shown as its own step card.</div>',
         footer:
           '<button class="ug-btn" data-modal-close>Cancel</button>' +
           '<button class="ug-btn ug-btn--signal" data-save>Save changes</button>',
         onMount: (wrap, close) => {
           wrap.querySelector('[data-save]').addEventListener('click', async () => {
-            const before = wrap.querySelector('[data-g-before]').value.trim();
-            const during = wrap.querySelector('[data-g-during]').value.trim();
-            const after = wrap.querySelector('[data-g-after]').value.trim();
+            const val = (ph) => { const el = wrap.querySelector('[data-g-' + ph + ']'); return el ? el.value.trim() : ''; };
+            const patch = { title: wrap.querySelector('[data-g-title]').value.trim(), summary: wrap.querySelector('[data-g-summary]').value.trim() };
+            if (!patch.title) { toast('Give the guide a title', 'warning'); return; }
+            if (single) {
+              const text = val(g.phase);
+              if (!text) { toast('The instructions cannot be empty', 'warning'); return; }
+              patch.body = text; patch['body_' + g.phase] = text;
+            } else {
+              const before = val('before'), during = val('during'), after = val('after');
+              if (!before && !during && !after) { toast('Fill at least one of the three sections', 'warning'); return; }
+              Object.assign(patch, { body: before || during || after, body_before: before, body_during: during, body_after: after });
+            }
             try {
-              await Repo.updateGuide(g.id, {
-                title: wrap.querySelector('[data-g-title]').value.trim(),
-                summary: wrap.querySelector('[data-g-summary]').value.trim(),
-                body: before || during || after,
-                body_before: before, body_during: during, body_after: after
-              });
+              await Repo.updateGuide(g.id, patch);
               toast('Guide updated', 'prepared');
               close();
             } catch (e) { toast(e.message, 'warning'); }
