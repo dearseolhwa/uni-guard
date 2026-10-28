@@ -1,5 +1,29 @@
 # Changes
 
+## 2026-10-29 — Preparedness guides: one card per numbered step
+- **Root cause:** guide text is stored as an introduction line plus "1) …" … "10) …" lines separated by newlines (production seed, all 42 rows). The citizen card printed the whole text inside one `<p>`, where newlines collapse to spaces, so every step ran together.
+- **`js/guides.js`:**
+  - `phaseText()` picks the selected phase's text (phase column, else `body` for that phase's row) and never another phase's.
+  - `guidesFor()` is the one selection rule for the citizen screen, LGU list and PDF.
+  - `parseSteps()` turns text into ordered introduction / step / note blocks without dropping or rewording anything. It handles "1)", "1.", "Step 1:", bullets, multi-line steps and several items on one line (but not "Signal No. 2)").
+  - `contentHtml()` draws one escaped card per step, numbered 01, 02 ….
+  - The LGU list shows "N steps · introduction".
+- **`css/screens-additions.css`:** step-card styles. New `ug-gstep*` class names because `.ug-step` already belongs to the report timeline. The download buttons wrap on phones for long hazard names.
+- **PDF (`js/pdf.js`, `js/exports.js`):**
+  - New `heading` and `steps` blocks: one numbered box per step, grouped by hazard, then Before / During / After.
+  - A step moves to the next page whole, or continues across pages if longer than a page.
+  - **Fixed:** the guide PDFs printed every guide twice (from `body` and from the phase column).
+- **Editing (`js/app.js`, `js/repo.js`):**
+  - **Fixed:** Edit on a During/After row showed and saved its text in the Before field. It now edits the row's own phase and saves `body` + `body_<phase>` together.
+  - **Fixed:** Add saved `phase = 'all'`, which the `preparedness_guides_phase_check` constraint (migration 014) rejects. It now saves one row per filled phase, the same shape as the seed.
+  - Edit has the same role check as Add.
+  - Offline-mode guide IDs are unique.
+- No schema, migration or seed change.
+- **Seed note:** Landslide / Soil Erosion → After has a different introduction in `body` than in `body_after`. The screen and PDF show `body_after`; saving the guide once through Edit makes them equal.
+- Service worker v24.
+
+---
+
 ## 2026-10-28 — System-wide export standard (PDF, Excel, CSV)
 - **One shared export layer.** `js/export-core.js` (new: metadata, filenames, Philippine-time dates, CSV, scope checks, busy/toast wrapper), `js/pdf.js` (rewritten: one formal PDF template), `js/xlsx-lite.js` (formatted workbooks), `js/exports.js` (new: every export outside Reports and Documentation). Every export button goes through it; the per-screen download code is gone.
 - **Formal PDFs:** LGU letterhead from Settings → General, title, metadata block (export ID marked as not an official number, generated time in PHT, prepared by, source module, period, scope, filters, record count), notices, repeating table headers, "Page X of Y" footers, document properties.
