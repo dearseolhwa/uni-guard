@@ -10,8 +10,8 @@
  */
 const Repo = (function () {
   let sb = null;
-  let channel = null;
   let subscribed = false;
+  let lastDataSig = '';    /* raw rows of the last successful load, see loadAll */
   const photoCache = {};   /* storage path -> signed url */
 
   const state = {
@@ -380,11 +380,14 @@ const Repo = (function () {
     recomputeKpis();
   }
 
+  /* opts.silent: a background refresh (realtime event, poll). It skips the
+     "loading" repaint and only repaints when the rows actually changed, so the
+     open screen is not rebuilt every few seconds for nothing. */
   async function loadAll(opts) {
     opts = opts || {};
     state.loading = true;
     state.error = null;
-    emit();
+    if (!opts.silent) emit();
 
     const c = client();
     if (!c) {
@@ -424,6 +427,16 @@ const Repo = (function () {
       try { await loadChangeRequests(); } catch (e) {}
 
       if (reports.error) throw reports.error;
+
+      const sig = JSON.stringify([reports, advisories, centers, hotlines, notifications, subscriptions, assignments,
+        relief, beneficiaries, guides, faqs, roadWork, roadStatus].map((r) => r && (r.error ? 'error' : [r.data, r.count]))
+        .concat([UG.DATA.changeRequests || null]));
+      if (opts.silent && sig === lastDataSig && state.hasSynced && state.source === 'supabase') {
+        state.loading = false;
+        state.lastSync = new Date().toISOString();
+        return state;
+      }
+      lastDataSig = sig;
 
       const unitCount = {};
       if (assignments && !assignments.error) {
@@ -471,6 +484,9 @@ const Repo = (function () {
          so the dashboard still shows live records instead of demo text. */
       state.lastError = (e && e.message) || 'Could not reach the server';
       state.error = state.lastError;
+      /* keep retrying in the background, so a portal that opened offline
+         recovers by itself once the server answers */
+      startPoll();
       const isEmpty = !(UG.DATA.incidents && UG.DATA.incidents.length) && !state.hasSynced;
       if (isEmpty) {
         state.source = 'offline';
@@ -501,33 +517,111 @@ const Repo = (function () {
   }
 
   /* ------------------------------------------------------------- realtime */
+  /* Every portal must see a resident's new report without reloading the page.
+     Three layers, so one failing never leaves a portal stale:
+       1. Realtime: any change on a watched table schedules a refresh. The
+          tables must be in the supabase_realtime publication (migration 056).
+       2. If the channel errors or times out it is torn down and rejoined.
+       3. A poll, plus a catch-up whenever the tab comes back into view or the
+          network returns, covers events missed while the socket was down.
+     A burst of events (a report insert also writes notifications and a
+     corroboration) collapses into one background load. The app can hold a
+     refresh back while someone is typing (setRefreshGate); the held refresh
+     runs on the next poll, focus change or visibility change. */
+  const WATCHED = ['reports', 'report_corroborations', 'report_assignments', 'advisories', 'notifications',
+    'evacuation_centers', 'relief_distributions', 'authorized_beneficiaries', 'preparedness_guides', 'faqs',
+    'road_work_posts', 'road_status', 'sos_log', 'change_requests'];
+  let refreshTimer = null;
+  let refreshPending = false;
+  const channels = {};       /* table -> its realtime channel */
+  const rejoinTimers = {};
+  const rejoinDelay = {};
+  let pollTimer = null;
+  let refreshGate = () => true;
+  function setRefreshGate(fn) { refreshGate = typeof fn === 'function' ? fn : () => true; }
+
+  function scheduleRefresh(delay) {
+    refreshPending = true;
+    if (refreshTimer) return;
+    refreshTimer = setTimeout(runRefresh, delay == null ? 400 : delay);
+  }
+  async function runRefresh() {
+    refreshTimer = null;
+    if (!refreshPending) return;
+    if (state.loading) { scheduleRefresh(1000); return; }
+    let ok = true;
+    try { ok = refreshGate() !== false; } catch (e) { }
+    if (!ok) return;   /* stays pending; retried by the next trigger */
+    refreshPending = false;
+    try { await loadAll({ silent: true }); } catch (e) { }
+  }
+
+  /* one channel per table: a table the server refuses (missing, or not in the
+     publication) then fails alone instead of taking every portal's feed down */
   function subscribe() {
     const c = client();
     if (!c || subscribed) return;
+    subscribed = true;
+    startPoll();
+    WATCHED.forEach(join);
+  }
+
+  function join(t) {
+    const c = client();
+    if (!c || !subscribed) return;
     try {
-      channel = c.channel('uniguard')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'report_corroborations' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'advisories' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'evacuation_centers' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'relief_distributions' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'authorized_beneficiaries' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'preparedness_guides' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'faqs' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'road_work_posts' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'road_status' }, () => loadAll())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'sos_log' }, () => loadAll())
-        .subscribe();
-      subscribed = true;
+      const ch = c.channel('ug-' + t)
+        .on('postgres_changes', { event: '*', schema: 'public', table: t }, () => scheduleRefresh());
+      channels[t] = ch;
+      ch.subscribe((status) => {
+        if (channels[t] !== ch) return;   /* an old channel we already replaced */
+        if (status === 'SUBSCRIBED') {
+          /* rejoined after a drop: catch up on whatever happened meanwhile */
+          if (rejoinDelay[t]) scheduleRefresh(0);
+          rejoinDelay[t] = 0;
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          rejoin(t);
+        }
+      });
     } catch (e) { /* realtime is an enhancement, never a blocker */ }
+  }
+
+  function rejoin(t) {
+    if (rejoinTimers[t]) return;
+    rejoinDelay[t] = Math.min(60000, rejoinDelay[t] ? rejoinDelay[t] * 2 : 5000);
+    const c = client();
+    const old = channels[t];
+    delete channels[t];
+    if (c && old) { try { c.removeChannel(old); } catch (e) { } }
+    rejoinTimers[t] = setTimeout(() => { delete rejoinTimers[t]; join(t); }, rejoinDelay[t]);
+  }
+
+  function startPoll() {
+    if (pollTimer || typeof window === 'undefined') return;
+    pollTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      scheduleRefresh(0);
+    }, UG_CONFIG.LIVE_REFRESH_MS || 20000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') scheduleRefresh(0);
+    });
+    window.addEventListener('online', () => scheduleRefresh(0));
+    window.addEventListener('focus', () => scheduleRefresh(0));
+    /* a refresh held back while someone typed runs once they leave the field */
+    document.addEventListener('focusout', () => { if (refreshPending) scheduleRefresh(300); });
   }
 
   function unsubscribe() {
     const c = client();
-    if (c && channel) { try { c.removeChannel(channel); } catch (e) {} }
-    channel = null;
     subscribed = false;
+    Object.keys(channels).forEach((t) => {
+      const old = channels[t];
+      delete channels[t];
+      if (c && old) { try { c.removeChannel(old); } catch (e) {} }
+    });
+    Object.keys(rejoinTimers).forEach((t) => { clearTimeout(rejoinTimers[t]); delete rejoinTimers[t]; });
+    Object.keys(rejoinDelay).forEach((t) => { delete rejoinDelay[t]; });
   }
 
   /* --------------------------------------------------------------- reports */
@@ -1575,7 +1669,7 @@ const Repo = (function () {
 
   return {
     client, online, state, onChange,
-    loadAll, forceReload, subscribe, unsubscribe,
+    loadAll, forceReload, subscribe, unsubscribe, setRefreshGate,
     createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, lguVerify, barangayAt, reportHistory, updateReport,
     createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,
     markRead, markAllRead, listBarangays,

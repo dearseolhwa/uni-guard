@@ -331,6 +331,7 @@ html[data-portal] .down { color: #B91C1C; }
 html[data-portal] .ug-tab .t-badge,
 html[data-portal] .ug-wdot { color: #FFFFFF; }
 html[data-portal] .ug-toast { background: #18181B; color: #FFFFFF; border-color: transparent; }
+html[data-portal] .ug-toast-count { color: rgba(255,255,255,.7); }
 html[data-portal] .ug-skel { background: linear-gradient(90deg, rgba(var(--ug-tint), .05), rgba(var(--ug-tint), .1), rgba(var(--ug-tint), .05)); }
 
 /* keep the classic shield in places the emblem would be too small to read */

@@ -36,6 +36,10 @@ const UG_CONFIG = (function () {
     SUPER_ADMIN_VERIFY_OVERRIDE: false,
 
     /* how often the offline queue retries while the app is open */
-    SYNC_RETRY_MS: 20000
+    SYNC_RETRY_MS: 20000,
+
+    /* fallback refresh for every portal while the tab is visible, on top of
+       Realtime, so a missed event never needs a page reload (js/repo.js) */
+    LIVE_REFRESH_MS: 20000
   };
 })();

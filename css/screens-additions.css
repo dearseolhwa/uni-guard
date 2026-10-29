@@ -27,7 +27,7 @@
 
 /* ================= Urgent card on home (mobile) ================= */
 .ug-urgent-card{
-  display:block;background:var(--ug-surface);border:1px solid var(--ug-line);border-radius:12px;
+  display:block;background:var(--ug-surface);color:var(--ug-ink);border:1px solid var(--ug-line);border-radius:12px;
   overflow:hidden;transition:border-color .15s, transform .15s;
 }
 .ug-urgent-card:hover{transform:translateY(-1px)}
@@ -111,7 +111,7 @@
   animation:ugSosPulse 1.4s ease-in-out infinite;
 }
 .ug-urgent-kicker{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ug-tx-red, #FCA5A5);font-weight:700}
-.ug-urgent-title{font-family:var(--ug-display);font-size:18px;font-weight:700;margin:3px 0 0;color:#FFF}
+.ug-urgent-title{font-family:var(--ug-display);font-size:18px;font-weight:700;margin:3px 0 0;color:var(--ug-ink, #FFF)}
 .ug-urgent-close{margin-left:auto;background:none;border:0;width:30px;height:30px;cursor:pointer;
   color:var(--ug-ink-3);border-radius:8px;position:relative}
 .ug-urgent-close::before,.ug-urgent-close::after{

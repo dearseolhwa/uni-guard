@@ -30,6 +30,12 @@ const UG_URGENT = (function () {
   }
   function isAcked(id) { return ackedIds().indexOf(id) !== -1; }
 
+  /* scan() runs after every live refresh, not just at boot: never stack a
+     second card for an alert already on screen, and keep one closed with the
+     X (which does not acknowledge) from popping back until the next page load */
+  const shown = new Set();
+  const closed = new Set();
+
   /* ----------------------------------------------------------- audio */
   /* Web Audio is widely available and needs no asset. Two short beeps, only
      for emergency severity. */
@@ -86,10 +92,14 @@ const UG_URGENT = (function () {
     if (!advisory || !advisory.id) return;
     if (advisory.severity !== 'emergency') return;
     if (isAcked(advisory.id)) return;
+    if (shown.has(advisory.id) || closed.has(advisory.id)) return;
+    shown.add(advisory.id);
     const h = ensureHost();
+    h.style.display = '';   /* dismiss() hides the host once it empties */
     const tone = 'emergency';
     const card = document.createElement('div');
     card.className = 'ug-urgent ug-urgent--' + tone;
+    card.dataset.id = advisory.id;
     card.innerHTML =
       '<div class="ug-urgent-strip"></div>' +
       '<div class="ug-urgent-body">' +
@@ -117,6 +127,8 @@ const UG_URGENT = (function () {
 
   function dismiss(id) {
     if (id) markAcked(id);
+    shown.forEach((s) => closed.add(s));
+    shown.clear();
     if (!host) return;
     const cards = host.querySelectorAll('.ug-urgent');
     cards.forEach((c) => { c.classList.remove('is-on'); });

@@ -4691,7 +4691,64 @@
     }
   });
 
-  Repo.onChange(() => { if (S.session) render(); });
+  Repo.onChange(() => {
+    if (!S.session) return;
+    render();
+    /* a live refresh can bring in an emergency advisory: store it for the
+       notifications list and raise the overlay, as bootstrapData does */
+    if (!Repo.state.loading && S.session.role !== 'dispatch_team') {
+      try { UG_NOTIF_STORE.mergeAll(UG.DATA.notifications || []); } catch (e) { }
+      try { UG_URGENT.scan(); } catch (e) { }
+    }
+  });
+
+  /* Live refreshes rebuild #ug-root, so hold one back while that would cost
+     the user something: a field they are typing in, an open dropdown, or a
+     form they have filled but not submitted. Modals live on <body> and are
+     untouched by render(). The held refresh runs once they move on. */
+  function formIsDirty() {
+    const els = root.querySelectorAll('input, textarea, select');
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      if (el.tagName === 'SELECT') {
+        if (el.multiple) continue;
+        const def = Array.prototype.findIndex.call(el.options, (o) => o.defaultSelected);
+        if (el.options.length && el.selectedIndex !== (def < 0 ? 0 : def)) return true;
+      } else if (el.type === 'checkbox' || el.type === 'radio') {
+        if (el.checked !== el.defaultChecked) return true;
+      } else if (el.type === 'file') {
+        if (el.files && el.files.length) return true;
+      } else if (!/^(hidden|button|submit|reset|image|range|color)$/.test(el.type)) {
+        if (el.value !== el.defaultValue) return true;
+      }
+    }
+    return false;
+  }
+  function liveRefreshAllowed() {
+    if (!S.session) return false;
+    const a = document.activeElement;
+    if (a && root.contains(a) && (a.isContentEditable || a.tagName === 'TEXTAREA' ||
+        (a.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|range|color|file)$/.test(a.type)))) return false;
+    if (document.querySelector('.ug-combo.is-open')) return false;
+    return !formIsDirty();
+  }
+  /* the dispatch team reads its own dataset (UG_DISPATCH), not Repo's */
+  Repo.setRefreshGate(() => S.session && S.session.role !== 'dispatch_team' && liveRefreshAllowed());
+
+  /* The dispatch portal has no Realtime feed of its own; refresh it on the
+     same cadence, under the same rule, so new assignments show up unprompted. */
+  let dispatchRefreshing = false;
+  async function refreshDispatch() {
+    if (dispatchRefreshing || !S.session || S.session.role !== 'dispatch_team') return;
+    if (typeof UG_DISPATCH === 'undefined' || !UG_DISPATCH.loadAll) return;
+    if (document.visibilityState === 'hidden' || navigator.onLine === false) return;
+    if (UG_DISPATCH.state.loading || !liveRefreshAllowed()) return;
+    dispatchRefreshing = true;
+    try { await UG_DISPATCH.loadAll(); } catch (e) { }
+    dispatchRefreshing = false;
+  }
+  setInterval(refreshDispatch, UG_CONFIG.LIVE_REFRESH_MS || 20000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshDispatch(); });
   UG_PWA.onChange(() => { if (S.session) render(); });
 
   /* My Reports lists the reports still waiting in the offline queue (SOS rows
