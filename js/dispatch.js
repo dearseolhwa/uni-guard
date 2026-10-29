@@ -1062,7 +1062,10 @@ const UG_DISPATCH = (function () {
     if (!rows.length) return pageHead(T('title.notifications'), '') + alarm + emptyState('bell', T('dispatch.noNotifications'), T('dispatch.noNotificationsHint'));
     const row = (n) => '<tr>' +
       '<td class="t-num">' + absTime(n.created_at) + '</td>' +
-      '<td>' + esc(n.title) + '</td>' +
+      /* tappable: opens the dispatch for this report and marks it read */
+      '<td><button class="ug-link-btn" style="background:none;border:0;padding:0;font:inherit;color:inherit;text-align:left;cursor:pointer;font-weight:600"' +
+        ' data-act="dispatch-notif-open" data-id="' + esc(n.id) + '" data-report="' + esc(n.report_id || '') + '">' + esc(n.title) +
+        (n.report_id ? ' <span style="color:var(--ug-signal)">›</span>' : '') + '</button></td>' +
       '<td class="ug-dim" style="font-size:11.5px">' + esc(n.body) + '</td>' +
       '<td>' + (n.read_at ? badge('open', T('label.read')) : badge('warning', T('label.unread'))) + '</td>' +
       '<td class="t-right">' + (n.read_at ? '' : '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-notif-read" data-id="' + esc(n.id) + '">Mark read</button>') + '</td>' +
@@ -1426,6 +1429,18 @@ const UG_DISPATCH = (function () {
     'dispatch-csv': () => UG_EXPORTS.run('dispatch-csv'),
     'dispatch-request-new': () => openRequestModal(),
     'dispatch-capacity-edit': () => openCapacityModal(),
+    'dispatch-notif-open': async (d) => {
+      const c = client();
+      const n = (state.data.notifications || []).find((x) => x.id === d.id);
+      if (c && n && !n.read_at) {
+        n.read_at = new Date().toISOString();
+        c.from('notifications').update({ read_at: n.read_at }).eq('id', d.id).then(() => { }, () => { });
+      }
+      const disp = d.report ? (state.data.dispatches || []).find((x) => x.report_id === d.report) : null;
+      if (disp) { state.openDispatchId = disp.id; state.route = 'dispatch-detail'; }
+      else if (d.report) app().toast('That dispatch is no longer assigned to your unit', 'info');
+      app().render();
+    },
     'dispatch-notif-read': async (d) => {
       const c = client(); if (!c) return;
       try { await c.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', d.id); await loadNotifications(); app().render(); }

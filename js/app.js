@@ -1098,6 +1098,14 @@
       if (rows && rows.length) UG.DATA.reportHistory[inc.uuid] = rows;
       if (S.session) render();
     }).catch(() => { });
+    /* the rating card offers only the roles that handled this report */
+    if (inc.status === 'resolved') {
+      UG.DATA.reportHandlers = UG.DATA.reportHandlers || {};
+      Repo.reportHandlers(inc.uuid).then((h) => {
+        UG.DATA.reportHandlers[inc.uuid] = h || { failed: true };
+        if (S.session) render();
+      }).catch(() => { });
+    }
   }
 
   /* after a verification, say whether the response went out by itself
@@ -2410,25 +2418,35 @@
     },
 
     'open-notification': async (d) => {
-      try { await Repo.markRead(d.id); } catch (e) { }
-      try { UG_NOTIF_STORE.markReadLocal(d.id); } catch (e) { }
-      /* a notification may deep-link to one of several destinations depending on
-         its type / FK; pick the right one so the citizen lands where they expect. */
-      if (d.advisory) { S.openId = d.advisory; S.route = 'advisory-detail'; }
-      else if (d.report) {
-        S.openId = d.report;
-        S.route = S.role === 'citizen' ? 'report-detail' : 'incident';
-        setTimeout(() => loadDispatchesFor(d.report), 0);
+      /* every tap marks the row read; a row with a link also opens it */
+      const n = (UG.DATA.notifications || []).find((x) => x.id === d.id);
+      if (n) n.unread = false;
+      if (d.id) {
+        Repo.markRead(d.id).catch(() => { });
+        try { UG_NOTIF_STORE.markReadLocal(d.id); } catch (e) { }
       }
-      else if (d.roadWork) {
-        S.openId = d.roadWork;
-        S.route = 'roadwork';
+      const staff = S.role !== 'citizen';
+      const open = (route, id) => { go(route); S.openId = id || null; render(); Promise.resolve(loadRouteData(route)).catch(() => { }); };
+      if (d.report) {
+        open(staff ? 'incident' : 'report-detail', d.report);
+        loadDispatchesFor(d.report);
+      } else if (d.advisory) {
+        open('advisory-detail', d.advisory);
+      } else if (d.roadWork) {
+        open('roadwork', d.roadWork);
+      } else if (d.relief) {
+        open('relief', d.relief);
+      } else if (d.sos) {
+        /* staff: the SOS log, then that SOS's detail; resident: their SOS screen */
+        go('sos'); render();
+        if (staff) {
+          try { UG.DATA.sosLog = await Repo.listSos(); } catch (e) { }
+          render();
+          if ((UG.DATA.sosLog || []).some((x) => x.id === d.sos)) UG_SOS.sosDetailModal(S, d.sos);
+        }
+      } else {
+        render();
       }
-      else if (d.sos) {
-        S.openId = d.sos;
-        S.route = 'sos';
-      }
-      render();
     },
 
     'save-advisory': async () => {

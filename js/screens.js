@@ -996,25 +996,31 @@ const UG_SCREENS = (() => {
         '<span class="ug-mono">' + (sum[k] / cnt[k]).toFixed(1) + ' / 5 <span class="ug-dimmer">(' + cnt[k] + ')</span></span></div>').join('') + '</div>';
   }
 
-  /* who handled the report, each rated separately (migration 058): the
-     barangay officials, the LDRRMO when it verified or sent a municipal
-     team, and every team that was sent (declined ones did not handle it) */
+  /* who handled the report, each rated separately. The server decides
+     (report_handlers, migration 059): the barangay officials only if one of
+     them acted on it, the LDRRMO only if LGU staff did, and every team that
+     was sent and did not decline. Until that answer arrives the card waits;
+     if it cannot be read (offline, 059 not applied) only the teams on record
+     are offered, never an office that may not have handled the report. */
   function rateTargets(i) {
+    const h = (U.DATA.reportHandlers || {})[i.uuid];
+    if (!h) return { pending: true, list: [] };
+    const list = [];
+    if (!h.failed) {
+      if (h.barangay) list.push({ target: 'barangay', kind: 'barangay', label: 'Barangay ' + (i.brgy || '') + ' officials' });
+      if (h.lgu) list.push({ target: 'lgu', kind: 'lgu', label: 'LDRRMO (Municipal DRRM Office)' });
+      (h.teams || []).forEach((t) => list.push({ target: t.target, kind: 'team', label: t.label }));
+      if (h.responders) list.push({ target: 'responders', kind: 'team', label: 'Response team' });
+      return { pending: false, list: list };
+    }
     const units = U.DATA.unitsById || {};
     const all = (U.DATA.dispatches || {})[i.uuid] || [];
-    const disp = all.filter((d) => d.dispatch_status !== 'declined');
-    const list = [{ target: 'barangay', kind: 'barangay', label: 'Barangay ' + (i.brgy || '') + ' officials' }];
-    if (i.verified_by_role === 'lgu_ldrrmc' || disp.some((d) => d.team !== 'Barangay Response Team')) {
-      list.push({ target: 'lgu', kind: 'lgu', label: 'LDRRMO (Municipal DRRM Office)' });
-    }
-    disp.slice().reverse().forEach((d) => {
+    all.filter((d) => d.dispatch_status !== 'declined').forEach((d) => {
       const u = units[d.unit_id];
       list.push({ target: 'dispatch:' + d.id, kind: 'team', label: d.team + (u ? ' · ' + u.name : '') });
     });
-    /* an older report moved to dispatched without a team on record: the
-       responders can still be rated, as one "Response team" */
     if (!all.length) list.push({ target: 'responders', kind: 'team', label: 'Response team' });
-    return list;
+    return { pending: false, list: list };
   }
 
   function starRow(id, target, kind, n, editable) {
@@ -1053,6 +1059,7 @@ const UG_SCREENS = (() => {
     }
 
     const picked = (draft && draft.id === id && draft.stars) || {};
+    const targets = rateTargets(i);
     const starsFor = (t, fallback) => picked[t] != null ? picked[t] : fallback;
     const block = (t, kind, label, n, comment, sub) =>
       '<div class="ug-col" style="gap:6px' + (t !== 'overall' ? ';padding-top:12px;border-top:1px solid var(--ug-line)' : '') + '">' +
@@ -1066,10 +1073,12 @@ const UG_SCREENS = (() => {
       '<div class="ug-card-b ug-col" style="gap:12px" data-rate-card="' + esc(id) + '">' +
         '<div class="ug-dim" style="font-size:12px;line-height:1.5">How well was your report handled? Rate the whole response, and if you like, each office and team that worked on it.</div>' +
         block('overall', 'overall', 'Overall response', starsFor('overall', r ? r.stars : 0), r ? r.comment : '', '') +
-        rateTargets(i).map((x) => {
-          const s0 = saved[x.target];
-          return block(x.target, x.kind, x.label, starsFor(x.target, s0 ? s0.stars : 0), s0 ? s0.comment : '', '(optional)');
-        }).join('') +
+        (targets.pending
+          ? '<div class="ug-dimmer" style="font-size:11.5px">' + I('clock', 12) + ' Checking who handled your report…</div>'
+          : targets.list.map((x) => {
+              const s0 = saved[x.target];
+              return block(x.target, x.kind, x.label, starsFor(x.target, s0 ? s0.stars : 0), s0 ? s0.comment : '', '(optional)');
+            }).join('')) +
         '<button class="ug-btn ug-btn--signal ug-btn--sm" style="align-self:flex-start"' + A('rate-submit', attr({ id: id })) + '>' + I('check', 14) + (r ? 'Update rating' : 'Submit rating') + '</button>' +
       '</div></div>';
   }
@@ -1298,6 +1307,32 @@ const UG_SCREENS = (() => {
   }
 
   /* ---- notifications (feature 10) ---- */
+  /* one notification row, shared by the mobile inbox and the resident web
+     portal. Every row is a button: one with a link (report, advisory, road
+     work, relief, SOS) opens it, and every tap marks the row read. */
+  function notifRow(n) {
+    const typeIcon = (x) => {
+      if (x.type === 'report_status') return { icon: 'check', cls: 'tone-prepared' };
+      if (x.type === 'road_work') return { icon: 'road2', cls: 'tone-warning' };
+      if (x.type === 'sos') return { icon: 'alert', cls: 'tone-emergency' };
+      if (x.type === 'relief') return { icon: 'relief', cls: 'tone-advisory' };
+      return { icon: x.icon || 'bell', cls: 'tone-' + (x.tone || 'advisory') };
+    };
+    const ti = typeIcon(n);
+    const linked = !!(n.advisory_id || n.report_id || n.road_work_id || n.sos_id || n.relief_id);
+    return '<button class="ug-row ug-notif-row' + (n.unread ? ' is-unread' : '') + '" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' +
+        A('open-notification', attr({ id: n.id || '', advisory: n.advisory_id || '', report: n.report_id || '', roadWork: n.road_work_id || '', sos: n.sos_id || '', relief: n.relief_id || '' })) +
+        ' title="' + (linked ? 'Open' : 'Mark as read') + '">' +
+      '<span class="ug-notif-icon ' + ti.cls + '">' + I(ti.icon, 16) + '</span>' +
+      '<div class="r-main"><div class="r-t">' + esc(n.title) +
+        (n.unread ? '<span class="ug-badge ug-badge--id" style="font-size:9px;margin-left:6px">NEW</span>' : '') + '</div>' +
+        '<div class="ug-dim" style="font-size:11.5px;margin-top:4px;line-height:1.5">' + esc(n.body) + '</div>' +
+        '<div class="r-m"><span>' + I('clock', 12) + esc(n.time) + '</span>' +
+          (linked ? '<span style="color:var(--ug-signal);font-weight:600">Tap to open</span>' : '') + '</div></div>' +
+      '<span class="ug-dimmer" style="display:flex;align-self:center">' + I(linked ? 'chevron' : 'check', 17) + '</span>' +
+    '</button>';
+  }
+
   function mNotifications(st){
     /* dedupe by id (exact duplicates from a re-fired RPC) and by a
        title+body+time signature (near-identical duplicates like the same SOS
@@ -1319,39 +1354,11 @@ const UG_SCREENS = (() => {
     }
     const rows = deduped;
     const unread = rows.filter(n => n.unread).length;
-    /* a small type-icon resolver so each notification shows the right glyph
-       (hazard alert, relief update, report status, road work) instead of a
-       generic bell. Falls back to the row's stored icon if the type is unknown. */
-    const typeIcon = (n) => {
-      if (n.type === 'report_status') return { icon: 'check', cls: 'tone-prepared' };
-      if (n.type === 'road_work') return { icon: 'road2', cls: 'tone-warning' };
-      if (n.type === 'sos') return { icon: 'alert', cls: 'tone-emergency' };
-      if (n.type === 'relief') return { icon: 'relief', cls: 'tone-advisory' };
-      const tone = n.tone || 'advisory';
-      return { icon: n.icon || 'bell', cls: 'tone-' + tone };
-    };
     return '<div class="ug-col" style="gap:14px">' +
       '<div class="ug-rowf ug-between" style="gap:8px"><div><div class="ug-lab">Push Notifications</div><h2 style="font-size:19px;margin-top:3px">Inbox</h2>' +
         (unread ? '<div class="ug-dimmer" style="font-size:11px;margin-top:4px">' + unread + ' unread</div>' : '') + '</div>' +
         '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('read-all') + '>' + I('check', 15) + 'Mark All Read</button></div>' +
-      '<div class="ug-card"><div class="ug-rows">' + (rows.length ? rows.map(n => {
-        const ti = typeIcon(n);
-        /* the row is a button when it carries a deep-link target (advisory, report,
-           road work or SOS id). Plain notifications still render as a row so the
-           list reads consistently. */
-        const target = n.advisory_id || n.report_id || n.road_work_id || n.sos_id;
-        const open = target ? A('open-notification', attr({ id: n.id, advisory: n.advisory_id || '', report: n.report_id || '', roadWork: n.road_work_id || '', sos: n.sos_id || '' })) : '';
-        const tag = target ? 'button' : 'div';
-        return '<' + tag + ' class="ug-row' + (n.unread ? ' is-unread' : '') + '"' +
-          (target ? ' style="width:100%;text-align:left;background:none;border:0;cursor:pointer"' : '') + open + '>' +
-          '<span class="ug-notif-icon ' + ti.cls + '">' + I(ti.icon, 16) + '</span>' +
-          '<div class="r-main"><div class="r-t">' + esc(n.title) +
-            (n.unread ? '<span class="ug-badge ug-badge--id" style="font-size:9px;margin-left:6px">NEW</span>' : '') + '</div>' +
-            '<div class="ug-dim" style="font-size:11.5px;margin-top:4px;line-height:1.5">' + esc(n.body) + '</div>' +
-            '<div class="r-m"><span>' + I('clock', 12) + esc(n.time) + '</span></div></div>' +
-          (target ? '<span class="ug-dimmer" style="display:flex;align-self:center">' + I('chevron', 17) + '</span>' : '') +
-        '</' + tag + '>';
-      }).join('') : '<div class="ug-empty"><span class="e-ico">' + I('bell', 20) + '</span>' +
+      '<div class="ug-card"><div class="ug-rows">' + (rows.length ? rows.map(n => notifRow(n)).join('') : '<div class="ug-empty"><span class="e-ico">' + I('bell', 20) + '</span>' +
         '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No notifications yet</div>' +
         '<div class="ug-dim" style="font-size:11px">Advisories, report status changes and road work notices appear here.</div></div>') + '</div></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:7px;justify-content:center;color:var(--ug-ink-3);font-size:10.5px">' + I('bell', 12) + 'Alerts are delivered even when the app is closed. History persists on this device.</div>' +
@@ -2850,5 +2857,5 @@ const UG_SCREENS = (() => {
   const MOB = (r) => ({ notifications:'notifications', offline:'offline', advisories:'advisories', centers:'centers', hotlines:'hotlines', home:'home', report:'report', reports:'reports' })[r] || r;
   const DESK = (r) => ({ notifications:'notifications', offline:'offline', advisories:'advisories', centers:'centers', hotlines:'hotlines', dashboard:'dashboard', home:'dashboard', incidents:'incidents', analytics:'analytics' })[r] || r;
 
-  return { login, frame, frameMobile, frameDesktop, mobileBody, desktopBody, MOB, DESK, sess, analyticsModel, RATE_HINTS, STAR_WORDS };
+  return { login, frame, frameMobile, frameDesktop, mobileBody, desktopBody, MOB, DESK, sess, analyticsModel, RATE_HINTS, STAR_WORDS, notifRow };
 })();

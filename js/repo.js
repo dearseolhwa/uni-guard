@@ -1288,6 +1288,17 @@ const Repo = (function () {
     return data;
   }
 
+  /* who actually handled a report (migration 059): { barangay, lgu, teams:
+     [{ target, label }], responders }. null when it cannot be read (offline,
+     059 not applied), so the caller offers no role it cannot confirm. */
+  async function reportHandlers(reportUuid) {
+    const c = client();
+    if (!c) return null;
+    const { data, error } = await c.rpc('report_handlers', { p_report_id: reportUuid });
+    if (error || !data) return null;
+    return data;
+  }
+
   /* the reporter rates the response to their resolved report, 1-5 stars,
      plus optional ratings for each role that handled it (migration 058):
      details = [{ target: 'barangay' | 'lgu' | 'dispatch:<id>', stars, comment }] */
@@ -1724,7 +1735,7 @@ const Repo = (function () {
 
   return {
     client, online, state, onChange,
-    loadAll, forceReload, subscribe, unsubscribe, setRefreshGate, autoDispatch, rateReport,
+    loadAll, forceReload, subscribe, unsubscribe, setRefreshGate, autoDispatch, rateReport, reportHandlers,
     createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, lguVerify, barangayAt, reportHistory, updateReport,
     createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,
     markRead, markAllRead, listBarangays,

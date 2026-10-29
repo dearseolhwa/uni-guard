@@ -385,14 +385,11 @@ const UG_WEB = (() => {
       cwHead('Notifications', 'Push Notifications delivered to this device, including alerts received while the app was closed.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('read-all') + '>' + I('check', 15) + 'Mark All Read</button>') +
       '<div class="ug-wgrid-side">' +
-        '<div class="ug-card"><div class="ug-rows">' + (U.DATA.notifications || []).map(n =>
-          '<div class="ug-row">' +
-            '<span class="r-dot" style="background:' + (U.SEV[n.tone] || U.SEV.advisory).color + '"></span>' +
-            '<div class="r-main"><div class="r-t">' + esc(n.title) +
-              (n.unread && !st.readNotifs ? '<span class="ug-badge ug-badge--id" style="font-size:9px">New</span>' : '') + '</div>' +
-              '<div class="ug-dim" style="font-size:11.5px;margin-top:4px;line-height:1.5">' + esc(n.body) + '</div>' +
-              '<div class="r-m"><span>' + I('clock', 12) + esc(n.time) + '</span></div></div>' +
-            '<span class="ug-dimmer" style="display:flex;align-self:center">' + I(n.icon, 17) + '</span></div>').join('') + '</div></div>' +
+        /* tappable rows, shared with the mobile inbox (UG_SCREENS.notifRow) */
+        '<div class="ug-card"><div class="ug-rows">' + ((U.DATA.notifications || []).length
+          ? (U.DATA.notifications || []).map((n) => UG_SCREENS.notifRow(n)).join('')
+          : '<div class="ug-empty"><span class="e-ico">' + I('bell', 20) + '</span>' +
+            '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No notifications yet</div></div>') + '</div></div>' +
         '<div class="ug-col" style="gap:18px">' +
           '<div class="ug-card"><div class="ug-card-h"><h3>Delivery</h3></div><div class="ug-card-b ug-col" style="gap:10px">' +
             [['Unread', String(st.readNotifs ? 0 : unread), 'warning'], ['Delivered today', '5', 'advisory'], ['Delivery channel', 'Push + offline inbox', 'prepared']]

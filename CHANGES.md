@@ -1,5 +1,11 @@
 # Changes
 
+## 2026-10-29 — Tappable notifications; ratings only for the roles that handled the report
+Run `migrations/059_rating_handlers.sql` (after 058).
+- **Notifications (`js/screens.js`, `js/screens.web.js`, `js/app.js`, `js/dispatch.js`):** every notification row is now a button, including on the resident web portal, where rows were plain text. A tap marks the row read. A row with a link also opens it: report, advisory, road work, relief, or SOS (staff: the SOS log plus that SOS's details). Dispatch units: tapping a notification opens that report's dispatch.
+- **Who handled the report (059):** `report_handlers()` reads the record. The barangay officials count only if one of them verified the report, changed its status, sent a team or acted on a dispatch. The LDRRMO counts only if LGU staff did. Teams are every one sent and not declined. Changes made by a resident's session (three-confirmation auto-verify, SOS) count for no one.
+- **Ratings:** the card offers only those roles. A report the LGU verified directly no longer asks about the barangay, and the LDRRMO appears whenever LGU staff worked on the report. `rate_report` drops any role rating for a role that did not handle it. Until the answer loads the card says "Checking who handled your report…". If it cannot be read, only the teams on record are offered.
+
 ## 2026-10-29 — Real report history, newest first, with View all
 - **Root cause:** the resident's History card never loaded `report_status_history`. It always showed a placeholder timeline with invented times 18 minutes apart. The staff Activity Log showed the report's own time on every line.
 - **`js/screens.js`:** one `historyCard()` for the resident History and the staff Activity Log. It is built only from recorded data: the status changes (with who verified, automatic verification / dispatch, and closing or rejection notes), every team's dispatched / acknowledged / on the way / on scene / finished times, and the rating. Newest at the top; the latest 5 show first, and **View all N entries** shows the rest. A step without a recorded time says "Time not recorded".
