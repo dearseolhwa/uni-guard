@@ -5,6 +5,7 @@ Run `migrations/058_role_ratings.sql` (after 057).
 - **Ratings per role (058, `js/screens.js`, `js/app.js`):** on a resolved report the resident rates the overall response (required). They can also rate, each optional, the barangay officials, the LDRRMO (when it verified the report or sent a municipal team) and every team that was sent. Stored in `report_ratings.details`. `rate_report` rebuilds the list server side and drops unknown targets, teams not on the report, duplicates and stars outside 1–5.
 - **Example comments:** each comment box shows a faint example that changes with the stars picked and with who is being rated (barangay, LDRRMO, team). A word next to the stars shows the level (Very poor … Excellent).
 - **Staff view:** the incident page shows every role's stars and comment. Analytics adds "Rating by role" averages.
+- **Older reports with no team on record** (moved to dispatched by status only) show a single "Response team" row, so the responders can still be rated (`responders` target in 058; ignored when the report has team records).
 
 ## 2026-10-29 — Hazard type filter on the incident queue
 - **`js/screens.js`, `js/app.js`:** the incident queue has a **Hazard** dropdown (every staff role) listing each hazard type with its report count. It narrows the list and the status chip counts, combines with the LGU's Barangay filter, and has a Clear button. Stored labels and keys ("Fire" / "fire") match the same entry.

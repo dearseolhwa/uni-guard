@@ -1015,7 +1015,8 @@ const UG_SCREENS = (() => {
      team, and every team that was sent (declined ones did not handle it) */
   function rateTargets(i) {
     const units = U.DATA.unitsById || {};
-    const disp = ((U.DATA.dispatches || {})[i.uuid] || []).filter((d) => d.dispatch_status !== 'declined');
+    const all = (U.DATA.dispatches || {})[i.uuid] || [];
+    const disp = all.filter((d) => d.dispatch_status !== 'declined');
     const list = [{ target: 'barangay', kind: 'barangay', label: 'Barangay ' + (i.brgy || '') + ' officials' }];
     if (i.verified_by_role === 'lgu_ldrrmc' || disp.some((d) => d.team !== 'Barangay Response Team')) {
       list.push({ target: 'lgu', kind: 'lgu', label: 'LDRRMO (Municipal DRRM Office)' });
@@ -1024,6 +1025,9 @@ const UG_SCREENS = (() => {
       const u = units[d.unit_id];
       list.push({ target: 'dispatch:' + d.id, kind: 'team', label: d.team + (u ? ' · ' + u.name : '') });
     });
+    /* an older report moved to dispatched without a team on record: the
+       responders can still be rated, as one "Response team" */
+    if (!all.length) list.push({ target: 'responders', kind: 'team', label: 'Response team' });
     return list;
   }
 

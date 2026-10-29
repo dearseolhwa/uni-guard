@@ -6,6 +6,8 @@
 --    barangay           the barangay officials (queue, verification)
 --    lgu                the LDRRMO (verification, municipal teams)
 --    dispatch:<uuid>    each team that was sent (BFP, Ambulance, ...)
+--    responders         the responders of a report that reached "dispatched"
+--                       with no team on record (older reports)
 --  Stored in report_ratings.details as
 --    [{ "target": "...", "label": "...", "stars": 1-5, "comment": "..." }]
 --  rate_report() rebuilds the array server side: unknown targets, a team
@@ -67,6 +69,9 @@ begin
         v_label := 'Barangay ' || coalesce(v_row.barangay, '') || ' officials';
       elsif v_target = 'lgu' then
         v_label := 'LDRRMO (Municipal DRRM Office)';
+      elsif v_target = 'responders' then
+        continue when exists (select 1 from public.report_dispatches where report_id = p_report_id);
+        v_label := 'Response team';
       elsif v_target ~ '^dispatch:[0-9a-f-]{36}$' then
         select * into v_disp from public.report_dispatches
          where id = substr(v_target, 10)::uuid and report_id = p_report_id;
