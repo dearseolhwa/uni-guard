@@ -1,5 +1,8 @@
 # Changes
 
+## 2026-10-29 — Hazard type filter on the incident queue
+- **`js/screens.js`, `js/app.js`:** the incident queue has a **Hazard** dropdown (every staff role) listing each hazard type with its report count. It narrows the list and the status chip counts, combines with the LGU's Barangay filter, and has a Clear button. Stored labels and keys ("Fire" / "fire") match the same entry.
+
 ## 2026-10-29 — Automatic dispatch, GPS tracking, alarms, ratings, typed SOS, split names
 Run `migrations/056_realtime_core_tables.sql` and then `migrations/057_auto_dispatch_tracking_ratings_sos.sql`.
 - **Automatic dispatch (057):** when a barangay official or the LGU verifies a report, the server sends the hazard's teams (same mapping as `js/hazard-types.js`). An Emergency-severity report also gets an Ambulance. Each team gets the nearest active unit, preferring Available ones. A team with no unit is skipped and the LGU is notified. Reports auto-verified by 3 residents are not auto-dispatched; the incident page has an **Auto-dispatch** button for them.

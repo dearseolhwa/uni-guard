@@ -1531,7 +1531,13 @@ const UG_SCREENS = (() => {
        to their own barangay server side, so the dropdown is LGU-only. */
     const isLGUq = !!(st.session && st.session.role === 'lgu_ldrrmc');
     const bf = (isLGUq && st.incBrgyFilter && st.incBrgyFilter !== 'All') ? st.incBrgyFilter : 'All';
-    const allInc = bf === 'All' ? U.DATA.incidents : U.DATA.incidents.filter(x => x.brgy === bf);
+    const inBrgy = bf === 'All' ? U.DATA.incidents : U.DATA.incidents.filter(x => x.brgy === bf);
+    /* hazard type filter (every staff role): narrows the list and the chip
+       counts like the barangay filter; matches by hazard key, so a stored
+       label ("Fire") and a key ("fire") land in the same bucket */
+    const hf = st.incHazardFilter && st.incHazardFilter !== 'All' ? st.incHazardFilter : 'All';
+    const hazardKey = (x) => UG_HAZARDS.classify(x.hazard_type).key;
+    const allInc = hf === 'All' ? inBrgy : inBrgy.filter(x => hazardKey(x) === hf);
     const base = allInc.filter(baseFilter);
     /* escalated rows float to the top of every filter so the duty officer never
        misses a stale or life-safety report, even in the 'All' view. */
@@ -1590,6 +1596,15 @@ const UG_SCREENS = (() => {
           '</select></label>' +
           (bf !== 'All' ? '<button class="ug-chip"' + A('inc-brgy-clear') + '>Clear</button>' : '')
       : '';
+    const hazCounts = {};
+    inBrgy.forEach(x => { const k = hazardKey(x); hazCounts[k] = (hazCounts[k] || 0) + 1; });
+    const hazardFilterUi =
+      '<label class="ug-rowf" style="gap:7px;align-items:center;font-size:11px;color:var(--ug-ink-3)">' + I('hazards', 13) + 'Hazard' +
+        '<select class="ug-sel" style="min-width:190px;padding:5px 8px;font-size:12px" data-field="incHazardFilter" aria-label="Filter incidents by hazard type">' +
+          '<option value="All"' + (hf === 'All' ? ' selected' : '') + '>All hazard types (' + inBrgy.length + ')</option>' +
+          UG_HAZARDS.LIST.map(h => '<option value="' + esc(h.key) + '"' + (hf === h.key ? ' selected' : '') + '>' + esc(h.label) + ' (' + (hazCounts[h.key] || 0) + ')</option>').join('') +
+        '</select></label>' +
+        (hf !== 'All' ? '<button class="ug-chip"' + A('inc-hazard-clear') + '>Clear</button>' : '');
     return '<div class="ug-col" style="gap:18px">' +
       pageHead(T('title.incidents'), 'Track every report through reported, verified, response dispatched and resolved.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm' + (priority ? ' is-active' : '') + '" style="' + (priority ? 'border-color:var(--ug-signal);color:var(--ug-signal)' : '') + '"' + A('sort-toggle') + '>' + I('sort', 15) + (priority ? 'Priority Sort: On' : 'Priority Sort') + '</button>' +
@@ -1603,7 +1618,7 @@ const UG_SCREENS = (() => {
         '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('sev-filter', attr({ v: c[0] })) +
           (c[0] === 'escalated' ? ' title="Reports needing additional LGU intervention (stale > 30 min, or life-safety hazard). Not a status — a separate flag."' : '') + '>' + c[1] +
         '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? allInc.length : c[0] === 'escalated' ? escalatedCount : allInc.filter(x => x.status === c[0]).length) + '</span></button>').join('') +
-        '<span class="ug-rowf" style="margin-left:auto;gap:10px;align-items:center">' + brgyFilterUi +
+        '<span class="ug-rowf ug-wrap" style="margin-left:auto;gap:10px;align-items:center">' + hazardFilterUi + brgyFilterUi +
         '<span class="ug-dimmer" style="font-size:11px;display:flex;align-items:center;gap:6px">' + I('target', 13) + 'Scope: ' + esc(bf !== 'All' ? 'Barangay ' + bf : (sess(st).scope || '')) + '</span></span></div>' +
       escalatedHelp +
       '<div class="ug-card"><div class="ug-ticks" style="grid-template-columns:1.2fr 2.4fr 1.1fr 1fr .7fr 1.1fr .9fr;padding:11px 16px;font-size:10px">' +

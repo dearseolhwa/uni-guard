@@ -43,7 +43,7 @@
     auth: blankAuth(),
     session: null,
     role: 'citizen', view: 'mobile', route: 'home', openId: null,
-    offline: false, sevFilter: 'all', incBrgyFilter: 'All', centerFilter: 'all', readNotifs: false,
+    offline: false, sevFilter: 'all', incBrgyFilter: 'All', incHazardFilter: 'All', centerFilter: 'all', readNotifs: false,
     corr: {}, declareArmed: false, loading: false, error: null, syncNote: '',
     barangays: [], users: [], audit: [], responders: [],
     /* activity log filters (module H) */
@@ -1449,6 +1449,7 @@
     },
     'sev-filter': (d) => { S.sevFilter = d.v; render(); },
     'inc-brgy-clear': () => { S.incBrgyFilter = 'All'; render(); },
+    'inc-hazard-clear': () => { S.incHazardFilter = 'All'; render(); },
     'center-filter': (d) => { S.centerFilter = d.v; render(); },
     'set-urg': (d) => { S.report.urg = d.v; render(); },
 
@@ -4619,6 +4620,7 @@
     else if (f === 'rwBarangay') { S.roadDraft.barangay = v; render(); return; }
     else if (f === 'benBarangayFilter') { S.benBarangayFilter = v; render(); return; }
     else if (f === 'incBrgyFilter') { S.incBrgyFilter = v; render(); return; }
+    else if (f === 'incHazardFilter') { S.incHazardFilter = v; render(); return; }
     else if (f === 'recBrgyFilter') { S.recBrgyFilter = v; render(); return; }
     else if (f === 'invBrgyFilter') { S.invBrgyFilter = v; render(); return; }
     /* activity log filters */
@@ -4778,7 +4780,7 @@
       if (!b) return;
       if (b.dataset.off) APP_ACTIONS['toggle-offline']();
       else if (b.dataset.signout) AUTH_ACTIONS.logout();
-      else if (b.dataset.reset) { S.route = homeRoute(); S.openId = null; S.sevFilter = 'all'; S.incBrgyFilter = 'All'; S.centerFilter = 'all'; render(); }
+      else if (b.dataset.reset) { S.route = homeRoute(); S.openId = null; S.sevFilter = 'all'; S.incBrgyFilter = 'All'; S.incHazardFilter = 'All'; S.centerFilter = 'all'; render(); }
     });
   }
 
