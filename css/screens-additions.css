@@ -859,3 +859,5 @@
 span.ug-star{cursor:default;font-size:20px}
 .ug-star.is-on{color:#D97706}
 .ug-star:focus-visible{outline:2px solid var(--ug-signal);outline-offset:2px;border-radius:4px}
+/* the example comment is a faint hint, not text the resident has to keep */
+.ug-rate-comment::placeholder{color:var(--ug-ink-3);opacity:.7;font-style:italic}

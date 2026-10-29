@@ -955,31 +955,132 @@ const UG_SCREENS = (() => {
       }).join('') + '</div></div>';
   }
 
-  /* the reporter's 1-5 star rating of the response, once the report is
-     resolved (rate_report, migration 057). Others see it read-only. */
+  /* Faint example comments for the rating boxes. They change with the stars
+     picked and with who is being rated, so the resident knows what kind of
+     thing to write. [0] is shown before any star is picked. */
+  const RATE_HINTS = {
+    overall: [
+      'Pick the stars first, then tell us how the whole response went.',
+      'e.g. Nobody came and the hazard is still there. What went wrong?',
+      'e.g. Help came very late and the problem was only partly fixed.',
+      'e.g. The response was okay, but it took long to reach us.',
+      'e.g. Quick and helpful. Only the updates on the app could be clearer.',
+      'e.g. Fast, kind and clear from start to finish. Salamat po!'
+    ],
+    barangay: [
+      'Pick the stars, then tell us how the barangay handled your report.',
+      'e.g. No one from the barangay checked or answered my report.',
+      'e.g. The barangay took hours to verify and did not call me back.',
+      'e.g. They verified it, but I had to follow up myself.',
+      'e.g. They checked my report quickly and kept me posted.',
+      'e.g. The barangay verified right away and sent the team. Very helpful!'
+    ],
+    lgu: [
+      'Pick the stars, then tell us how the LDRRMO coordinated the response.',
+      'e.g. No help or update from the municipality at all.',
+      'e.g. The municipal response was slow and the wrong team came.',
+      'e.g. They sent help, but the coordination could be faster.',
+      'e.g. Good coordination; the right team came on time.',
+      'e.g. Excellent coordination. The right teams arrived quickly.'
+    ],
+    team: [
+      'Pick the stars, then tell us how this team did at the scene.',
+      'e.g. The team never arrived.',
+      'e.g. They arrived late and were not ready to help.',
+      'e.g. They helped, but it took a while to get here.',
+      'e.g. They arrived quickly and did their job well.',
+      'e.g. They came fast, were very professional and kept us safe. Thank you!'
+    ]
+  };
+  const STAR_WORDS = ['', 'Very poor', 'Poor', 'Okay', 'Good', 'Excellent'];
+
+  /* average stars per role across the rated reports (Barangay officials,
+     LDRRMO, each team type), for the Analytics response card */
+  function roleAverages(rated) {
+    const sum = {}, cnt = {};
+    rated.forEach((i) => ((i.rating && i.rating.details) || []).forEach((d) => {
+      const k = d.target === 'barangay' ? 'Barangay officials' : d.target === 'lgu' ? 'LDRRMO'
+        : String(d.label || '').split(' · ')[0] || 'Team';
+      sum[k] = (sum[k] || 0) + d.stars; cnt[k] = (cnt[k] || 0) + 1;
+    }));
+    const keys = Object.keys(sum);
+    if (!keys.length) return '';
+    return '<div class="ug-col" style="gap:4px"><span style="font-size:11px;font-weight:700">Rating by role</span>' +
+      keys.sort().map((k) => '<div class="ug-rowf ug-between" style="font-size:11.5px"><span class="ug-dim">' + esc(k) + '</span>' +
+        '<span class="ug-mono">' + (sum[k] / cnt[k]).toFixed(1) + ' / 5 <span class="ug-dimmer">(' + cnt[k] + ')</span></span></div>').join('') + '</div>';
+  }
+
+  /* who handled the report, each rated separately (migration 058): the
+     barangay officials, the LDRRMO when it verified or sent a municipal
+     team, and every team that was sent (declined ones did not handle it) */
+  function rateTargets(i) {
+    const units = U.DATA.unitsById || {};
+    const disp = ((U.DATA.dispatches || {})[i.uuid] || []).filter((d) => d.dispatch_status !== 'declined');
+    const list = [{ target: 'barangay', kind: 'barangay', label: 'Barangay ' + (i.brgy || '') + ' officials' }];
+    if (i.verified_by_role === 'lgu_ldrrmc' || disp.some((d) => d.team !== 'Barangay Response Team')) {
+      list.push({ target: 'lgu', kind: 'lgu', label: 'LDRRMO (Municipal DRRM Office)' });
+    }
+    disp.slice().reverse().forEach((d) => {
+      const u = units[d.unit_id];
+      list.push({ target: 'dispatch:' + d.id, kind: 'team', label: d.team + (u ? ' · ' + u.name : '') });
+    });
+    return list;
+  }
+
+  function starRow(id, target, kind, n, editable) {
+    return '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:center">' +
+      '<div class="ug-stars" role="' + (editable ? 'radiogroup' : 'img') + '" data-rate-target="' + esc(target) + '" data-kind="' + esc(kind) + '" data-value="' + (n || 0) + '"' +
+        ' aria-label="' + (editable ? 'Rating' : n + ' of 5 stars') + '">' + [1, 2, 3, 4, 5].map((k) =>
+          editable
+            ? '<button type="button" class="ug-star' + (k <= n ? ' is-on' : '') + '" role="radio" aria-checked="' + (k === n) + '" aria-label="' + k + ' star' + (k > 1 ? 's' : '') + '"' +
+                A('rate-star', attr({ id: id, target: target, n: k })) + '>★</button>'
+            : '<span class="ug-star' + (k <= n ? ' is-on' : '') + '">★</span>').join('') + '</div>' +
+      '<span class="ug-dim ug-star-word" style="font-size:11.5px;font-weight:600">' + esc(STAR_WORDS[n] || '') + '</span></div>';
+  }
+
+  /* the reporter's ratings once the report is resolved (rate_report,
+     migrations 057 + 058): overall (required) and each role that handled
+     it (optional). Staff see them read-only. */
   function ratingCard(i, canRate, draft) {
     const r = i.rating;
     if (!canRate && !r) return '';
+    const id = i.uuid || i.id;
+    const saved = {};
+    ((r && r.details) || []).forEach((d) => { saved[d.target] = d; });
+
     if (!canRate) {
       return '<div class="ug-card"><div class="ug-card-h"><h3>Resident Rating</h3>' +
         '<span class="ug-badge ug-badge--prepared">' + r.stars + ' / 5</span></div>' +
-        '<div class="ug-card-b ug-col" style="gap:6px">' +
-          '<div class="ug-stars" aria-label="' + r.stars + ' of 5 stars">' + [1, 2, 3, 4, 5].map((n) =>
-            '<span class="ug-star' + (n <= r.stars ? ' is-on' : '') + '">★</span>').join('') + '</div>' +
-          (r.comment ? '<div class="ug-dim" style="font-size:12px;line-height:1.5">' + esc(r.comment) + '</div>' : '') +
+        '<div class="ug-card-b ug-col" style="gap:12px">' +
+          '<div class="ug-col" style="gap:4px"><span style="font-size:12px;font-weight:700">Overall</span>' + starRow(id, 'overall', 'overall', r.stars, false) +
+            (r.comment ? '<div class="ug-dim" style="font-size:12px;line-height:1.5">' + esc(r.comment) + '</div>' : '') + '</div>' +
+          (r.details || []).map((d) =>
+            '<div class="ug-col" style="gap:4px;padding-top:10px;border-top:1px solid var(--ug-line)"><span style="font-size:12px;font-weight:700">' + esc(d.label) + '</span>' +
+              starRow(id, d.target, '', d.stars, false) +
+              (d.comment ? '<div class="ug-dim" style="font-size:12px;line-height:1.5">' + esc(d.comment) + '</div>' : '') + '</div>').join('') +
           '<div class="ug-dimmer" style="font-size:10.5px">' + esc(UG_UTIL.absTime(r.created_at) || '') + '</div>' +
         '</div></div>';
     }
-    const stars = (draft && draft.id === (i.uuid || i.id) && draft.stars) || (r ? r.stars : 0);
+
+    const picked = (draft && draft.id === id && draft.stars) || {};
+    const starsFor = (t, fallback) => picked[t] != null ? picked[t] : fallback;
+    const block = (t, kind, label, n, comment, sub) =>
+      '<div class="ug-col" style="gap:6px' + (t !== 'overall' ? ';padding-top:12px;border-top:1px solid var(--ug-line)' : '') + '">' +
+        '<span style="font-size:12.5px;font-weight:700">' + esc(label) + (sub ? ' <span class="ug-dimmer" style="font-weight:500">' + esc(sub) + '</span>' : '') + '</span>' +
+        starRow(id, t, kind, n, true) +
+        '<textarea class="ug-ta ug-rate-comment" rows="2" data-rate-comment data-target="' + esc(t) + '" placeholder="' + esc(RATE_HINTS[kind][n] || RATE_HINTS[kind][0]) + '">' + esc(comment || '') + '</textarea>' +
+      '</div>';
+
     return '<div class="ug-card"><div class="ug-card-h"><h3>' + (r ? 'Your Rating' : 'Rate the Response') + '</h3>' +
         (r ? '<span class="ug-badge ug-badge--prepared">Sent</span>' : '') + '</div>' +
-      '<div class="ug-card-b ug-col" style="gap:10px">' +
-        '<div class="ug-dim" style="font-size:12px;line-height:1.5">How well did the responders handle your report?</div>' +
-        '<div class="ug-stars" role="radiogroup" aria-label="Rating">' + [1, 2, 3, 4, 5].map((n) =>
-          '<button type="button" class="ug-star' + (n <= stars ? ' is-on' : '') + '" role="radio" aria-checked="' + (n === stars) + '" aria-label="' + n + ' star' + (n > 1 ? 's' : '') + '"' +
-            A('rate-star', attr({ id: i.uuid || i.id, n: n })) + '>★</button>').join('') + '</div>' +
-        '<textarea class="ug-ta" rows="2" data-rate-comment placeholder="Comment (optional)">' + esc(r ? r.comment : '') + '</textarea>' +
-        '<button class="ug-btn ug-btn--signal ug-btn--sm" style="align-self:flex-start"' + A('rate-submit', attr({ id: i.uuid || i.id })) + '>' + I('check', 14) + (r ? 'Update rating' : 'Submit rating') + '</button>' +
+      '<div class="ug-card-b ug-col" style="gap:12px" data-rate-card="' + esc(id) + '">' +
+        '<div class="ug-dim" style="font-size:12px;line-height:1.5">How well was your report handled? Rate the whole response, and if you like, each office and team that worked on it.</div>' +
+        block('overall', 'overall', 'Overall response', starsFor('overall', r ? r.stars : 0), r ? r.comment : '', '') +
+        rateTargets(i).map((x) => {
+          const s0 = saved[x.target];
+          return block(x.target, x.kind, x.label, starsFor(x.target, s0 ? s0.stars : 0), s0 ? s0.comment : '', '(optional)');
+        }).join('') +
+        '<button class="ug-btn ug-btn--signal ug-btn--sm" style="align-self:flex-start"' + A('rate-submit', attr({ id: id })) + '>' + I('check', 14) + (r ? 'Update rating' : 'Submit rating') + '</button>' +
       '</div></div>';
   }
   /* a small synthetic history when the live report_status_history is not
@@ -2337,7 +2438,8 @@ const UG_SCREENS = (() => {
               return '<div><div class="ug-mono" style="font-size:22px;font-weight:700;color:var(--ug-st-dispatched)">' + (avgScene != null ? fmtDur(avgScene) : '—') + '</div>' +
                 '<div class="ug-dimmer" style="font-size:10.5px">average dispatch &rarr; team on scene (' + scene.length + ' arrivals)</div></div>' +
                 '<div><div class="ug-mono" style="font-size:22px;font-weight:700;color:#B45309">' + (avgStars != null ? avgStars.toFixed(1) + ' / 5' : '—') + '</div>' +
-                '<div class="ug-dimmer" style="font-size:10.5px">average resident rating (' + rated.length + ' rated)</div></div>';
+                '<div class="ug-dimmer" style="font-size:10.5px">average resident rating (' + rated.length + ' rated)</div></div>' +
+                roleAverages(rated);
             })() +
             '<div class="ug-dim" style="font-size:11px;line-height:1.55">How fast reports in the range moved through the pipeline. A long dispatch time usually means the queue needs another duty officer.</div>' +
           '</div></div>' +
@@ -2708,5 +2810,5 @@ const UG_SCREENS = (() => {
   const MOB = (r) => ({ notifications:'notifications', offline:'offline', advisories:'advisories', centers:'centers', hotlines:'hotlines', home:'home', report:'report', reports:'reports' })[r] || r;
   const DESK = (r) => ({ notifications:'notifications', offline:'offline', advisories:'advisories', centers:'centers', hotlines:'hotlines', dashboard:'dashboard', home:'dashboard', incidents:'incidents', analytics:'analytics' })[r] || r;
 
-  return { login, frame, frameMobile, frameDesktop, mobileBody, desktopBody, MOB, DESK, sess, analyticsModel };
+  return { login, frame, frameMobile, frameDesktop, mobileBody, desktopBody, MOB, DESK, sess, analyticsModel, RATE_HINTS, STAR_WORDS };
 })();

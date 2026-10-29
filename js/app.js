@@ -1324,24 +1324,43 @@
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
-    /* stars update in place: a re-render would drop a comment being typed */
+    /* stars update in place (a re-render would drop a comment being typed):
+       the row's word, and the faint example in its comment box, follow the
+       stars picked. S.rateDraft keeps the picks across a live refresh. */
     'rate-star': (d, el) => {
       const n = parseInt(d.n, 10) || 0;
-      S.rateDraft = { id: d.id, stars: n };
+      const target = d.target || 'overall';
+      if (!S.rateDraft || S.rateDraft.id !== d.id) S.rateDraft = { id: d.id, stars: {} };
+      S.rateDraft.stars[target] = n;
       const group = el && el.closest('.ug-stars');
-      if (group) group.querySelectorAll('.ug-star').forEach((b, k) => {
+      if (!group) return;
+      group.dataset.value = String(n);
+      group.querySelectorAll('.ug-star').forEach((b, k) => {
         b.classList.toggle('is-on', k < n);
         b.setAttribute('aria-checked', String(k + 1 === n));
       });
+      const word = group.parentElement && group.parentElement.querySelector('.ug-star-word');
+      if (word) word.textContent = UG_SCREENS.STAR_WORDS[n] || '';
+      const card = group.closest('[data-rate-card]');
+      const box = card && Array.prototype.find.call(card.querySelectorAll('[data-rate-comment]'), (t) => t.dataset.target === target);
+      const hints = UG_SCREENS.RATE_HINTS[group.dataset.kind] || UG_SCREENS.RATE_HINTS.overall;
+      if (box) box.placeholder = hints[n] || hints[0];
     },
     'rate-submit': async (d, el) => {
-      const inc = (UG.DATA.incidents || []).find((i) => i.uuid === d.id || i.id === d.id);
-      const stars = (S.rateDraft && S.rateDraft.id === d.id && S.rateDraft.stars) || (inc && inc.rating ? inc.rating.stars : 0);
-      if (!stars) { toast('Choose 1 to 5 stars', 'warning'); return; }
-      const card = el && el.closest('.ug-card');
-      const ta = card && card.querySelector('[data-rate-comment]');
+      const card = el && el.closest('.ug-card') && el.closest('.ug-card').querySelector('[data-rate-card]');
+      if (!card) return;
+      const comments = {};
+      card.querySelectorAll('[data-rate-comment]').forEach((t) => { comments[t.dataset.target] = t.value; });
+      let overall = 0;
+      const details = [];
+      card.querySelectorAll('.ug-stars[data-rate-target]').forEach((g) => {
+        const t = g.dataset.rateTarget, n = parseInt(g.dataset.value, 10) || 0;
+        if (t === 'overall') overall = n;
+        else if (n) details.push({ target: t, stars: n, comment: comments[t] || '' });
+      });
+      if (!overall) { toast('Choose 1 to 5 stars for the overall response', 'warning'); return; }
       try {
-        await Repo.rateReport(d.id, stars, ta ? ta.value : '');
+        await Repo.rateReport(d.id, overall, comments.overall || '', details);
         S.rateDraft = null;
         toast('Thank you. Your rating was sent.', 'prepared');
       } catch (e) { toast(e.message, 'warning'); }

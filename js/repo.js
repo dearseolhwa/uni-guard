@@ -1287,11 +1287,15 @@ const Repo = (function () {
     return data;
   }
 
-  /* the reporter rates the response to their resolved report, 1-5 stars */
-  async function rateReport(reportUuid, stars, comment) {
+  /* the reporter rates the response to their resolved report, 1-5 stars,
+     plus optional ratings for each role that handled it (migration 058):
+     details = [{ target: 'barangay' | 'lgu' | 'dispatch:<id>', stars, comment }] */
+  async function rateReport(reportUuid, stars, comment, details) {
     const c = client();
     if (!c) throw new Error('Rating needs a connection');
-    const { data, error } = await c.rpc('rate_report', { p_report_id: reportUuid, p_stars: stars, p_comment: comment || '' });
+    const { data, error } = await c.rpc('rate_report', {
+      p_report_id: reportUuid, p_stars: stars, p_comment: comment || '', p_details: details || []
+    });
     if (error) fail(error);
     await loadAll();
     return data;
