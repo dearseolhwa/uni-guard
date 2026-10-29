@@ -1,5 +1,10 @@
 # Changes
 
+## 2026-10-29 — Real report history, newest first, with View all
+- **Root cause:** the resident's History card never loaded `report_status_history`. It always showed a placeholder timeline with invented times 18 minutes apart. The staff Activity Log showed the report's own time on every line.
+- **`js/screens.js`:** one `historyCard()` for the resident History and the staff Activity Log. It is built only from recorded data: the status changes (with who verified, automatic verification / dispatch, and closing or rejection notes), every team's dispatched / acknowledged / on the way / on scene / finished times, and the rating. Newest at the top; the latest 5 show first, and **View all N entries** shows the rest. A step without a recorded time says "Time not recorded".
+- **`js/app.js`, `js/repo.js`:** the history loads when a report is opened (from the list, the map or a notification) and reloads when the open report changes status. Incidents now carry `resolved_at`.
+
 ## 2026-10-29 — Rate each role that handled a report
 Run `migrations/058_role_ratings.sql` (after 057).
 - **Ratings per role (058, `js/screens.js`, `js/app.js`):** on a resolved report the resident rates the overall response (required). They can also rate, each optional, the barangay officials, the LDRRMO (when it verified the report or sent a municipal team) and every team that was sent. Stored in `report_ratings.details`. `rate_report` rebuilds the list server side and drops unknown targets, teams not on the report, duplicates and stars outside 1–5.

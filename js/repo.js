@@ -109,7 +109,8 @@ const Repo = (function () {
       escalates_to_lgu: r.escalates_to_lgu === true,
       verified_by_name: r.verified_by_name || '',
       verified_by_role: r.verified_by_role || '',
-      verified_at: r.verified_at || null
+      verified_at: r.verified_at || null,
+      resolved_at: r.resolved_at || null
     };
   }
 

@@ -1084,6 +1084,20 @@
     const inc = (UG.DATA.incidents || []).find((i) => i.id === id || i.uuid === id);
     if (!inc || !inc.uuid) return;
     Repo.loadDispatches(inc.uuid).then(() => { if (S.session) render(); }).catch(() => { });
+    loadHistoryFor(inc);
+  }
+
+  /* the report's recorded status changes for its History / Activity Log
+     card; `status` remembers which status they were loaded at, so a live
+     change to the open report reloads them */
+  function loadHistoryFor(inc) {
+    UG.DATA.reportHistory = UG.DATA.reportHistory || {};
+    UG.DATA.reportHistoryAt = UG.DATA.reportHistoryAt || {};
+    UG.DATA.reportHistoryAt[inc.uuid] = inc.status;
+    Repo.reportHistory(inc.uuid).then((rows) => {
+      if (rows && rows.length) UG.DATA.reportHistory[inc.uuid] = rows;
+      if (S.session) render();
+    }).catch(() => { });
   }
 
   /* after a verification, say whether the response went out by itself
@@ -1316,6 +1330,7 @@
     'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); loadDispatchesFor(d.id); },
     'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); loadDispatchesFor(d.id); },
     'open-sos-detail': (d) => { UG_SOS.sosDetailModal(S, d.id); },
+    'history-all': (d) => { S.historyAll = S.historyAll === d.id ? null : d.id; render(); },
     'auto-dispatch': async (d) => {
       try {
         const res = await Repo.autoDispatch(d.id);
@@ -2403,6 +2418,7 @@
       else if (d.report) {
         S.openId = d.report;
         S.route = S.role === 'citizen' ? 'report-detail' : 'incident';
+        setTimeout(() => loadDispatchesFor(d.report), 0);
       }
       else if (d.roadWork) {
         S.openId = d.roadWork;
@@ -4823,6 +4839,13 @@
   Repo.onChange(() => {
     if (!S.session) return;
     render();
+    /* an open report whose history is not loaded yet (opened from a
+       notification or a link) or whose status changed: (re)load it */
+    if (S.openId && !Repo.state.loading && (S.route === 'report-detail' || S.route === 'incident')) {
+      const inc = (UG.DATA.incidents || []).find((i) => i.id === S.openId || i.uuid === S.openId);
+      const at = UG.DATA.reportHistoryAt || {};
+      if (inc && inc.uuid && at[inc.uuid] !== inc.status) loadHistoryFor(inc);
+    }
     /* a live refresh can bring in an emergency advisory: store it for the
        notifications list and raise the overlay, as bootstrapData does */
     if (!Repo.state.loading && S.session.role !== 'dispatch_team') {

@@ -826,19 +826,6 @@ const UG_SCREENS = (() => {
         '<span class="lab">' + esc(s.label) + '</span>' +
         '<span class="time">' + (k === idx ? esc(i.time) : '') + '</span></div>';
     }).join('') + '</div>';
-    /* the timestamped history log: rebuilt from a small set of synthetic
-       entries derived from the incident itself. When Repo.reportHistory
-       returns server rows, the citizen UI passes them in UG.DATA.reportHistory
-       keyed by the report id; if absent, the synthetic timeline still shows
-       something coherent. */
-    const historyRows = (UG.DATA.reportHistory && UG.DATA.reportHistory[i.uuid || i.id])
-      ? UG.DATA.reportHistory[i.uuid || i.id]
-      : syntheticHistory(i, status);
-    const historyHtml = '<ul class="ug-history">' + historyRows.map((h) =>
-      '<li><div class="h-t">' + esc(h.title) + '</div>' +
-      '<div class="h-d">' + esc(h.detail) + '</div>' +
-      '<div class="h-time">' + esc(h.time) + '</div></li>').join('') + '</ul>';
-
     return '<div class="ug-col" style="gap:14px">' +
       '<button class="ug-btn ug-btn--ghost ug-btn--sm" style="align-self:flex-start"' + A('nav', attr({ route: 'reports' })) + '>' +
         '<span style="transform:rotate(180deg);display:flex">' + I('chevron', 14) + '</span>Back</button>' +
@@ -869,9 +856,8 @@ const UG_SCREENS = (() => {
             '<div class="ug-card-b">' + tracker + U.pipeline(status) + '</div></div>') +
           dispatchRecords(i) +
           ratingCard(i, i.mine && i.status === 'resolved', st.rateDraft) +
-      /* timestamped history log */
-      '<div class="ug-card"><div class="ug-card-h"><h3>History</h3><span class="ug-dimmer ug-mono" style="font-size:10px">' + historyRows.length + ' entries</span></div>' +
-        '<div class="ug-card-b">' + historyHtml + '</div></div>' +
+      /* timestamped history log, newest first */
+      historyCard(i, st, true, 'History') +
 
       '<div class="ug-card"><div class="ug-card-h"><h3>Corroboration</h3></div>' +
         '<div class="ug-card-b ug-col" style="gap:12px">' + U.corrMeter(corr) +
@@ -1087,26 +1073,86 @@ const UG_SCREENS = (() => {
         '<button class="ug-btn ug-btn--signal ug-btn--sm" style="align-self:flex-start"' + A('rate-submit', attr({ id: id })) + '>' + I('check', 14) + (r ? 'Update rating' : 'Submit rating') + '</button>' +
       '</div></div>';
   }
-  /* a small synthetic history when the live report_status_history is not
-     available (offline, or the migration hasn't been applied). It still gives
-     the citizen a coherent timeline of what happened to their report. */
-  function syntheticHistory(i, currentStatus) {
-    const stages = [
-      { key: 'reported', label: 'Report received', detail: 'Your report was added to the ' + (i.brgy || 'barangay') + ' queue.' },
-      { key: 'verified', label: 'Verified', detail: 'Confirmed by an official or by three independent corroborations.' },
-      { key: 'dispatched', label: 'Response deployed', detail: 'A responder unit was dispatched.' },
-      { key: 'resolved', label: 'Resolved', detail: 'The hazard has been cleared and the report closed.' }
-    ];
-    const order = stages.map((s) => s.key);
-    const endIdx = order.indexOf(currentStatus);
-    const rows = stages.slice(0, endIdx >= 0 ? endIdx + 1 : 1);
-    /* stagger the times across the past so they read like a timeline */
-    const now = Date.parse(i.created_at) || Date.now();
-    return rows.map((s, k) => ({
-      title: s.label,
-      detail: s.detail,
-      time: UG_UTIL.absTime(new Date(now + k * 18 * 60000).toISOString()) || UG_UTIL.relTime(i)
-    }));
+  /* The report's history from what was actually recorded, newest first:
+     the status changes (report_status_history, loaded when the report is
+     opened), every team's timestamps (report_dispatches) and the rating.
+     Nothing is made up: a step whose time was never recorded says so. */
+  const HISTORY_STATUS = { verified: 'Verified', dispatched: 'Response dispatched', resolved: 'Resolved',
+    rejected: 'Rejected', reported: 'Back in the queue' };
+  function historyEntries(i, forResident) {
+    const rows = [];
+    const add = (at, title, detail) => rows.push({ at: at || null, title: title, detail: detail || '' });
+    const who = i.verified_by_role === 'lgu_ldrrmc' ? 'the Municipal DRRMO' : 'a barangay official';
+    const by = i.verified_by_name ? ' (' + i.verified_by_name + ')' : '';
+    add(i.created_at, 'Report received', (forResident ? 'Your report' : 'The report') + ' was added to the ' + (i.brgy || 'barangay') + ' queue.');
+
+    const hist = (U.DATA.reportHistory || {})[i.uuid];
+    if (hist && hist.length) {
+      hist.forEach((h) => {
+        if (!h.to_status || h.to_status === h.from_status) return;
+        const note = (h.note || '').trim();
+        let d = '';
+        if (h.to_status === 'verified') {
+          d = h.reason === 'auto_corroboration' ? 'Auto-verified: three residents confirmed the same hazard nearby.'
+            : h.reason === 'sos' ? 'Verified automatically from an SOS.'
+            : h.from_status === 'dispatched' ? 'Every team declined; waiting for a new team.'
+            : 'Verified by ' + who + by + '.';
+        } else if (h.to_status === 'dispatched') {
+          d = h.reason === 'auto_dispatch' ? 'Response teams were sent automatically.' : 'A response team was dispatched.';
+        } else if (h.to_status === 'resolved') {
+          d = 'The report was closed.' + (note ? ' Note: ' + note : '');
+        } else if (h.to_status === 'rejected') {
+          d = 'The report was rejected.' + (note ? ' Reason: ' + note : '');
+        }
+        if (note && (h.to_status === 'verified' || h.to_status === 'dispatched') && h.reason !== 'auto_dispatch') d += ' ' + note;
+        add(h.created_at, HISTORY_STATUS[h.to_status] || h.to_status, d);
+      });
+    } else {
+      /* history not loaded (offline, or still loading): only what the
+         report row itself records */
+      const reached = (k) => ['verified', 'dispatched', 'resolved'].indexOf(i.status) >= ['verified', 'dispatched', 'resolved'].indexOf(k);
+      if (i.status !== 'reported' && i.status !== 'rejected' && reached('verified')) add(i.verified_at, 'Verified', 'Verified by ' + who + by + '.');
+      if (i.status === 'resolved') add(i.resolved_at, 'Resolved', 'The report was closed.');
+      if (i.status === 'rejected') add(null, 'Rejected', 'The report was rejected.');
+    }
+
+    const units = U.DATA.unitsById || {};
+    ((U.DATA.dispatches || {})[i.uuid] || []).forEach((d) => {
+      const name = d.team + (units[d.unit_id] ? ' · ' + units[d.unit_id].name : '');
+      add(d.dispatched_at, name + ' dispatched', (d.auto_dispatched ? 'Sent automatically.' : 'Sent by ' + (d.dispatched_by_name || 'the dispatcher') + '.') +
+        (d.dispatch_status === 'declined' ? ' The team declined' + (d.decline_reason ? ': ' + d.decline_reason : '') + '.' : ''));
+      if (d.ack_at) add(d.ack_at, name + ' acknowledged', 'The team received the dispatch.');
+      if (d.en_route_at) add(d.en_route_at, name + ' on the way', 'The team is moving to the scene.');
+      if (d.on_scene_at) add(d.on_scene_at, name + ' arrived on scene', '');
+      if (d.done_at) add(d.done_at, name + ' finished', 'The team completed its response.');
+    });
+
+    if (i.rating) {
+      add(i.rating.created_at, (forResident ? 'You rated' : 'The resident rated') + ' the response',
+        i.rating.stars + ' / 5' + (i.rating.comment ? ' · "' + i.rating.comment + '"' : ''));
+    }
+    /* newest first; anything without a recorded time goes last */
+    return rows.sort((a, b) => (Date.parse(b.at || '') || 0) - (Date.parse(a.at || '') || 0));
+  }
+
+  /* the History / Activity Log card: latest 5, or every entry after View all */
+  function historyCard(i, st, forResident, title) {
+    const id = i.uuid || i.id;
+    const all = historyEntries(i, forResident);
+    const open = st.historyAll === id;
+    const shown = open ? all : all.slice(0, 5);
+    return '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(title) + '</h3>' +
+        '<span class="ug-dimmer ug-mono" style="font-size:10px">NEWEST FIRST · ' + all.length + (all.length === 1 ? ' ENTRY' : ' ENTRIES') + '</span></div>' +
+      '<div class="ug-card-b ug-col" style="gap:12px">' +
+        '<ul class="ug-history">' + shown.map((h) =>
+          '<li><div class="h-t">' + esc(h.title) + '</div>' +
+          (h.detail ? '<div class="h-d">' + esc(h.detail) + '</div>' : '') +
+          '<div class="h-time">' + esc(h.at ? UG_UTIL.absTime(h.at) : 'Time not recorded') + '</div></li>').join('') + '</ul>' +
+        (all.length > 5
+          ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="align-self:flex-start"' + A('history-all', attr({ id: id })) + '>' +
+              (open ? 'Show latest only' : 'View all ' + all.length + ' entries') + '</button>'
+          : '') +
+      '</div></div>';
   }
 
   /* ---- advisories (feature 6 + 11) ---- */
@@ -1822,17 +1868,7 @@ const UG_SCREENS = (() => {
             '</div></div>' +
           '<div class="ug-card"><div class="ug-card-h"><h3>Location</h3></div><div class="ug-card-b" style="padding:0">' +
             '<div class="ug-map" data-map="detail" style="height:142px;border:0;border-radius:0">' + U.mapSVG({}) + '</div></div></div>' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Activity Log</h3></div>' +
-            '<div class="ug-card-b ug-col" style="gap:11px">' +
-              [['Reported', (i.lat != null && i.lng != null) ? 'GPS and photo attached where available' : 'Coordinates not recorded', UG_UTIL.relTime(i)],
-               ['Corroborations', (i.corr || 0) + ' of ' + ((typeof UG_CONFIG !== 'undefined' && UG_CONFIG.CORROBORATION_THRESHOLD) || 3) + ' needed to auto-verify', UG_UTIL.relTime(i)],
-               ['Current status', (UG.STAGES.filter(x => x.key === i.status)[0] || { label: i.status }).label, UG_UTIL.relTime(i)]]
-                .map(l => '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
-                  '<span class="r-dot" style="background:var(--ug-signal);margin-top:6px"></span>' +
-                  '<div style="flex:1"><div style="font-size:12.5px;font-weight:600">' + esc(l[0]) + '</div>' +
-                  '<div class="ug-dimmer" style="font-size:11px;margin-top:2px">' + esc(l[1]) + '</div></div>' +
-                  '<span class="ug-dimmer ug-mono" style="font-size:10.5px">' + esc(l[2]) + '</span></div>').join('') +
-            '</div></div>' +
+          historyCard(i, st, false, 'Activity Log') +
         '</div>' +
         '<div class="ug-col" style="gap:18px">' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Status Pipeline</h3></div><div class="ug-card-b">' + U.pipeline(status) + '</div></div>' +
