@@ -612,7 +612,8 @@ const UG_SUPERADMIN = (function () {
       '<div class="sa-row-between"><h3>New staff account</h3><button type="button" class="sa-x"' + btn('sa-new-close') + ' aria-label="Close">' + li('x', 16) + '</button></div>' +
       '<p class="sa-small">The person gets an email to set their password. Residents sign up by themselves.</p>' +
       '<div class="sa-grid2">' +
-        '<label class="sa-fld">' + lab('Full name') + fieldIn('newName', n.fullName, ' autocomplete="off"') + '</label>' +
+        '<label class="sa-fld">' + lab('Last name') + fieldIn('newLast', n.lastName, ' autocomplete="off"') + '</label>' +
+        '<label class="sa-fld">' + lab('First name') + fieldIn('newFirst', n.firstName, ' autocomplete="off"') + '</label>' +
         '<label class="sa-fld">' + lab('Email') + fieldIn('newEmail', n.email, ' type="email" autocomplete="off"') + '</label>' +
         '<label class="sa-fld">' + lab('Role') + selectEl('newRole', n.role, [['barangay_official', 'Barangay official'], ['lgu_ldrrmc', 'LDRRMO staff'], ['dispatch_team', 'Dispatch team']], 'sa-in sa-in--gold') + '</label>' +
         extra +
@@ -683,7 +684,8 @@ const UG_SUPERADMIN = (function () {
       '<div class="sa-dialog" role="dialog" aria-modal="true" aria-label="Manage account">' +
         '<div class="sa-dlg-who"><span class="sa-av sa-av--lg">' + esc(String(u.full_name || u.email || '?').trim().charAt(0).toUpperCase()) + '</span>' +
           '<span class="sa-minw0"><span class="sa-dlg-name">' + esc(u.full_name || 'Unnamed') + '</span><span class="sa-dlg-mail">' + esc(u.email || '') + '</span></span></div>' +
-        lab('Full name').replace('sa-elab', 'sa-elab sa-elab--first') + '<input class="sa-ein" data-sa-field="editName" value="' + esc(e.name) + '">' +
+        lab('Last name').replace('sa-elab', 'sa-elab sa-elab--first') + '<input class="sa-ein" data-sa-field="editLast" value="' + esc(e.lastName) + '">' +
+        lab('First name') + '<input class="sa-ein" data-sa-field="editFirst" value="' + esc(e.firstName) + '">' +
         lab('Phone') + '<input class="sa-ein" data-sa-field="editPhone" inputmode="tel" value="' + esc(e.phone) + '">' +
         '<p class="sa-dlg-meta">' + (u.disabled ? 'Disabled' : 'Active') + ' · joined ' + esc(new Date(u.created_at).toLocaleDateString()) + '</p>' +
         lab('Role') + selectEl('editRole', e.role, [['citizen', 'Resident'], ['barangay_official', 'Barangay official'], ['lgu_ldrrmc', 'LDRRMO staff'], ['dispatch_team', 'Dispatch team'], ['super_admin', 'Super Admin']], 'sa-ein') +
@@ -858,7 +860,8 @@ const UG_SUPERADMIN = (function () {
   function openAccount(id) {
     const u = users().find((x) => x.id === id);
     if (!u) return;
-    st.edit = { id: u.id, name: u.full_name || '', phone: u.phone || '', role: roleKey(u), barangayId: u.barangay_id || '',
+    const nm = UG_UTIL.splitName(u.full_name);
+    st.edit = { id: u.id, lastName: nm.last, firstName: nm.first, phone: u.phone || '', role: roleKey(u), barangayId: u.barangay_id || '',
       unitId: u.dispatch_unit_id || '', unitRole: u.unit_role === 'unit_admin' ? 'unit_admin' : 'member' };
     st.editNote = ''; st.editOk = false;
     render();
@@ -872,7 +875,8 @@ const UG_SUPERADMIN = (function () {
     const note = (m) => { st.editNote = m; st.editOk = false; render(); };
     if (e.role === 'barangay_official' && !e.barangayId) return note('Choose the barangay this official serves.');
     if (e.role === 'dispatch_team' && !e.unitId) return note(activeUnits().length ? 'Choose the unit this person belongs to.' : 'Create a dispatch unit first, in Dispatch units.');
-    if (!e.name.trim()) return note('The name cannot be empty.');
+    if (!e.lastName.trim() || !e.firstName.trim()) return note('Enter the last name and first name.');
+    const fullName = UG_UTIL.joinName(e.lastName, e.firstName);
     const cur = roleKey(u);
     const roleChanged = e.role !== cur;
     const unitChanged = e.role === 'dispatch_team' && (e.unitId !== (u.dispatch_unit_id || '') || e.unitRole !== (u.unit_role === 'unit_admin' ? 'unit_admin' : 'member'));
@@ -888,10 +892,10 @@ const UG_SUPERADMIN = (function () {
     st.saving = true; st.editNote = ''; render();
     let changed = false;
     try {
-      if (e.name.trim() !== (u.full_name || '') || e.phone.trim() !== (u.phone || '')) {
+      if (fullName !== (u.full_name || '') || e.phone.trim() !== (u.phone || '')) {
         const c = Repo.client();
         if (!c) throw new Error('Connect to the server to edit accounts');
-        const { error } = await c.from('profiles').update({ full_name: e.name.trim(), phone: e.phone.trim(), updated_at: new Date().toISOString() }).eq('id', u.id);
+        const { error } = await c.from('profiles').update({ full_name: fullName, phone: e.phone.trim(), updated_at: new Date().toISOString() }).eq('id', u.id);
         if (error) throw new Error(error.message);
         changed = true;
       }
@@ -968,13 +972,13 @@ const UG_SUPERADMIN = (function () {
     const n = st.newAcct;
     if (!n || st.newBusy) return;
     const note = (m) => { st.newNote = m; render(); };
-    if (!n.fullName.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(n.email.trim())) return note('Enter the person\'s name and a valid email address.');
+    if (!n.lastName.trim() || !n.firstName.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(n.email.trim())) return note('Enter the person\'s last name, first name and a valid email address.');
     if (n.role === 'barangay_official' && !n.barangayId) return note('Choose the barangay this official will manage.');
     if (n.role === 'dispatch_team' && !n.unitId) return note(activeUnits().length ? 'Choose the unit this person belongs to.' : 'Create a dispatch unit first, in Dispatch units.');
     st.newBusy = true; st.newNote = ''; render();
     try {
       await Repo.adminUsers('create', {
-        email: n.email.trim(), fullName: n.fullName.trim(), role: n.role,
+        email: n.email.trim(), fullName: UG_UTIL.joinName(n.lastName, n.firstName), role: n.role,
         barangayId: n.role === 'barangay_official' ? n.barangayId : null,
         unitId: n.role === 'dispatch_team' ? n.unitId : null,
         unitRole: n.role === 'dispatch_team' ? n.unitRole : undefined
@@ -1007,7 +1011,7 @@ const UG_SUPERADMIN = (function () {
     'sa-acc-role': (d) => set({ accRole: d.value, allAccounts: false, menu: null }),
     'sa-acc-status': (d) => set({ accStatus: d.status, allAccounts: false }),
     'sa-acc-all': () => set({ allAccounts: !st.allAccounts }),
-    'sa-new': () => set({ newAcct: { fullName: '', email: '', role: 'barangay_official', barangayId: '', unitId: '', unitRole: 'member' }, newNote: '', menu: null }),
+    'sa-new': () => set({ newAcct: { lastName: '', firstName: '', email: '', role: 'barangay_official', barangayId: '', unitId: '', unitRole: 'member' }, newNote: '', menu: null }),
     'sa-new-close': () => set({ newAcct: null, newNote: '' }),
     'sa-new-submit': () => createAccount(),
     'sa-open-account': (d) => openAccount(d.id),
@@ -1071,9 +1075,11 @@ const UG_SUPERADMIN = (function () {
       return;
     }
     const n = st.newAcct, e = st.edit;
-    if (f === 'newName' && n) { n.fullName = v; return; }
+    if (f === 'newLast' && n) { n.lastName = v; return; }
+    if (f === 'newFirst' && n) { n.firstName = v; return; }
     if (f === 'newEmail' && n) { n.email = v; return; }
-    if (f === 'editName' && e) { e.name = v; return; }
+    if (f === 'editLast' && e) { e.lastName = v; return; }
+    if (f === 'editFirst' && e) { e.firstName = v; return; }
     if (f === 'editPhone' && e) { e.phone = v; return; }
     if (!isChange) return;
     if (f === 'newRole' && n) { n.role = v; st.newNote = ''; }

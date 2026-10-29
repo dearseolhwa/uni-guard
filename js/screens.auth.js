@@ -156,7 +156,10 @@ const UG_AUTH = (function () {
       : '<div class="ug-help">Use at least 8 characters, mixing letters, numbers and a symbol.</div>';
 
     const body =
-      field('name', 'Full Name', { value: f.name, ph: 'Juan Dela Cruz', ac: 'name' }) +
+      '<div class="ug-auth-2col">' +
+        field('lastName', 'Last Name', { value: f.lastName, ph: 'Dela Cruz', ac: 'family-name' }) +
+        field('firstName', 'First Name', { value: f.firstName, ph: 'Juan', ac: 'given-name' }) +
+      '</div>' +
       field('email', 'Email Address', { type: 'email', value: f.email, ph: 'name@example.ph', ac: 'email' }) +
       field('phone', 'Mobile Number', {
         type: 'tel', value: f.phone, ph: '0917 123 4567', ac: 'tel', inputmode: 'tel', maxlength: '13',
@@ -258,8 +261,11 @@ const UG_AUTH = (function () {
         '</div><span>' + esc(pw.label) + '</span></div>'
         : '<div class="ug-help" style="margin-bottom:14px">Leave blank to keep your current password. If this is your first time signing in, you must set one.</div>') +
       field('confirm', 'Confirm Password', { type: 'password', value: f.confirm, ph: 'Repeat your password (if setting a new one)', ac: 'new-password' }) +
-      /* full name (the edge function set it to the email prefix; this fixes it) */
-      field('name', 'Full Name', { value: f.name, ph: 'Juan Dela Cruz', ac: 'name' }) +
+      /* name, last then first (the edge function set it to the email prefix; this fixes it) */
+      '<div class="ug-auth-2col">' +
+        field('lastName', 'Last Name', { value: f.lastName, ph: 'Dela Cruz', ac: 'family-name' }) +
+        field('firstName', 'First Name', { value: f.firstName, ph: 'Juan', ac: 'given-name' }) +
+      '</div>' +
       /* phone — optional but useful for dispatch/official accounts */
       field('phone', 'Mobile Number', { value: f.phone, ph: '0917 123 4567', ac: 'tel', inputmode: 'tel' }) +
       /* barangay picker — only for barangay_official (citizens pick during report, dispatch is unit-scoped) */

@@ -259,8 +259,11 @@ const UG_DISPATCH = (function () {
     return data || [];
   }
 
-  async function loadAll() {
-    state.loading = true; state.error = null;
+  /* opts.silent: a background refresh (poll, new assignment); the screen
+     keeps showing the current data instead of the loading panel */
+  async function loadAll(opts) {
+    const silent = !!(opts && opts.silent);
+    if (!silent) { state.loading = true; state.error = null; }
     try {
       await loadUnit();
       await Promise.all([
@@ -269,11 +272,182 @@ const UG_DISPATCH = (function () {
       ]);
       await Promise.all([loadEvents(), loadCapacity(), loadHelpRequests(), loadAcceptingHospitals()]);
       state.lastSync = new Date().toISOString();
+      state.error = null;
     } catch (e) {
-      state.error = e.message || 'Could not load your unit data';
+      if (!silent) state.error = e.message || 'Could not load your unit data';
     }
     state.loading = false;
+    alarmOnNewDispatch();
+    watchUnitDispatches();
+    syncTracking();
     app().render();
+  }
+
+  /* ------------------------------------------------- new-assignment alarm */
+  /* A new dispatch for the unit sounds its hazard's alarm; a hospital also
+     hears a new patient notice. The first load after sign-in only records
+     what is already there. */
+  let seenDispatches = null;
+  let seenNotices = null;
+  function alarmOnNewDispatch() {
+    const notices = state.data.notices || [];
+    if (!seenNotices) seenNotices = new Set(notices.map((n) => n.id));
+    else {
+      const freshN = notices.filter((n) => !seenNotices.has(n.id) && (n.status || 'sent') === 'sent');
+      notices.forEach((n) => seenNotices.add(n.id));
+      if (freshN.length) {
+        try { UG_ALARM.play('dispatch'); } catch (e) { }
+        app().toast('New patient notice: ' + (freshN[0].patients || 1) + ' incoming', 'warning');
+      }
+    }
+    const list = state.data.dispatches || [];
+    if (!seenDispatches) { seenDispatches = new Set(list.map((d) => d.id)); return; }
+    const fresh = list.filter((d) => !seenDispatches.has(d.id) && d.dispatch_status === 'sent');
+    list.forEach((d) => seenDispatches.add(d.id));
+    if (!fresh.length) return;
+    const r = fresh[0].report || {};
+    try { UG_ALARM.play(UG_HAZARDS.displayLabel(r.hazard_type, r.hazard_other_text), { force: true }); } catch (e) { }
+    app().toast('New dispatch: ' + (r.code || '') + ' · ' + (r.barangay || ''), 'warning');
+  }
+
+  /* a new assignment arrives within seconds: Realtime on this unit's rows.
+     Only inserts matter here; status and position updates come from this
+     device itself, and the poll in js/app.js catches anything else. */
+  let unitChannel = null;
+  let unitChannelFor = null;
+  function watchUnitDispatches() {
+    const c = client();
+    const unit = state.data.unit;
+    if (!c || !unit || unitChannelFor === unit.id) return;
+    try {
+      if (unitChannel) c.removeChannel(unitChannel);
+      unitChannelFor = unit.id;
+      unitChannel = c.channel('ug-unit-' + unit.id)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'report_dispatches', filter: 'unit_id=eq.' + unit.id },
+          (payload) => { ringForInsert(payload && payload.new); })
+        .subscribe();
+    } catch (e) { /* the poll still covers it */ }
+  }
+
+  /* ring at once with the report's hazard alarm, even when the screen has to
+     wait (someone typing) before it can show the new dispatch */
+  async function ringForInsert(row) {
+    if (!row || !row.id) return;
+    if (seenDispatches && seenDispatches.has(row.id)) return;
+    if (seenDispatches) seenDispatches.add(row.id);
+    let label = 'dispatch';
+    try {
+      const { data: r } = await client().from('reports').select('code, barangay, hazard_type, hazard_other_text').eq('id', row.report_id).maybeSingle();
+      if (r) {
+        label = UG_HAZARDS.displayLabel(r.hazard_type, r.hazard_other_text);
+        app().toast('New dispatch: ' + (r.code || '') + ' · ' + (r.barangay || ''), 'warning');
+      }
+    } catch (e) { }
+    try { UG_ALARM.play(label, { force: true }); } catch (e) { }
+    if (typeof window.UG_DISPATCH_REFRESH === 'function') window.UG_DISPATCH_REFRESH();
+    else loadAll({ silent: true });
+  }
+
+  /* ------------------------------------------------------- GPS tracking */
+  /* While the unit has an open dispatch, this device shares its position
+     (update_dispatch_location, migration 057). The server moves the status
+     by itself: acknowledged on the first fix, en route after 50 m of
+     movement, on scene within 100 m of the report. Responders press Done. */
+  const SEND_EVERY_MS = 15000;
+  const SEND_MOVED_M = 25;
+  const track = { watchId: null, status: 'off', fix: null, sent: null, sending: false, error: '' };
+
+  const metres = UG_UTIL.distanceM;
+  function openDispatches() {
+    return (state.data.dispatches || []).filter((d) => d.dispatch_status !== 'done' && d.dispatch_status !== 'declined');
+  }
+
+  function syncTracking() {
+    const need = openDispatches().length > 0 && online();
+    if (need && track.watchId == null && track.status !== 'denied') startTracking();
+    if (!need && track.watchId != null) stopTracking();
+  }
+  function startTracking() {
+    if (!('geolocation' in navigator)) { track.status = 'unsupported'; return; }
+    track.status = 'starting'; track.error = '';
+    try {
+      track.watchId = navigator.geolocation.watchPosition(onFix, onFixError,
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });
+    } catch (e) { track.status = 'unsupported'; track.watchId = null; }
+  }
+  function stopTracking() {
+    try { if (track.watchId != null) navigator.geolocation.clearWatch(track.watchId); } catch (e) { }
+    track.watchId = null;
+    track.status = 'off';
+  }
+  /* sign-out: stop sharing, forget this unit's alarm and Realtime state */
+  function signedOut() {
+    stopTracking();
+    track.fix = null; track.sent = null; track.error = '';
+    seenDispatches = null;
+    seenNotices = null;
+    const c = client();
+    if (c && unitChannel) { try { c.removeChannel(unitChannel); } catch (e) { } }
+    unitChannel = null; unitChannelFor = null;
+  }
+  function onFixError(err) {
+    if (err && err.code === 1) {          /* permission denied */
+      track.status = 'denied';
+      stopTracking();
+      track.status = 'denied';
+    } else {
+      track.status = 'searching';
+    }
+    track.error = (err && err.message) || '';
+    app().render();
+  }
+  async function onFix(pos) {
+    const fix = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy || 0), at: Date.now() };
+    const wasOn = track.status === 'on';
+    track.fix = fix; track.status = 'on';
+    const last = track.sent;
+    const due = !last || fix.at - last.at >= SEND_EVERY_MS || metres(last.lat, last.lng, fix.lat, fix.lng) >= SEND_MOVED_M;
+    if (!due || track.sending) { if (!wasOn) app().render(); return; }
+    const open = openDispatches();
+    if (!open.length) { syncTracking(); return; }
+    track.sending = true;
+    let changed = false;
+    try {
+      for (const d of open) {
+        try {
+          const res = await rpc('update_dispatch_location', { p_dispatch_id: d.id, p_lat: fix.lat, p_lng: fix.lng, p_accuracy: fix.accuracy });
+          if (res && res.status && res.status !== d.dispatch_status) changed = true;
+          d.last_lat = fix.lat; d.last_lng = fix.lng; d.last_accuracy = fix.accuracy;
+          d.last_loc_at = new Date(fix.at).toISOString();
+          if (res && res.distance_m != null) d._distance = res.distance_m;
+        } catch (e) { track.error = e.message || ''; }
+      }
+      track.sent = fix;
+    } finally { track.sending = false; }
+    if (changed) { await loadDispatches(); await loadEvents(); }
+    app().render();
+  }
+
+  /* the status card's location line */
+  function trackingLine(d) {
+    const st = track.status;
+    const r = d.report || {};
+    const dist = (track.fix && r.lat != null && r.lng != null)
+      ? Math.round(metres(track.fix.lat, track.fix.lng, r.lat, r.lng)) : null;
+    if (st === 'on') {
+      return '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:center;font-size:11.5px">' +
+        '<span class="ug-badge ug-badge--resolved">' + I('radar', 12) + ' Location on</span>' +
+        '<span class="ug-dim">' + (dist != null ? UG_UTIL.fmtDistance(dist) + ' from the scene · ' : '') +
+          '±' + esc(track.fix.accuracy) + ' m</span></div>';
+    }
+    if (st === 'denied') {
+      return '<div class="ug-col" style="gap:6px"><div class="ug-note" style="font-size:11.5px">Location is blocked for this site, so the status cannot move by itself. Allow location in the browser settings, then tap Retry.</div>' +
+        '<button class="ug-btn ug-btn--sm ug-btn--signal" style="align-self:flex-start" data-act="dispatch-track-start">' + I('radar', 13) + 'Retry location</button></div>';
+    }
+    if (st === 'unsupported') {
+      return '<div class="ug-note" style="font-size:11.5px">This device cannot share its location. Press Done when the response is finished.</div>';
+    }
+    return '<div class="ug-dim" style="font-size:11.5px">' + I('radar', 12) + ' Finding your location…</div>';
   }
 
   async function loadRoute(route) {
@@ -505,32 +679,28 @@ const UG_DISPATCH = (function () {
     const team = d.team;
     const status = d.dispatch_status;
 
-    /* Per-team next-step labels. Each entry is [nextAction, buttonLabel]. */
+    /* Acknowledged, en route and on scene are set from the unit's GPS
+       (migration 057), so they have no buttons. What remains are the
+       team-specific steps GPS cannot see, and Done. Each entry is
+       [nextAction, buttonLabel]. */
     const STEP = {
-      sent: ['acknowledged', T('dispatch.acknowledge')],
-      acknowledged: ['en_route', T('dispatch.enRoute')],
-      en_route: ['on_scene', T('dispatch.onScene')],
       on_scene: (function () {
         if (team === 'BFP') return ['under_control', 'Under control'];
         if (team === 'Ambulance') return ['transporting', 'Transporting'];
         if (team === 'Rescue Unit' || team === 'MDRRMO Rescue') return ['on_hold', 'On hold'];
-        return ['done', T('dispatch.done')];
+        return null;
       })(),
       under_control: ['fire_out', 'Fire out'],
-      fire_out: ['done', T('dispatch.done')],
       on_hold: ['resume', 'Resume'],
-      transporting: ['arrived_hospital', 'Arrived at hospital'],
-      arrived_hospital: ['done', T('dispatch.done')],
-      done: null,
-      declined: null
+      transporting: ['arrived_hospital', 'Arrived at hospital']
     };
     const nextPair = STEP[status] || null;
     const next = nextPair ? nextPair[0] : null;
     const nextLabel = nextPair ? nextPair[1] : '';
-    /* Secondary "Done" where dispatch_respond also allows finishing directly
-       (on scene for every team, BFP under control): a rescue that needs no
-       hold, or an ambulance case treated on site, can still be closed. */
-    const canFinish = next && next !== 'done' && (status === 'on_scene' || (team === 'BFP' && status === 'under_control'));
+    /* Done wherever dispatch_respond allows finishing (from 'sent' the
+       action acknowledges first) */
+    const canFinish = ['sent', 'acknowledged', 'en_route', 'on_scene', 'fire_out', 'arrived_hospital'].indexOf(status) >= 0
+      || (team === 'BFP' && status === 'under_control');
 
     const stepLabel = (s) => ({
       sent: T('dispatch.acknowledge'), acknowledged: T('dispatch.acknowledge'), en_route: T('dispatch.enRoute'),
@@ -628,14 +798,16 @@ const UG_DISPATCH = (function () {
         '</div></div>')
       : '';
 
+    const isOpen = status !== 'done' && status !== 'declined';
     const statusCard = card('<div class="ug-col" style="gap:10px"><div style="font-size:13px;font-weight:700">Status</div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + badge(status, stepLabel(status)) + '</div>' +
-      '<div class="ug-rowf ug-gap8" style="gap:8px">' +
-        (next ? '<input class="ug-in" type="text" data-act="dispatch-note" data-id="' + esc(d.id) + '" placeholder="' + (next === 'on_hold' ? 'Reason (required)' : 'Note (optional)') + '" style="flex:1;max-width:none">' : '') +
-        (next ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-respond" data-id="' + esc(d.id) + '" data-next="' + next + '">' + esc(nextLabel) + '</button>' : '') +
-        (canFinish ? '<button class="ug-btn ug-btn--sm" data-act="dispatch-respond" data-id="' + esc(d.id) + '" data-next="done">' + esc(T('dispatch.done')) + '</button>' : '') +
-      '</div>' +
-      '<div class="ug-dim" style="font-size:11px">Each step is one click. The reporter is notified on every status change.</div>' +
+      (isOpen ? trackingLine(d) : '') +
+      ((next || canFinish) ? '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+        '<input class="ug-in" type="text" data-act="dispatch-note" data-id="' + esc(d.id) + '" placeholder="' + (next === 'on_hold' ? 'Reason (required for On hold)' : 'Note (optional)') + '" style="flex:1;max-width:none">' +
+        (next ? '<button class="ug-btn ug-btn--sm" data-act="dispatch-respond" data-id="' + esc(d.id) + '" data-next="' + next + '">' + esc(nextLabel) + '</button>' : '') +
+        (canFinish ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-respond" data-id="' + esc(d.id) + '" data-next="done">' + I('check', 14) + esc(T('dispatch.done')) + '</button>' : '') +
+      '</div>' : '') +
+      (isOpen ? '<div class="ug-dim" style="font-size:11px">The status follows your location: acknowledged when it is first shared, en route once you move, on scene within 100 m of the report. Press Done when the response is finished. The reporter is notified on every change.</div>' : '') +
       declineHelp + '</div>');
 
     return '<div class="ug-col" style="gap:18px">' +
@@ -885,7 +1057,9 @@ const UG_DISPATCH = (function () {
 
   function sNotifications(st) {
     const rows = state.data.notifications || [];
-    if (!rows.length) return pageHead(T('title.notifications'), '') + emptyState('bell', T('dispatch.noNotifications'), T('dispatch.noNotificationsHint'));
+    /* the unit's alarm on/off + test (the dispatch portal has no Settings) */
+    const alarm = (typeof UG_SETTINGS !== 'undefined' && UG_SETTINGS.alarmCard) ? UG_SETTINGS.alarmCard(st) : '';
+    if (!rows.length) return pageHead(T('title.notifications'), '') + alarm + emptyState('bell', T('dispatch.noNotifications'), T('dispatch.noNotificationsHint'));
     const row = (n) => '<tr>' +
       '<td class="t-num">' + absTime(n.created_at) + '</td>' +
       '<td>' + esc(n.title) + '</td>' +
@@ -898,7 +1072,7 @@ const UG_DISPATCH = (function () {
         '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-notif-read-all">Mark all read</button>') +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
       '<thead><tr><th>When</th><th>Title</th><th>Body</th><th>Status</th><th class="t-right">Action</th></tr></thead>' +
-      '<tbody>' + rows.map(row).join('') + '</tbody></table></div></div>';
+      '<tbody>' + rows.map(row).join('') + '</tbody></table></div>' + alarm + '</div>';
   }
 
   /* --------------------------------------------------------------- the frame */
@@ -942,6 +1116,11 @@ const UG_DISPATCH = (function () {
     'dispatch-respond': async (d) => {
       try {
         const note = (document.querySelector('[data-act="dispatch-note"][data-id="' + d.id + '"]') || {}).value || '';
+        const cur = (state.data.dispatches || []).find((x) => x.id === d.id);
+        /* Done straight from 'sent' (location never shared): acknowledge first */
+        if (d.next === 'done' && cur && cur.dispatch_status === 'sent') {
+          await rpc('dispatch_respond', { p_dispatch_id: d.id, p_action: 'acknowledged', p_note: '' });
+        }
         await rpc('dispatch_respond', { p_dispatch_id: d.id, p_action: d.next, p_note: note });
         /* resume is an event: the dispatch goes back to on_scene (migration 051) */
         app().toast(d.next === 'resume' ? 'Rescue resumed · back on scene' : 'Status updated to ' + d.next, 'prepared');
@@ -949,6 +1128,7 @@ const UG_DISPATCH = (function () {
         app().render();
       } catch (e) { app().toast(e.message || 'Could not update', 'warning'); }
     },
+    'dispatch-track-start': () => { track.status = 'off'; startTracking(); app().render(); },
     'dispatch-check': (d) => { state.openEquipmentId = d.id; openCheckModal(d.id); },
     'dispatch-status': (d) => openStatusModal(d.id),
     'dispatch-duty': async (d) => {
@@ -1896,7 +2076,7 @@ const UG_DISPATCH = (function () {
 
   /* ----------------------------------------------------------------- exports */
   return {
-    state, frame, body, loadAll, loadRoute, actions,
+    state, frame, body, loadAll, loadRoute, actions, signedOut,
     DTITLES: (r) => DTITLES(r),
     /* 050 (Oct 25 2026): expose the equipment-management modals so the
        LGU + barangay Response Team screens (js/screens.admin.js + js/app.js)

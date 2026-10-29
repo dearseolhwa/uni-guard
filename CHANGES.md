@@ -1,5 +1,22 @@
 # Changes
 
+## 2026-10-29 — Automatic dispatch, GPS tracking, alarms, ratings, typed SOS, split names
+Run `migrations/056_realtime_core_tables.sql` and then `migrations/057_auto_dispatch_tracking_ratings_sos.sql`.
+- **Automatic dispatch (057):** when a barangay official or the LGU verifies a report, the server sends the hazard's teams (same mapping as `js/hazard-types.js`). An Emergency-severity report also gets an Ambulance. Each team gets the nearest active unit, preferring Available ones. A team with no unit is skipped and the LGU is notified. Reports auto-verified by 3 residents are not auto-dispatched; the incident page has an **Auto-dispatch** button for them.
+- **GPS tracking (057, `js/dispatch.js`):** the dispatch portal shares the unit's position while it has an open dispatch. The status moves by itself: acknowledged on the first fix, en route after 50 m, on scene within 100 m of the report. The Acknowledge / En route / On scene buttons are gone; responders press **Done**. Team-specific steps GPS cannot see (BFP Under control, Ambulance Transporting, Rescue On hold) stay. Sharing stops on sign-out.
+- **Teams and time monitoring (`js/screens.js`, `js/map.js`):** the Response Dispatch card lists every team with its unit name, phone, live distance from the scene and a timestamped timeline (dispatched › acknowledged › en route › on scene › done), plus the response times. Responding units appear on the live and incident maps. Analytics adds average dispatch → on scene time and the average rating.
+- **Ratings (057):** the reporter rates a resolved report 1–5 stars with a comment (`rate_report`). Staff see it on the incident page.
+- **Typed SOS (057, `js/sos.js`):** Medical, Fire, Crime / Violence, Rescue, plus Other / not sure. A typed SOS with GPS becomes an emergency report and the matching team (Ambulance, BFP, PNP, Rescue) is sent at once. Other reaches the duty officers only. The sender's barangay officials are now notified too.
+- **Alarms per portal (`js/alarm.js`, `js/app.js`, `js/dispatch.js`):** a loud alarm per hazard type, and each portal rings for what its role acts on:
+  - Resident: emergency alerts, and a team dispatched to / arriving at their own report or SOS (rising chime).
+  - Barangay official: new reports and SOS in their barangay, their Response Team being sent.
+  - LGU: every new report and SOS, and a team that could not be auto-sent (horn).
+  - Super Admin: SOS, new Emergency reports, teams not auto-sent, change requests awaiting approval (chime).
+  - Dispatch unit: new dispatches, and patient notices for hospitals.
+  On/off, the list of events and a test button are in Settings → Notifications (dispatch portal: Notifications screen).
+- **Names:** every name form asks for Last name and First name; `profiles.full_name` stores "Last, First".
+- **Live data (`js/repo.js`):** dispatch records, unit names and ratings load with every refresh; background loads are at least 3 s apart.
+
 ## 2026-10-29 — Preparedness guides: one card per numbered step
 - **Root cause:** guide text is stored as an introduction line plus "1) …" … "10) …" lines separated by newlines (production seed, all 42 rows). The citizen card printed the whole text inside one `<p>`, where newlines collapse to spaces, so every step ran together.
 - **`js/guides.js`:**

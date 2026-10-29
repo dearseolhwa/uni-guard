@@ -49,7 +49,38 @@ const UG_UTIL = (function () {
   function initials(name, fallback) {
     const n = String(name || '').trim();
     if (!n) return fallback || '?';
+    /* "Dela Cruz, Juan" reads as JD, like "Juan Dela Cruz" */
+    const p = splitName(n);
+    if (p.last && p.first) return (p.first[0] + p.last[0]).toUpperCase();
     return n.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  }
+
+  /* Names are entered as separate Last name / First name fields and stored
+     in profiles.full_name as "Last, First". A name saved before that (no
+     comma) comes back whole in `first`, so the form asks for the last name. */
+  function joinName(last, first) {
+    const l = String(last || '').trim().replace(/\s+/g, ' ');
+    const f = String(first || '').trim().replace(/\s+/g, ' ');
+    return l && f ? l + ', ' + f : (l || f);
+  }
+  /* straight-line metres between two points (haversine) */
+  function distanceM(aLat, aLng, bLat, bLng) {
+    if ([aLat, aLng, bLat, bLng].some((v) => typeof v !== 'number' || isNaN(v))) return null;
+    const R = 6371000, rad = Math.PI / 180;
+    const dLat = (bLat - aLat) * rad, dLng = (bLng - aLng) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  function fmtDistance(m) {
+    if (m == null) return '';
+    return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m) + ' m';
+  }
+
+  function splitName(full) {
+    const n = String(full || '').trim();
+    const i = n.indexOf(',');
+    if (i < 0) return { last: '', first: n };
+    return { last: n.slice(0, i).trim(), first: n.slice(i + 1).trim() };
   }
 
   function bytes(n) {
@@ -182,7 +213,7 @@ const UG_UTIL = (function () {
   }
 
   return {
-    esc, since, relTime, absTime, initials, bytes, debounce, downloadBlob,
+    esc, since, relTime, absTime, initials, joinName, splitName, distanceM, fmtDistance, bytes, debounce, downloadBlob,
     normalisePhone, formatPhone, passwordStrength, authError, syncLabel,
     friendlyError, looksTechnical, isNetworkError, plural, corroborationLabel
   };

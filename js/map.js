@@ -166,7 +166,7 @@ const MapView = (function () {
       fallback: false,
       unbounded: !!opts.unbounded,
       fit: !!opts.fit,
-      data: { incidents: [], centers: [], relief: [], roadStatus: [] },
+      data: { incidents: [], centers: [], relief: [], roadStatus: [], units: [] },
       visible: { hazards: true, relief: true, centers: true, roadStatus: true },
       spider: null,                              /* { anchorLatLng, members: [...] } while open */
       skipped: {}
@@ -193,6 +193,7 @@ const MapView = (function () {
     if (opts.centers) setCenters(opts.centers);
     if (opts.relief) setRelief(opts.relief);
     if (opts.roadStatus) setRoadStatus(opts.roadStatus);
+    if (opts.units) setUnits(opts.units);
     if (opts.layers) setLayers(opts.layers);
     if (opts.reportPin) setReportPin(opts.reportPin, opts.onPinDrop, opts.onPinOutside);
 
@@ -257,6 +258,13 @@ const MapView = (function () {
       if (st !== 'ok') { skipped[st] = (skipped[st] || 0) + 1; return; }
       push('relief', [r.lat, r.lng], r);
     });
+    /* responding teams at their last GPS fix (migration 057); shown with
+       the hazards they are going to */
+    (d.units || []).forEach((u) => {
+      if (ctx.visible.hazards === false) return;
+      if (coordState(u.lat, u.lng, true) !== 'ok') return;
+      push('units', [u.lat, u.lng], u);
+    });
     (d.roadStatus || []).forEach((r) => {
       if (ctx.visible.roadStatus === false) return;
       const st = coordState(r.lat, r.lng, unbounded);
@@ -284,6 +292,11 @@ const MapView = (function () {
     }
     if (cat === 'relief') {
       return { entry: { color: '#8B5CF6', on: '#FFFFFF', short: 'REL', shape: 'square' }, size: 22 };
+    }
+    if (cat === 'units') {
+      const short = item.team === 'BFP' ? 'BFP' : item.team === 'PNP' ? 'PNP' : item.team === 'Ambulance' ? 'AMB'
+        : item.team === 'Barangay Response Team' ? 'BRT' : 'RES';
+      return { entry: { color: '#1D4ED8', on: '#FFFFFF', short: short, shape: 'circle' }, size: 26 };
     }
     /* roadStatus */
     const tone = item.status === 'blocked' ? 'road-blocked'
@@ -322,6 +335,11 @@ const MapView = (function () {
         '<div class="p-m">' + UG_UTIL.esc(avail.label) + ' &middot; ' + item.occ + ' of ' + item.cap + '</div>' +
         '<div class="p-act">' + wazeButtonHtml(item.lat, item.lng, 'Waze') + '</div></div>');
       marker.options.title = item.name;
+    } else if (cat === 'units') {
+      marker.bindPopup('<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(item.team) + (item.name ? ' · ' + UG_UTIL.esc(item.name) : '') + '</div>' +
+        '<div class="p-m">' + UG_UTIL.esc(item.statusLabel || '') + ' &middot; to ' + UG_UTIL.esc(item.code || '') + '</div>' +
+        '<div class="p-m">Updated ' + UG_UTIL.esc(UG_UTIL.relTime({ created_at: item.at })) + '</div></div>');
+      marker.options.title = item.team + ' (responding)';
     } else if (cat === 'relief') {
       marker.bindPopup('<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(item.title || item.location_name || 'Relief') + '</div>' +
         '<div class="p-m">' + UG_UTIL.esc(item.barangay || '') + '</div>' +
@@ -591,6 +609,12 @@ const MapView = (function () {
     redraw();
   }
 
+  function setUnits(list) {
+    if (!ctx || ctx.fallback) return;
+    ctx.data.units = list || [];
+    redraw();
+  }
+
   function setRoadStatus(list) {
     if (!ctx || ctx.fallback) return;
     ctx.data.roadStatus = list || [];
@@ -710,5 +734,5 @@ const MapView = (function () {
      needs it, it talks through the setters above. */
   const getMap = () => (ctx && !ctx.fallback) ? ctx.map : null;
 
-  return { mount, destroy, owns, getMap, setIncidents, setCenters, setRelief, setRoadStatus, setLayers, setReportPin, invalidate, isFallback, wazeButtonHtml };
+  return { mount, destroy, owns, getMap, setIncidents, setCenters, setRelief, setRoadStatus, setUnits, setLayers, setReportPin, invalidate, isFallback, wazeButtonHtml };
 })();

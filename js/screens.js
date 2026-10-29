@@ -868,6 +868,7 @@ const UG_SCREENS = (() => {
         : '<div class="ug-card"><div class="ug-card-h"><h3>Tracking</h3><span class="ug-dimmer" style="font-size:10.5px">Processing → Deployed → Resolved</span></div>' +
             '<div class="ug-card-b">' + tracker + U.pipeline(status) + '</div></div>') +
           dispatchRecords(i) +
+          ratingCard(i, i.mine && i.status === 'resolved', st.rateDraft) +
       /* timestamped history log */
       '<div class="ug-card"><div class="ug-card-h"><h3>History</h3><span class="ug-dimmer ug-mono" style="font-size:10px">' + historyRows.length + ' entries</span></div>' +
         '<div class="ug-card-b">' + historyHtml + '</div></div>' +
@@ -885,13 +886,15 @@ const UG_SCREENS = (() => {
       '</div></div>' +
     '</div>';
   }
-    /* dispatch records for one incident: team, instructions, ETA, who and
-       when, and (since Oct 24 2026) the dispatch_status label so the
-       reporter and the LGU see the new statuses (declined, on_hold,
-       under_control, fire_out, transporting, arrived_hospital). */
+    /* dispatch records for one incident: every team sent (any number), which
+       unit it is and how to reach it, its status, a timestamped timeline with
+       the response times, and while it is out, where it is now (from the
+       unit's GPS, migration 057). Shown to the reporter, the barangay and
+       the LGU alike. */
   function dispatchRecords(i) {
     const list = (U.DATA.dispatches || {})[i.uuid || i.id] || [];
     if (!list.length) return '';
+    const units = U.DATA.unitsById || {};
     const stepLabel = (s) => ({
       sent: 'Sent', acknowledged: 'Acknowledged', en_route: 'En route',
       on_scene: 'On scene', done: 'Done', declined: 'Declined',
@@ -899,26 +902,85 @@ const UG_SCREENS = (() => {
       on_hold: 'On hold', resume: 'Resumed',
       transporting: 'Transporting', arrived_hospital: 'Arrived at hospital'
     })[s] || s || 'Sent';
+    const clock = (v) => v ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const mins = (a, b) => (a && b) ? Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 60000)) : null;
+    const minsText = (n) => n == null ? '' : n < 60 ? n + ' min' : Math.floor(n / 60) + ' h ' + (n % 60) + ' min';
     return '<div class="ug-card"><div class="ug-card-h"><h3>Response Dispatch</h3>' +
       '<span class="ug-dimmer ug-mono" style="font-size:10px">' + list.length + (list.length === 1 ? ' TEAM' : ' TEAMS') + '</span></div>' +
-      '<div class="ug-card-b ug-col" style="gap:12px">' + list.map((r) =>
-        '<div class="ug-col" style="gap:5px;padding-bottom:12px;border-bottom:1px solid var(--ug-line)">' +
-          '<div class="ug-rowf ug-between" style="gap:8px"><span style="font-size:13px;font-weight:700">' + I('truck', 14) + ' ' + esc(r.team) + '</span>' +
-            '<span class="ug-rowf ug-gap6" style="gap:6px;align-items:center">' +
-              (r.decline_reason ? '<span class="ug-badge ug-badge--closed">' + esc(stepLabel(r.dispatch_status)) + '</span>' : '') +
+      '<div class="ug-card-b ug-col" style="gap:12px">' + list.map((r) => {
+        const unit = units[r.unit_id];
+        const who = unit ? unit.name : (r.team === 'Barangay Response Team' ? 'Barangay ' + (i.brgy || '') + ' Response Team' : '');
+        const open = r.dispatch_status !== 'done' && r.dispatch_status !== 'declined';
+        const steps = [['Dispatched', r.dispatched_at], ['Acknowledged', r.ack_at], ['En route', r.en_route_at],
+                       ['On scene', r.on_scene_at], ['Done', r.done_at]].filter((x) => x[1]);
+        const toScene = mins(r.dispatched_at, r.on_scene_at);
+        const total = mins(r.dispatched_at, r.done_at);
+        const sinceReport = mins(i.created_at, r.dispatched_at);
+        const far = (open && r.last_lat != null) ? UG_UTIL.distanceM(r.last_lat, r.last_lng, i.lat, i.lng) : null;
+        return '<div class="ug-col" style="gap:6px;padding-bottom:12px;border-bottom:1px solid var(--ug-line)">' +
+          '<div class="ug-rowf ug-between" style="gap:8px;align-items:flex-start"><span style="font-size:13px;font-weight:700">' + I('truck', 14) + ' ' + esc(r.team) +
+              (who ? '<span class="ug-dim" style="font-weight:600"> · ' + esc(who) + '</span>' : '') + '</span>' +
+            '<span class="ug-rowf ug-gap6 ug-wrap" style="gap:6px;align-items:center;justify-content:flex-end">' +
+              (r.auto_dispatched ? '<span class="ug-badge ug-badge--id">Auto</span>' : '') +
               '<span class="ug-badge ug-badge--' + (r.dispatch_status === 'declined' ? 'closed'
                 : r.dispatch_status === 'on_hold' ? 'warning'
                 : r.dispatch_status === 'done' ? 'prepared'
                 : r.dispatch_status === 'fire_out' || r.dispatch_status === 'arrived_hospital' ? 'prepared'
                 : 'dispatched') + '">' + esc(stepLabel(r.dispatch_status)) + '</span>' +
-              '<span class="ug-badge ug-badge--dispatched">ETA ' + esc(UG_UTIL.absTime(r.eta) || '—') + '</span>' +
+              (open ? '<span class="ug-badge ug-badge--dispatched">ETA ' + esc(clock(r.eta) || '—') + '</span>' : '') +
             '</span></div>' +
+          (unit && unit.contact_number ? '<a class="ug-dim" style="font-size:11.5px" href="tel:' + esc(unit.contact_number.replace(/\s+/g, '')) + '">' + I('phone', 12) + ' ' + esc(unit.contact_number) + '</a>' : '') +
           '<div class="ug-dim" style="font-size:12px;line-height:1.5">' + esc(r.instructions) + '</div>' +
+          (far != null
+            ? '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:8px;align-items:center;font-size:11.5px">' +
+                '<span style="font-weight:600;color:var(--ug-st-dispatched)">' + I('radar', 12) + ' ' + esc(UG_UTIL.fmtDistance(far)) + ' from the scene</span>' +
+                '<span class="ug-dimmer">updated ' + esc(UG_UTIL.relTime({ created_at: r.last_loc_at })) + '</span>' +
+                '<a class="ug-waze-btn" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.last_lat, r.last_lng) + '">' + I('route', 12) + ' Map</a>' +
+              '</div>'
+            : '') +
+          '<div class="ug-rowf ug-wrap" style="gap:4px 10px;font-size:10.5px">' + steps.map((x) =>
+            '<span class="ug-mono"><span class="ug-dimmer">' + esc(x[0]) + '</span> ' + esc(clock(x[1])) + '</span>').join('<span class="ug-dimmer">›</span>') + '</div>' +
+          ((toScene != null || total != null || sinceReport != null)
+            ? '<div class="ug-dimmer" style="font-size:10.5px">' + [
+                sinceReport != null ? 'Sent ' + minsText(sinceReport) + ' after the report' : '',
+                toScene != null ? 'on scene ' + minsText(toScene) + ' after dispatch' : '',
+                total != null ? 'finished in ' + minsText(total) : ''
+              ].filter(Boolean).join(' · ') + '</div>'
+            : '') +
           (r.decline_reason ? '<div class="ug-dimmer" style="font-size:11px">Decline reason: ' + esc(r.decline_reason) + '</div>' : '') +
           (r.hold_reason ? '<div class="ug-dimmer" style="font-size:11px">Hold reason: ' + esc(r.hold_reason) + '</div>' : '') +
           '<div class="ug-dimmer ug-mono" style="font-size:10.5px">Dispatched by ' + esc(r.dispatched_by_name || '—') +
             ' · ' + esc(UG_UTIL.absTime(r.dispatched_at) || '') + '</div>' +
-        '</div>').join('') + '</div></div>';
+        '</div>';
+      }).join('') + '</div></div>';
+  }
+
+  /* the reporter's 1-5 star rating of the response, once the report is
+     resolved (rate_report, migration 057). Others see it read-only. */
+  function ratingCard(i, canRate, draft) {
+    const r = i.rating;
+    if (!canRate && !r) return '';
+    if (!canRate) {
+      return '<div class="ug-card"><div class="ug-card-h"><h3>Resident Rating</h3>' +
+        '<span class="ug-badge ug-badge--prepared">' + r.stars + ' / 5</span></div>' +
+        '<div class="ug-card-b ug-col" style="gap:6px">' +
+          '<div class="ug-stars" aria-label="' + r.stars + ' of 5 stars">' + [1, 2, 3, 4, 5].map((n) =>
+            '<span class="ug-star' + (n <= r.stars ? ' is-on' : '') + '">★</span>').join('') + '</div>' +
+          (r.comment ? '<div class="ug-dim" style="font-size:12px;line-height:1.5">' + esc(r.comment) + '</div>' : '') +
+          '<div class="ug-dimmer" style="font-size:10.5px">' + esc(UG_UTIL.absTime(r.created_at) || '') + '</div>' +
+        '</div></div>';
+    }
+    const stars = (draft && draft.id === (i.uuid || i.id) && draft.stars) || (r ? r.stars : 0);
+    return '<div class="ug-card"><div class="ug-card-h"><h3>' + (r ? 'Your Rating' : 'Rate the Response') + '</h3>' +
+        (r ? '<span class="ug-badge ug-badge--prepared">Sent</span>' : '') + '</div>' +
+      '<div class="ug-card-b ug-col" style="gap:10px">' +
+        '<div class="ug-dim" style="font-size:12px;line-height:1.5">How well did the responders handle your report?</div>' +
+        '<div class="ug-stars" role="radiogroup" aria-label="Rating">' + [1, 2, 3, 4, 5].map((n) =>
+          '<button type="button" class="ug-star' + (n <= stars ? ' is-on' : '') + '" role="radio" aria-checked="' + (n === stars) + '" aria-label="' + n + ' star' + (n > 1 ? 's' : '') + '"' +
+            A('rate-star', attr({ id: i.uuid || i.id, n: n })) + '>★</button>').join('') + '</div>' +
+        '<textarea class="ug-ta" rows="2" data-rate-comment placeholder="Comment (optional)">' + esc(r ? r.comment : '') + '</textarea>' +
+        '<button class="ug-btn ug-btn--signal ug-btn--sm" style="align-self:flex-start"' + A('rate-submit', attr({ id: i.uuid || i.id })) + '>' + I('check', 14) + (r ? 'Update rating' : 'Submit rating') + '</button>' +
+      '</div></div>';
   }
   /* a small synthetic history when the live report_status_history is not
      available (offline, or the migration hasn't been applied). It still gives
@@ -1615,6 +1677,10 @@ const UG_SCREENS = (() => {
               isLGU && status === 'reported'
                 ? '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('lgu-verify', attr({ id: i.id })) + ' title="Verified by the LDRRMO; an optional note is kept in the activity log">' + I('shield', 15) + 'Verify Report</button>'
                 : '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('check', 15) + (status === 'verified' ? 'Dispatch Response' : 'Advance Status') + '</button>') +
+          /* verified but not sent (auto-verified by residents, or no unit was
+             free): one tap sends the hazard's teams (migration 057) */
+          (status === 'verified' && (UG_HAZARDS.suggestedTeams(i.hazard_type).length || i.sev === 'emergency')
+            ? '<button class="ug-btn ug-btn--sm"' + A('auto-dispatch', attr({ id: i.uuid || i.id })) + '>' + I('truck', 15) + 'Auto-dispatch</button>' : '') +
           (status === 'dispatched' ? '<button class="ug-btn ug-btn--sm"' + A('incident-add-team', attr({ id: i.id })) + '>' + I('truck', 15) + 'Add Team</button>' : '') +
 
           '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>' : '')
@@ -1651,6 +1717,7 @@ const UG_SCREENS = (() => {
         '<div class="ug-col" style="gap:18px">' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Status Pipeline</h3></div><div class="ug-card-b">' + U.pipeline(status) + '</div></div>' +
           dispatchRecords(i) +
+          ratingCard(i, false) +
           '<div class="ug-card"><div class="ug-card-h"><h3>Crowd Corroboration</h3>' + U.badge(corr >= 3 ? 'resolved' : 'warning', corr + ' of 3') + '</div>' +
             '<div class="ug-card-b ug-col" style="gap:10px">' + U.corrMeter(corr) +
               corrRows.map((n, k) =>
@@ -2242,6 +2309,21 @@ const UG_SCREENS = (() => {
             '<div class="ug-dimmer" style="font-size:10.5px">average report &rarr; Response Dispatched</div></div>' +
             '<div><div class="ug-mono" style="font-size:22px;font-weight:700;color:var(--ug-prepared)">' + fmtDur(an.avgResolveSeconds) + '</div>' +
             '<div class="ug-dimmer" style="font-size:10.5px">average report &rarr; Resolved</div></div>' +
+            (function () {
+              /* team timing from the GPS-stamped dispatches (migration 057)
+                 and the residents' ratings, over the reports in range */
+              const ids = new Set(inc.map((i) => i.uuid));
+              const disp = [].concat.apply([], Object.keys(U.DATA.dispatches || {}).filter((k) => ids.has(k)).map((k) => U.DATA.dispatches[k]));
+              const scene = disp.filter((d) => d.on_scene_at && d.dispatched_at)
+                .map((d) => (Date.parse(d.on_scene_at) - Date.parse(d.dispatched_at)) / 1000);
+              const rated = inc.filter((i) => i.rating);
+              const avgScene = scene.length ? scene.reduce((a, b) => a + b, 0) / scene.length : null;
+              const avgStars = rated.length ? rated.reduce((a, i) => a + i.rating.stars, 0) / rated.length : null;
+              return '<div><div class="ug-mono" style="font-size:22px;font-weight:700;color:var(--ug-st-dispatched)">' + (avgScene != null ? fmtDur(avgScene) : '—') + '</div>' +
+                '<div class="ug-dimmer" style="font-size:10.5px">average dispatch &rarr; team on scene (' + scene.length + ' arrivals)</div></div>' +
+                '<div><div class="ug-mono" style="font-size:22px;font-weight:700;color:#B45309">' + (avgStars != null ? avgStars.toFixed(1) + ' / 5' : '—') + '</div>' +
+                '<div class="ug-dimmer" style="font-size:10.5px">average resident rating (' + rated.length + ' rated)</div></div>';
+            })() +
             '<div class="ug-dim" style="font-size:11px;line-height:1.55">How fast reports in the range moved through the pipeline. A long dispatch time usually means the queue needs another duty officer.</div>' +
           '</div></div>' +
       '</div>' +

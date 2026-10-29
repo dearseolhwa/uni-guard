@@ -1,8 +1,8 @@
 /* UniGuard · Urgent alerts overlay
  *
  * Full-screen, dismissible banner that fires ONLY for severity === 'emergency'
- * advisories. Plays a short alert tone and vibrates the device (both gated by
- * user permission / capability), and logs an acknowledgment row through the
+ * advisories. Sounds the hazard's alarm and vibrates the device (js/alarm.js,
+ * gated by user permission / capability), and logs an acknowledgment row through the
  * alert_acknowledgments table (migration 015) so the LGU can prove a resident
  * saw the alert.
  *
@@ -16,7 +16,6 @@
 const UG_URGENT = (function () {
   const esc = UG_UTIL.esc, I = UG.icon;
   let host = null;
-  let audioCtx = null;
   const ACKED_KEY = 'uniguard.urgent.acked';
 
   /* the IDs we've already shown so a refresh doesn't re-fire the same one */
@@ -37,29 +36,10 @@ const UG_URGENT = (function () {
   const closed = new Set();
 
   /* ----------------------------------------------------------- audio */
-  /* Web Audio is widely available and needs no asset. Two short beeps, only
-     for emergency severity. */
-  function playTone() {
-    try {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const now = audioCtx.currentTime;
-      [0, 0.35].forEach((delay, k) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(k === 0 ? 880 : 660, now + delay);
-        gain.gain.setValueAtTime(0.0001, now + delay);
-        gain.gain.exponentialRampToValueAtTime(0.18, now + delay + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.25);
-        osc.connect(gain).connect(audioCtx.destination);
-        osc.start(now + delay);
-        osc.stop(now + delay + 0.3);
-      });
-    } catch (e) { /* audio is enhancement, never a blocker */ }
-  }
-
-  function vibrate() {
-    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); } catch (e) {}
+  /* the hazard's own alarm (js/alarm.js), read from the advisory text; the
+     overlay is forced audible even right after another alarm */
+  function playTone(advisory) {
+    try { UG_ALARM.play((advisory.title || '') + ' ' + (advisory.body || ''), { force: true }); } catch (e) { }
   }
 
   /* ----------------------------------------------------------- rendering */
@@ -121,8 +101,7 @@ const UG_URGENT = (function () {
     /* animate in */
     requestAnimationFrame(() => card.classList.add('is-on'));
     /* fire sound + vibration only here, not for routine advisories */
-    playTone();
-    vibrate();
+    playTone(advisory);
   }
 
   function dismiss(id) {

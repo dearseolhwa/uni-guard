@@ -15,6 +15,18 @@ const UG_SOS = (function () {
   const A = (act, extra) => ' data-act="' + act + '"' + (extra ? ' ' + extra : '');
   const attr = (o) => Object.keys(o).map(k => ' data-' + k + '="' + esc(o[k]) + '"').join('');
 
+  /* the SOS types: [kind, label, icon, who is sent]. The server maps each
+     kind to its team (submit_sos, migration 057); 'other' reaches the duty
+     officers only. */
+  const KINDS = [
+    ['medical', 'Medical', 'plus', 'Ambulance'],
+    ['fire', 'Fire', 'flame', 'Fire (BFP)'],
+    ['crime', 'Crime / Violence', 'shield', 'Police (PNP)'],
+    ['rescue', 'Rescue', 'flood', 'Rescue team']
+  ];
+  const KIND_LABEL = { medical: 'Medical', fire: 'Fire', crime: 'Crime / Violence', rescue: 'Rescue', other: 'Other' };
+  function kindLabel(k) { return KIND_LABEL[k] || KIND_LABEL.other; }
+
   /* the floating button itself, rendered as part of the mobile frame */
   function floatingButton(st) {
     if (!st.session || st.session.role !== 'citizen') return '';
@@ -49,24 +61,32 @@ const UG_SOS = (function () {
           ? '<div class="ug-col" style="gap:8px;align-items:center">' +
               '<div class="ug-badge ug-badge--emergency">' + esc(T('sos.notSent')) + '</div>' +
               '<p style="font-size:12px;line-height:1.5;max-width:320px;color:var(--ug-warning)">' + esc(last.message || '') + '</p></div>'
-          : '<div class="ug-badge ug-badge--resolved">Sent · ' + esc(last.at) + '</div>';
+          : '<div class="ug-col" style="gap:6px;align-items:center"><div class="ug-badge ug-badge--resolved">Sent · ' + esc(last.at) + '</div>' +
+              (last.team ? '<p style="font-size:12px;line-height:1.5;max-width:320px;font-weight:600">' + esc(last.team) + ' has been dispatched to your location.</p>' : '') + '</div>';
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">One-Tap Emergency</div>' +
       '<h2 style="font-size:19px;margin-top:3px">SOS</h2>' +
-      '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">One tap sends your current GPS position, your name and your contact number to the LGU/LDRRMO duty officer. Use only when you are in immediate danger.</p></div>' +
+      '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Tap the kind of emergency. Your GPS position, name and contact number go to the LGU/LDRRMO duty officer, and the matching response team is sent right away. Use only when you are in immediate danger.</p></div>' +
 
       (hotlineFirst ? hotline : '') +
 
-      '<div class="ug-card ug-tick"><div class="ug-card-b ug-col" style="gap:14px;align-items:center;text-align:center;padding:22px 18px">' +
-        '<span class="ug-sos-circle' + (sending ? ' is-sending' : '') + '" data-act="sos-trigger" role="button" aria-disabled="' + (sending ? 'true' : 'false') + '"' +
-          (sending ? ' style="pointer-events:none;opacity:.7"' : '') + '>' + I('alert', 36) + '</span>' +
-        '<h3 style="font-size:18px">' + (sending ? 'Sending SOS…' : 'Tap to Send SOS') + '</h3>' +
+      '<div class="ug-card ug-tick"><div class="ug-card-b ug-col" style="gap:14px;align-items:center;text-align:center;padding:20px 16px">' +
+        '<h3 style="font-size:17px">' + (sending ? 'Sending SOS…' : 'What is the emergency?') + '</h3>' +
+        '<div class="ug-sos-kinds">' + KINDS.map((k) =>
+          '<button class="ug-sos-kind kind-' + k[0] + '" data-act="sos-trigger" data-kind="' + k[0] + '"' + (sending ? ' disabled' : '') + '>' +
+            I(k[2], 26) + '<span class="k-l">' + esc(k[1]) + '</span><span class="k-t">Sends: ' + esc(k[3]) + '</span></button>').join('') +
+        '</div>' +
+        '<button class="ug-btn ug-btn--block" data-act="sos-trigger" data-kind="other"' + (sending ? ' disabled' : '') + '>' + I('help', 16) + 'Other / not sure · duty officer only</button>' +
         '<p class="ug-dim" style="font-size:12px;line-height:1.5;max-width:300px">Hold still for a moment so we can read your GPS. A confirmation will appear here when the SOS has been logged.</p>' +
         statusLine +
       '</div></div>' +
 
       (last && status === 'sent' ? '<div class="ug-card"><div class="ug-card-h"><h3>Last SOS</h3>' + U.badge('id', last.id || 'PENDING') + '</div>' +
         '<div class="ug-card-b ug-col" style="gap:11px">' +
+          '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Type</span>' +
+            '<span class="ug-mono">' + esc(kindLabel(last.kind)) + '</span></div>' +
+          '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Team sent</span>' +
+            '<span class="ug-mono">' + esc(last.team || 'Duty officer reviewing') + '</span></div>' +
           '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Position</span>' +
             '<span class="ug-mono">' + esc(last.lat != null ? UG_GEO.fmt(last.lat, last.lng) : 'No GPS fix') + '</span></div>' +
           '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Accuracy</span>' +
@@ -98,7 +118,8 @@ const UG_SOS = (function () {
         '<span class="ug-chip is-on">' + rows.length + ' events</span>') +
       '<div class="ug-card"><div class="ug-rows ug-scroll" style="max-height:540px">' + (rows.length ? rows.map((s) =>
         '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer" data-act="open-sos-detail" data-id="' + esc(s.id) + '"><span class="r-dot" style="background:' + (s.status === 'resolved' ? 'var(--ug-prepared)' : 'var(--ug-emergency)') + '"></span>' +
-          '<div class="r-main"><div class="r-t">' + esc(s.profile_name || 'Resident') + '<span style="margin-left:6px">' + statusBadge(s.status) + '</span></div>' +
+          '<div class="r-main"><div class="r-t">' + esc(s.profile_name || 'Resident') + '<span style="margin-left:6px">' + statusBadge(s.status) + '</span>' +
+            '<span class="ug-badge ug-badge--emergency" style="margin-left:6px">' + esc(kindLabel(s.kind)) + '</span></div>' +
             '<div class="r-m"><span class="ug-mono">' + esc(s.profile_phone || '') + '</span>' +
               '<span>' + I('pin', 12) + (s.lat != null ? UG_GEO.fmt(s.lat, s.lng) : 'no fix') + '</span>' +
               '<span>' + I('clock', 12) + esc(s.time || '') + '</span></div></div>' +
@@ -121,6 +142,8 @@ const UG_SOS = (function () {
       title: 'SOS from ' + (s.profile_name || 'a resident'),
       body:
         kv('Status', statusBadge(s.status)) +
+        kv('Type', kindLabel(s.kind)) +
+        kv('Response', s.report_id ? 'Team dispatched automatically (see the linked report)' : 'Not dispatched automatically · send a team') +
         kv('Received', UG_UTIL.absTime(s.created_at || s.time) || s.time || '') +
         kv('Sender', s.profile_name || '—') +
         kv('Contact number', s.profile_phone || '—') +
@@ -134,6 +157,7 @@ const UG_SOS = (function () {
           : '<div class="ug-note" style="margin-top:10px">This SOS was sent without a GPS fix. Call the sender back on the number above.</div>'),
       footer:
         '<button class="ug-btn" data-modal-close>Close</button>' +
+        (s.report_id ? '<button class="ug-btn ug-btn--sm" data-act="open-incident" data-id="' + esc(s.report_id) + '">' + I('truck', 14) + 'Open report</button>' : '') +
         (s.status === 'sent' ? '<button class="ug-btn ug-btn--signal" data-act="sos-ack" data-id="' + esc(s.id) + '">' + I('check', 14) + 'Acknowledge</button>' : '') +
         (s.status !== 'resolved' ? '<button class="ug-btn ug-btn--sm" data-act="sos-resolve" data-id="' + esc(s.id) + '">' + I('check', 14) + 'Mark resolved</button>' : ''),
       /* MapView holds one map at a time, so the mini map replaced the page's
@@ -164,5 +188,5 @@ const UG_SOS = (function () {
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';
   }
 
-  return { floatingButton, mSos, dSos, sosDetailModal, head };
+  return { kindLabel, floatingButton, mSos, dSos, sosDetailModal, head };
 })();

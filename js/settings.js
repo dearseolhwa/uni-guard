@@ -453,6 +453,29 @@ const UG_SETTINGS = (function () {
       '</div></div>';
   }
 
+  /* the alarm that sounds for an emergency alert, a new report or SOS
+     (officials, LGU) and a new dispatch (units). Per device: js/alarm.js */
+  function alarmCard(st) {
+    const on = !(typeof UG_ALARM !== 'undefined' && UG_ALARM.muted());
+    const sess = (st && st.session) || {};
+    const ra = (typeof UG_ALARM !== 'undefined') ? UG_ALARM.roleAlarms(sess.role, sess.superAdmin) : { events: [] };
+    return '<div class="ug-card"><div class="ug-card-h"><h3>Alarm sound</h3>' +
+        '<span class="ug-badge ug-badge--' + (on ? 'resolved' : 'id') + '">' + (on ? 'On' : 'Off') + '</span></div>' +
+      '<div class="ug-card-b ug-col" style="gap:12px">' +
+        '<div class="ug-rowf ug-gap10 ug-setting-toggle" style="gap:10px;align-items:flex-start">' +
+          '<span class="ug-col" style="gap:3px;min-width:0;flex:1">' +
+            '<span style="font-size:12.5px;font-weight:600">Sound the alarm on this device</span>' +
+            '<span class="ug-dim" style="font-size:11px;line-height:1.5">Each hazard has its own alarm: a fast siren for fire, a slow wail for floods, pulses for typhoons and earthquakes, rapid beeps for SOS. Keep the volume up.</span>' +
+          '</span>' +
+          '<button class="ug-toggle' + (on ? ' is-on' : '') + '" role="switch" aria-checked="' + on + '"' + A('alarm-toggle') + '>' +
+            '<span class="ug-toggle-knob"></span></button>' +
+        '</div>' +
+        '<div class="ug-col" style="gap:4px"><span style="font-size:12px;font-weight:600">This portal rings for</span>' +
+          ra.events.map((e) => '<span class="ug-dim" style="font-size:11.5px;line-height:1.5">• ' + esc(e) + '</span>').join('') + '</div>' +
+        '<button class="ug-btn ug-btn--sm" style="align-self:flex-start"' + A('alarm-test') + '>' + I('bell', 14) + 'Test alarm</button>' +
+      '</div></div>';
+  }
+
   function tabNotifications(st) {
     const prefs = getUserPrefs();
     const T = (k) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : k);
@@ -460,10 +483,11 @@ const UG_SETTINGS = (function () {
     /* quiet hours, email digests and the SMS fallback switch are broadcast
        policy for the whole municipality, so only LGU staff see them */
     if (role !== 'lgu_ldrrmc') {
-      return '<div class="ug-col" style="gap:18px">' + deviceAlertsCard(T) + '</div>';
+      return '<div class="ug-col" style="gap:18px">' + deviceAlertsCard(T) + alarmCard(st) + '</div>';
     }
     return '<div class="ug-col" style="gap:18px">' +
       deviceAlertsCard(T) +
+      alarmCard(st) +
       '<div class="ug-card"><div class="ug-card-h"><h3>' + T('settings.notificationChannels') + '</h3></div>' +
         '<div class="ug-card-b ug-col" style="gap:12px">' +
           toggleRow('notifications.pushEnabled', T('settings.pushEnabled'),
@@ -735,6 +759,7 @@ const UG_SETTINGS = (function () {
   }
 
   return {
+    alarmCard,
     dSettings, tabTemplates, openEditor, deleteTemplate, exportTemplates,
     getSettings, patchSettings, saveSettings,
     /* per-user prefs + system config */

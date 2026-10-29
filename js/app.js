@@ -33,7 +33,7 @@
 
   const blankAuth = () => ({
     screen: 'signin',
-    form: { email: '', password: '', name: '', phone: '', barangay_id: '', confirm: '' },
+    form: { email: '', password: '', lastName: '', firstName: '', phone: '', barangay_id: '', confirm: '' },
     error: '', notice: '', loading: false, showPassword: false, consent: false,
     pendingEmail: '', barangays: [], phoneError: ''
   });
@@ -273,6 +273,27 @@
 
   /* --------------------------------------------------------------- live maps */
   let mapKey = '';
+  /* responding teams with a GPS fix, for the map's unit markers; `only`
+     limits them to one incident */
+  const UNIT_STATUS = { sent: 'Sent', acknowledged: 'Acknowledged', en_route: 'En route', on_scene: 'On scene',
+    under_control: 'Under control', fire_out: 'Fire out', on_hold: 'On hold', transporting: 'Transporting',
+    arrived_hospital: 'Arrived at hospital' };
+  function respondingUnits(only) {
+    const byReport = UG.DATA.dispatches || {};
+    const units = UG.DATA.unitsById || {};
+    const incs = only ? [only] : (UG.DATA.incidents || []);
+    const out = [];
+    incs.forEach((i) => {
+      (byReport[i.uuid] || []).forEach((d) => {
+        if (d.last_lat == null || d.last_lng == null) return;
+        if (d.dispatch_status === 'done' || d.dispatch_status === 'declined') return;
+        out.push({ lat: d.last_lat, lng: d.last_lng, team: d.team, name: (units[d.unit_id] || {}).name || '',
+          statusLabel: UNIT_STATUS[d.dispatch_status] || d.dispatch_status, code: i.id, at: d.last_loc_at });
+      });
+    });
+    return out;
+  }
+
   async function mountMaps() {
     const live = q('[data-map="live"]');
     const detail = q('[data-map="detail"]');
@@ -310,11 +331,16 @@
         continue;
       }
       if (t.only) {
-        if (t.el.dataset.mounted === t.key) continue;
+        if (t.el.dataset.mounted === t.key) {
+          /* already showing: move the responding teams in place */
+          if (MapView.owns(t.el)) MapView.setUnits(respondingUnits(t.only));
+          continue;
+        }
         t.el.dataset.mounted = t.key;
         t.el.innerHTML = '';
         await MapView.mount(t.el, {
           incidents: [t.only],
+          units: t.only ? respondingUnits(t.only) : [],
           relief: UG.DATA.relief || [],
           roadStatus: UG.DATA.roadStatus || [],
           zoom: 15
@@ -331,6 +357,7 @@
         MapView.setCenters(UG.DATA.centers || []);
         MapView.setRelief(UG.DATA.relief || []);
         MapView.setRoadStatus(UG.DATA.roadStatus || []);
+        MapView.setUnits(respondingUnits());
         MapView.setLayers(S.mapLayers);
         MapView.invalidate();
         continue;
@@ -342,6 +369,7 @@
         centers: UG.DATA.centers || [],
         relief: UG.DATA.relief || [],
         roadStatus: UG.DATA.roadStatus || [],
+        units: respondingUnits(),
         layers: S.mapLayers,
         zoom: 13,
         /* dedicated map screens fit the view to the records once; dashboard
@@ -769,7 +797,8 @@
     signup: async () => {
       const f = S.auth.form;
       S.auth.error = ''; S.auth.phoneError = '';
-      if (!f.name.trim()) { S.auth.error = 'Enter your full name.'; return render(); }
+      if (!(f.lastName || '').trim()) { S.auth.error = 'Enter your last name.'; return render(); }
+      if (!(f.firstName || '').trim()) { S.auth.error = 'Enter your first name.'; return render(); }
       if (!f.email.trim()) { S.auth.error = 'Enter your email address.'; return render(); }
 
       const phone = UG_UTIL.normalisePhone(f.phone);
@@ -783,7 +812,7 @@
       S.auth.loading = true; render();
       try {
         const res = await Auth.signUp({
-          fullName: f.name.trim(), email: f.email.trim(), phone: phone,
+          fullName: UG_UTIL.joinName(f.lastName, f.firstName), email: f.email.trim(), phone: phone,
           barangayId: f.barangay_id, barangay: brgy ? brgy.name : '', password: f.password
         });
         S.auth.loading = false;
@@ -869,14 +898,15 @@
         if (!f.password || f.password.length < 8) { S.auth.error = 'Use at least 8 characters for the password.'; return render(); }
         if (f.password !== f.confirm) { S.auth.error = 'The two passwords do not match.'; return render(); }
       }
-      if (!f.name || !f.name.trim()) { S.auth.error = 'Enter your full name.'; return render(); }
+      if (!(f.lastName || '').trim()) { S.auth.error = 'Enter your last name.'; return render(); }
+      if (!(f.firstName || '').trim()) { S.auth.error = 'Enter your first name.'; return render(); }
       const role = (S.auth.pendingProfile && S.auth.pendingProfile.role) || 'citizen';
       if (role === 'barangay_official' && !f.barangay_id) { S.auth.error = 'Select your barangay.'; return render(); }
       S.auth.loading = true; render();
       try {
         const session = await Auth.completeOnboarding({
           password: f.password || '',  /* empty string = skip password update */
-          name: f.name.trim(),
+          name: UG_UTIL.joinName(f.lastName, f.firstName),
           phone: (f.phone || '').trim(),
           barangay_id: f.barangay_id || null
         });
@@ -913,6 +943,8 @@
       });
       if (!ok) return;
       MapView.destroy();
+      /* a signed-out device must not keep sharing a responder's position */
+      try { UG_DISPATCH.signedOut(); } catch (e) { }
       await Auth.signOut();
       try { await UG_PWA.clearSnapshot(); } catch (e) { /* cleanup must never block signing out */ }
       S.session = null;
@@ -1052,6 +1084,18 @@
     const inc = (UG.DATA.incidents || []).find((i) => i.id === id || i.uuid === id);
     if (!inc || !inc.uuid) return;
     Repo.loadDispatches(inc.uuid).then(() => { if (S.session) render(); }).catch(() => { });
+  }
+
+  /* after a verification, say whether the response went out by itself
+     (migration 057 auto-dispatches on verification) */
+  function verifiedToast(inc) {
+    const now = (UG.DATA.incidents || []).find((i) => i.uuid === inc.uuid) || inc;
+    const teams = ((UG.DATA.dispatches || {})[inc.uuid] || []).filter((x) => x.auto_dispatched).map((x) => x.team);
+    if (now.status === 'dispatched' && teams.length) {
+      toast(inc.id + ' verified · dispatched automatically: ' + teams.join(', '), 'prepared');
+    } else {
+      toast(inc.id + ' verified · no team went out automatically, use Dispatch Response', 'warning');
+    }
   }
 
   /* Preload dispatch records for every dispatched incident so the dashboard,
@@ -1272,6 +1316,37 @@
     'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); loadDispatchesFor(d.id); },
     'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); loadDispatchesFor(d.id); },
     'open-sos-detail': (d) => { UG_SOS.sosDetailModal(S, d.id); },
+    'auto-dispatch': async (d) => {
+      try {
+        const res = await Repo.autoDispatch(d.id);
+        const n = (res && res.dispatched) || 0;
+        toast(n ? n + (n === 1 ? ' team dispatched' : ' teams dispatched') : 'No team could be sent automatically. Use Dispatch Response.', n ? 'prepared' : 'warning');
+      } catch (e) { toast(e.message, 'warning'); }
+      render();
+    },
+    /* stars update in place: a re-render would drop a comment being typed */
+    'rate-star': (d, el) => {
+      const n = parseInt(d.n, 10) || 0;
+      S.rateDraft = { id: d.id, stars: n };
+      const group = el && el.closest('.ug-stars');
+      if (group) group.querySelectorAll('.ug-star').forEach((b, k) => {
+        b.classList.toggle('is-on', k < n);
+        b.setAttribute('aria-checked', String(k + 1 === n));
+      });
+    },
+    'rate-submit': async (d, el) => {
+      const inc = (UG.DATA.incidents || []).find((i) => i.uuid === d.id || i.id === d.id);
+      const stars = (S.rateDraft && S.rateDraft.id === d.id && S.rateDraft.stars) || (inc && inc.rating ? inc.rating.stars : 0);
+      if (!stars) { toast('Choose 1 to 5 stars', 'warning'); return; }
+      const card = el && el.closest('.ug-card');
+      const ta = card && card.querySelector('[data-rate-comment]');
+      try {
+        await Repo.rateReport(d.id, stars, ta ? ta.value : '');
+        S.rateDraft = null;
+        toast('Thank you. Your rating was sent.', 'prepared');
+      } catch (e) { toast(e.message, 'warning'); }
+      render();
+    },
     'open-road-detail': (d) => { UG_ROADWORK.roadDetailModal(d.id, S); },
 
     'rw-manual-pin': () => {
@@ -1639,7 +1714,8 @@
       if (!ok) return;
       try {
         await Repo.advanceStatus(inc.uuid || inc.id, order[next]);
-        toast(inc.id + ' moved to ' + label, next === order.length - 1 ? 'prepared' : 'warning');
+        if (order[next] === 'verified') verifiedToast(inc);
+        else toast(inc.id + ' moved to ' + label, next === order.length - 1 ? 'prepared' : 'warning');
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
@@ -1699,7 +1775,7 @@
            notifies the reporter. It works for any report still in
            "reported", overdue or not (migration 051). */
         await Repo.lguVerify(inc.uuid || inc.id, note || '');
-        toast(inc.id + ' LGU-verified', 'prepared');
+        verifiedToast(inc);
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
@@ -2517,8 +2593,12 @@
       UG_FEATURES.modal({
         title: 'Create a barangay official',
         body:
-          '<div class="ug-field"><label class="ug-lab">Full name</label>' +
-          '<input class="ug-in" type="text" data-invite-name placeholder="Juan Dela Cruz" autocomplete="off"></div>' +
+          '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Last name</label>' +
+            '<input class="ug-in" type="text" data-invite-last placeholder="Dela Cruz" autocomplete="off"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">First name</label>' +
+            '<input class="ug-in" type="text" data-invite-first placeholder="Juan" autocomplete="off"></div>' +
+          '</div>' +
           '<div class="ug-field"><label class="ug-lab">Email address</label>' +
           '<input class="ug-in" type="email" data-invite-email placeholder="official@lingayen.gov.ph"></div>' +
           '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Barangay</label>' +
@@ -2528,17 +2608,18 @@
           '<button class="ug-btn" data-modal-close>Cancel</button>' +
           '<button class="ug-btn ug-btn--signal" data-send>Send Invitation</button>',
         onMount: (wrap, close) => {
-          const nameEl = wrap.querySelector('[data-invite-name]');
+          const nameEl = wrap.querySelector('[data-invite-last]');
+          const firstEl = wrap.querySelector('[data-invite-first]');
           const emailEl = wrap.querySelector('[data-invite-email]');
           const brgyEl = wrap.querySelector('[data-invite-brgy]');
           const sendBtn = wrap.querySelector('[data-send]');
           setTimeout(() => nameEl.focus(), 30);
 
           sendBtn.addEventListener('click', async () => {
-            const fullName = nameEl.value.trim();
+            const fullName = UG_UTIL.joinName(nameEl.value, firstEl.value);
             const email = emailEl.value.trim();
             const barangayId = brgyEl.value;
-            if (!fullName) { toast('Enter the official\'s full name', 'warning'); return; }
+            if (!nameEl.value.trim() || !firstEl.value.trim()) { toast('Enter the official\'s last name and first name', 'warning'); return; }
             if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email address', 'warning'); return; }
             if (!barangayId) { toast('Select the barangay this official will manage', 'warning'); return; }
 
@@ -2803,17 +2884,24 @@
       const u = (S.users || []).find((x) => x.id === d.id);
       if (!u) { toast('That account no longer exists', 'warning'); return; }
       const esc = UG_UTIL.esc;
+      const nm = UG_UTIL.splitName(u.full_name);
       UG_FEATURES.modal({
         title: 'Edit account · ' + (u.full_name || u.email),
         body:
-          '<div class="ug-field"><label class="ug-lab">Full name</label><input class="ug-in" data-acc-name value="' + esc(u.full_name || '') + '"></div>' +
+          '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Last name</label><input class="ug-in" data-acc-last value="' + esc(nm.last) + '"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">First name</label><input class="ug-in" data-acc-first value="' + esc(nm.first) + '"></div>' +
+          '</div>' +
           '<div class="ug-field"><label class="ug-lab">Email</label><input class="ug-in" type="email" data-acc-email value="' + esc(u.email || '') + '"></div>' +
           '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Phone</label><input class="ug-in" data-acc-phone value="' + esc(u.phone || '') + '"></div>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Save</button>',
         onMount: (wrap, close) => {
           wrap.querySelector('[data-save]').addEventListener('click', async () => {
+            const last = wrap.querySelector('[data-acc-last]').value;
+            const first = wrap.querySelector('[data-acc-first]').value;
+            if (!last.trim() || !first.trim()) { toast('Enter the last name and first name', 'warning'); return; }
             const patch = {
-              full_name: wrap.querySelector('[data-acc-name]').value.trim(),
+              full_name: UG_UTIL.joinName(last, first),
               phone: wrap.querySelector('[data-acc-phone]').value.trim(),
               updated_at: new Date().toISOString()
             };
@@ -3904,6 +3992,16 @@
       render();
     },
 
+    'alarm-toggle': () => {
+      const on = UG_ALARM.muted();
+      UG_ALARM.setMuted(!on);
+      toast(on ? 'Alarm sound on' : 'Alarm sound off', 'info');
+      render();
+    },
+    'alarm-test': () => {
+      const ra = UG_ALARM.roleAlarms(S.session && S.session.role, S.session && S.session.superAdmin);
+      if (!UG_ALARM.play(ra.test, { force: true })) toast('This browser cannot play the alarm sound', 'warning');
+    },
     'settings-toggle': (d) => {
       const path = d.path;
       const cur = UG_SETTINGS.getSettings();
@@ -4236,9 +4334,17 @@
        (S.lastSos.status: 'sent' | 'queued' | 'error'), never as a pile of
        toasts over the call button. With no connection the SOS is saved on the
        phone and sent by UG_PWA.flushQueue as soon as the signal returns. */
-    'sos-trigger': async () => {
+    /* Without a type (the floating SOS button, the home shortcut) it opens
+       the SOS screen, where the resident taps what kind of emergency it is;
+       the typed button sends, and the server dispatches the matching team. */
+    'sos-trigger': async (d) => {
       if (S.sosSending) return;
       if (!S.session) { toast('Sign in to send an SOS', 'warning'); return; }
+      const kind = d && d.kind;
+      if (!kind) {
+        if (S.route !== 'sos') { go('sos'); render(); }
+        return;
+      }
       S.sosSending = true; S.route = 'sos'; render();
       let pos = null;
       try { pos = await UG_FEATURES.locate(); }
@@ -4247,11 +4353,11 @@
       const base = {
         lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, accuracy: pos ? pos.accuracy : null,
         at: now.toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }),
-        noGps: !pos
+        noGps: !pos, kind: kind
       };
       const queueIt = async () => {
         await UG_PWA.upsertQueuedSos({
-          _kind: 'sos', lat: base.lat, lng: base.lng, accuracy: base.accuracy, note: '',
+          _kind: 'sos', lat: base.lat, lng: base.lng, accuracy: base.accuracy, note: '', kind: kind,
           client_sent_at: now.toISOString()
         });
         S.lastSos = Object.assign({ status: 'queued', id: null, reach: null }, base);
@@ -4260,14 +4366,15 @@
         if (navigator.onLine === false) {
           await queueIt();
         } else {
-          const res = await Repo.submitSos({ lat: base.lat, lng: base.lng, accuracy: base.accuracy });
+          const res = await Repo.submitSos({ lat: base.lat, lng: base.lng, accuracy: base.accuracy, kind: kind });
           if (res && res.queued) {
             S.lastSos = Object.assign({ status: 'queued', id: null, reach: null }, base);
           } else {
             S.lastSos = Object.assign({
               status: 'sent',
               id: res && res.id ? res.id : null,
-              reach: res && typeof res.reach === 'number' ? res.reach : null
+              reach: res && typeof res.reach === 'number' ? res.reach : null,
+              team: res && res.dispatched ? res.team : null
             }, base);
             try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); } catch (e) { }
           }
@@ -4462,7 +4569,7 @@
     if (!el) return;
     const f = el.dataset.field, v = el.value;
     if (!S.session) {
-      if (f === 'email' || f === 'password' || f === 'confirm' || f === 'name' || f === 'phone') S.auth.form[f] = v;
+      if (f === 'email' || f === 'password' || f === 'confirm' || f === 'lastName' || f === 'firstName' || f === 'phone') S.auth.form[f] = v;
       return;
     }
     if (f === 'advTitle') { S.draft.title = v; render(f); return; }
@@ -4642,7 +4749,8 @@
     if (S.lastSos && (S.lastSos.status === 'queued' || S.lastSos.status === 'error')) {
       S.lastSos = Object.assign({}, S.lastSos, {
         status: 'sent', message: '', id: res.id || null,
-        reach: typeof res.reach === 'number' ? res.reach : null
+        reach: typeof res.reach === 'number' ? res.reach : null,
+        team: res.dispatched ? res.team : null
       });
     }
     toast(T('sos.delivered'), 'prepared');
@@ -4699,8 +4807,65 @@
     if (!Repo.state.loading && S.session.role !== 'dispatch_team') {
       try { UG_NOTIF_STORE.mergeAll(UG.DATA.notifications || []); } catch (e) { }
       try { UG_URGENT.scan(); } catch (e) { }
+      alarmOnNew();
     }
   });
+
+  /* Every portal hears what its role must act on (UG_ALARM.roleAlarms):
+       resident     help dispatched to / arriving at their own report or SOS
+       barangay     new report or SOS in their barangay, their Response Team sent
+       LGU          any new report, any SOS, a team that could not be auto-sent
+       Super Admin  SOS, new Emergency reports, a team not auto-sent, approvals
+     (Units ring in js/dispatch.js; emergency alerts in js/urgent-alerts.js.)
+     The first load after sign-in only records what is already there, so
+     opening the app is silent. */
+  let alarmSeen = null;
+  let alarmSeenFor = '';
+  const NEEDS_DISPATCH = /^(No unit available|Dispatch needed|Auto-dispatch failed)/;
+  function alarmOnNew() {
+    const role = S.session.role;
+    if (role === 'dispatch_team') return;
+    if (!Repo.state.hasSynced || Repo.state.source !== 'supabase') return;
+    const sup = !!S.session.superAdmin;
+    const inc = UG.DATA.incidents || [];
+    const notifs = UG.DATA.notifications || [];
+    const crs = UG.DATA.changeRequests || [];
+    const who = S.session.id || S.session.email || '';
+    const keys = inc.map((i) => 'r' + i.uuid).concat(notifs.map((n) => 'n' + n.id), crs.map((c) => 'c' + c.id));
+    if (!alarmSeen || alarmSeenFor !== who) {
+      alarmSeen = new Set(keys);
+      alarmSeenFor = who;
+      return;
+    }
+    const newInc = inc.filter((i) => i.uuid && !alarmSeen.has('r' + i.uuid) && i.status !== 'resolved' && i.status !== 'rejected');
+    const newN = notifs.filter((n) => n.id && !alarmSeen.has('n' + n.id));
+    const newCr = crs.filter((c) => c.id && !alarmSeen.has('c' + c.id) && (c.status || 'pending') === 'pending');
+    keys.forEach((k) => alarmSeen.add(k));
+
+    const sos = newN.some((n) => n.type === 'sos');
+    const needsDispatch = newN.some((n) => NEEDS_DISPATCH.test(n.title));
+    let kind = null;
+    if (role === 'citizen') {
+      const mine = new Set(inc.filter((i) => i.mine).map((i) => i.uuid));
+      const help = newN.some((n) => mine.has(n.report_id) &&
+        (n.type === 'dispatch' || (n.type === 'dispatch_status' && /on scene/i.test(n.title))));
+      if (help) kind = 'help';
+    } else if (role === 'barangay_official') {
+      const team = newN.some((n) => n.type === 'dispatch' && /^Barangay Response Team/.test(n.body));
+      kind = sos ? 'sos' : newInc.length ? newInc[0].hazard : team ? 'dispatch' : null;
+    } else if (sup) {
+      const emergency = newInc.filter((i) => i.sev === 'emergency');
+      kind = sos ? 'sos' : emergency.length ? emergency[0].hazard : needsDispatch ? 'attention' : newCr.length ? 'admin' : null;
+    } else if (role === 'lgu_ldrrmc') {
+      kind = sos ? 'sos' : newInc.length ? newInc[0].hazard : needsDispatch ? 'attention' : null;
+    }
+    if (kind) { try { UG_ALARM.play(kind); } catch (e) { } }
+
+    /* the SOS log is read on entering its screen; keep it current there */
+    if (sos && S.route === 'sos') {
+      Repo.listSos().then((rows) => { UG.DATA.sosLog = rows; if (S.session) render(); }).catch(() => { });
+    }
+  }
 
   /* Live refreshes rebuild #ug-root, so hold one back while that would cost
      the user something: a field they are typing in, an open dropdown, or a
@@ -4744,9 +4909,11 @@
     if (document.visibilityState === 'hidden' || navigator.onLine === false) return;
     if (UG_DISPATCH.state.loading || !liveRefreshAllowed()) return;
     dispatchRefreshing = true;
-    try { await UG_DISPATCH.loadAll(); } catch (e) { }
+    try { await UG_DISPATCH.loadAll({ silent: true }); } catch (e) { }
     dispatchRefreshing = false;
   }
+  /* js/dispatch.js calls this when Realtime reports a new assignment */
+  window.UG_DISPATCH_REFRESH = refreshDispatch;
   setInterval(refreshDispatch, UG_CONFIG.LIVE_REFRESH_MS || 20000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshDispatch(); });
   UG_PWA.onChange(() => { if (S.session) render(); });
@@ -4914,7 +5081,7 @@
           if (unit) S.auth.pendingProfile.unit_name = unit.name;
         } catch (e) {}
       }
-      S.auth.form = { password: '', confirm: '', name: '', phone: '', barangay_id: Auth.state.profile.barangay_id || '' };
+      S.auth.form = { password: '', confirm: '', lastName: '', firstName: '', phone: '', barangay_id: Auth.state.profile.barangay_id || '' };
       render();
       return;
     }

@@ -407,7 +407,8 @@ const Repo = (function () {
 
       let reportsQuery = c.from('reports_feed').select('*').order('created_at', { ascending: false }).limit(300);
 
-      const [reports, advisories, centers, hotlines, notifications, subscriptions, assignments, relief, beneficiaries, guides, faqs, roadWork, roadStatus] = await Promise.all([
+      const [reports, advisories, centers, hotlines, notifications, subscriptions, assignments, relief, beneficiaries, guides, faqs, roadWork, roadStatus,
+             dispatches, units, ratings] = await Promise.all([
         reportsQuery,
         c.from('advisories').select('*').order('published_at', { ascending: false }).limit(100),
         c.from('evacuation_centers').select('*').order('name'),
@@ -420,7 +421,13 @@ const Repo = (function () {
         c.from('preparedness_guides').select('*').order('hazard_type, phase, sort_order').limit(300),
         c.from('faqs').select('*').order('sort_order, created_at').limit(100),
         c.from('road_work_posts').select('*').order('created_at', { ascending: false }).limit(60),
-        c.from('road_status').select('*').order('updated_at', { ascending: false }).limit(120)
+        c.from('road_status').select('*').order('updated_at', { ascending: false }).limit(120),
+        /* every team on the reports this account can see (RLS scopes it), so
+           the team list, its live position and the response times stay live
+           without opening each report (migration 057) */
+        c.from('report_dispatches').select('*').order('dispatched_at', { ascending: false }).limit(400),
+        c.from('dispatch_units').select('id, name, unit_type, contact_number'),
+        c.from('report_ratings').select('*').order('created_at', { ascending: false }).limit(500)
       ]);
       /* load change requests in parallel — the Super Admin hotlines page and
          the LGU/BO "your pending requests" section both read this. */
@@ -429,7 +436,8 @@ const Repo = (function () {
       if (reports.error) throw reports.error;
 
       const sig = JSON.stringify([reports, advisories, centers, hotlines, notifications, subscriptions, assignments,
-        relief, beneficiaries, guides, faqs, roadWork, roadStatus].map((r) => r && (r.error ? 'error' : [r.data, r.count]))
+        relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings]
+        .map((r) => r && (r.error ? 'error' : [r.data, r.count]))
         .concat([UG.DATA.changeRequests || null]));
       if (opts.silent && sig === lastDataSig && state.hasSynced && state.source === 'supabase') {
         state.loading = false;
@@ -443,11 +451,23 @@ const Repo = (function () {
         (assignments.data || []).forEach((a) => { unitCount[a.report_id] = (unitCount[a.report_id] || 0) + 1; });
       }
 
+      const ratingOf = {};
+      if (ratings && !ratings.error) (ratings.data || []).forEach((x) => { ratingOf[x.report_id] = x; });
       UG.DATA.incidents = (reports.data || []).map((r) => {
         const row = toIncident(r);
         row.units = unitCount[r.id] || 0;
+        row.rating = ratingOf[r.id] || null;
         return row;
       });
+      if (dispatches && !dispatches.error) {
+        const byReport = {};
+        (dispatches.data || []).forEach((d) => { (byReport[d.report_id] = byReport[d.report_id] || []).push(d); });
+        UG.DATA.dispatches = byReport;
+      }
+      if (units && !units.error) {
+        UG.DATA.unitsById = {};
+        (units.data || []).forEach((u) => { UG.DATA.unitsById[u.id] = u; });
+      }
       if (!advisories.error) UG.DATA.advisories = (advisories.data || []).map(toAdvisory);
       if (!centers.error) UG.DATA.centers = (centers.data || []).map(toCenter);
       if (!hotlines.error) UG.DATA.hotlines = (hotlines.data || []).map(toHotline);
@@ -530,7 +550,7 @@ const Repo = (function () {
      runs on the next poll, focus change or visibility change. */
   const WATCHED = ['reports', 'report_corroborations', 'report_assignments', 'advisories', 'notifications',
     'evacuation_centers', 'relief_distributions', 'authorized_beneficiaries', 'preparedness_guides', 'faqs',
-    'road_work_posts', 'road_status', 'sos_log', 'change_requests'];
+    'road_work_posts', 'road_status', 'sos_log', 'change_requests', 'report_dispatches', 'report_ratings'];
   let refreshTimer = null;
   let refreshPending = false;
   const channels = {};       /* table -> its realtime channel */
@@ -538,6 +558,10 @@ const Repo = (function () {
   const rejoinDelay = {};
   let pollTimer = null;
   let refreshGate = () => true;
+  let lastRefreshAt = 0;
+  /* moving units write their position every few seconds; keep background
+     loads at least this far apart so a busy response cannot flood the app */
+  const MIN_REFRESH_GAP_MS = 3000;
   function setRefreshGate(fn) { refreshGate = typeof fn === 'function' ? fn : () => true; }
 
   function scheduleRefresh(delay) {
@@ -549,10 +573,13 @@ const Repo = (function () {
     refreshTimer = null;
     if (!refreshPending) return;
     if (state.loading) { scheduleRefresh(1000); return; }
+    const wait = lastRefreshAt + MIN_REFRESH_GAP_MS - Date.now();
+    if (wait > 0) { scheduleRefresh(wait); return; }
     let ok = true;
     try { ok = refreshGate() !== false; } catch (e) { }
     if (!ok) return;   /* stays pending; retried by the next trigger */
     refreshPending = false;
+    lastRefreshAt = Date.now();
     try { await loadAll({ silent: true }); } catch (e) { }
   }
 
@@ -1249,6 +1276,27 @@ const Repo = (function () {
     return UG.DATA.dispatches[reportUuid] || [];
   }
 
+  /* sends the teams the hazard calls for, nearest free unit each, for a
+     verified report that was not dispatched on verification (migration 057) */
+  async function autoDispatch(reportUuid) {
+    const c = client();
+    if (!c) throw new Error('Auto-dispatch needs a connection');
+    const { data, error } = await c.rpc('auto_dispatch_report', { p_report_id: reportUuid });
+    if (error) fail(error);
+    await loadAll();
+    return data;
+  }
+
+  /* the reporter rates the response to their resolved report, 1-5 stars */
+  async function rateReport(reportUuid, stars, comment) {
+    const c = client();
+    if (!c) throw new Error('Rating needs a connection');
+    const { data, error } = await c.rpc('rate_report', { p_report_id: reportUuid, p_stars: stars, p_comment: comment || '' });
+    if (error) fail(error);
+    await loadAll();
+    return data;
+  }
+
   /* -------------------------------------------------- dispatch v2 + directory */
   async function dispatchReportV2(reportUuid, input) {
     const c = client();
@@ -1518,9 +1566,11 @@ const Repo = (function () {
       return { id: 'PENDING-' + Date.now(), reach: 0, queued: true };
     }
     const { data, error } = await c.rpc('submit_sos', {
-      p_lat: payload.lat, p_lng: payload.lng, p_accuracy: payload.accuracy, p_note: payload.note || ''
+      p_lat: payload.lat, p_lng: payload.lng, p_accuracy: payload.accuracy, p_note: payload.note || '',
+      p_kind: payload.kind || 'other'
     });
     if (error) fail(error);
+    loadAll({ silent: true }).catch(() => { });
     return data;
   }
   async function listSos() {
@@ -1531,7 +1581,7 @@ const Repo = (function () {
     return (data || []).map((s) => ({
       id: s.id, profile_name: s.profile_name, profile_phone: s.profile_phone,
       barangay: s.barangay, lat: s.lat, lng: s.lng, accuracy: s.accuracy,
-      note: s.note, status: s.status || 'sent',
+      note: s.note, status: s.status || 'sent', kind: s.kind || 'other', report_id: s.report_id || null,
       created_at: s.created_at,
       time: UG_UTIL.relTime(s)
     }));
@@ -1669,7 +1719,7 @@ const Repo = (function () {
 
   return {
     client, online, state, onChange,
-    loadAll, forceReload, subscribe, unsubscribe, setRefreshGate,
+    loadAll, forceReload, subscribe, unsubscribe, setRefreshGate, autoDispatch, rateReport,
     createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, lguVerify, barangayAt, reportHistory, updateReport,
     createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,
     markRead, markAllRead, listBarangays,

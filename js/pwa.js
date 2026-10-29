@@ -144,6 +144,7 @@ const UG_PWA = (function () {
       lng: row.lng != null ? row.lng : keep.lng,
       accuracy: row.lat != null ? row.accuracy : keep.accuracy,
       note: row.note || keep.note || '',
+      kind: row.kind || keep.kind || 'other',
       updated_at: new Date().toISOString(),
       attempts: 0, failed: false
     });
@@ -193,7 +194,7 @@ const UG_PWA = (function () {
           if (row._kind === 'sos') {
             const stamp = row.client_sent_at ? new Date(row.client_sent_at).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }) : '';
             const res = await Repo.submitSos({
-              lat: row.lat, lng: row.lng, accuracy: row.accuracy,
+              lat: row.lat, lng: row.lng, accuracy: row.accuracy, kind: row.kind || 'other',
               /* the duty officer must know this SOS waited for a signal */
               note: ((row.note || '') + (stamp ? ' [Saved offline at ' + stamp + ']' : '')).trim()
             });

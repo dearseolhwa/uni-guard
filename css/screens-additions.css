@@ -90,6 +90,23 @@
 .ug-sos-circle:focus-visible{outline:3px solid #fff;outline-offset:5px}
 @media (prefers-reduced-motion:reduce){ .ug-sos-circle{animation:none} }
 
+/* ================= SOS type buttons (citizen SOS screen) ================= */
+.ug-sos-kinds{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%}
+.ug-sos-kind{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:112px;
+  padding:14px 8px;border-radius:16px;border:0;cursor:pointer;color:#FFFFFF;text-align:center;
+  box-shadow:0 12px 26px -14px rgba(0,0,0,.55);transition:transform .15s, filter .15s;
+}
+.ug-sos-kind:hover{transform:translateY(-1px);filter:brightness(1.05)}
+.ug-sos-kind:focus-visible{outline:3px solid var(--ug-ink, #fff);outline-offset:3px}
+.ug-sos-kind:disabled{opacity:.6;cursor:progress;transform:none}
+.ug-sos-kind .k-l{font-size:15px;font-weight:800;line-height:1.2}
+.ug-sos-kind .k-t{font-size:11px;font-weight:600;opacity:.92}
+.ug-sos-kind.kind-medical{background:#B91C1C}
+.ug-sos-kind.kind-fire{background:#C2410C}
+.ug-sos-kind.kind-crime{background:#1E3A8A}
+.ug-sos-kind.kind-rescue{background:#0369A1}
+
 /* ================= Urgent alert overlay ================= */
 .ug-urgent-host{position:fixed;inset:0;z-index:950;pointer-events:none;display:grid;place-items:center;
   padding:22px;background:rgba(3,6,12,.55);backdrop-filter:blur(8px);opacity:0;transition:opacity .25s}
@@ -835,3 +852,10 @@
   .ug-gstep-n { width: 30px; height: 26px; font-size: 12px; }
   .ug-gstep-t { font-size: 13px; }
 }
+
+/* ================= Response rating stars ================= */
+.ug-stars{display:flex;gap:4px}
+.ug-star{background:none;border:0;padding:0 2px;font-size:28px;line-height:1;color:#B8BEC8;cursor:pointer}
+span.ug-star{cursor:default;font-size:20px}
+.ug-star.is-on{color:#D97706}
+.ug-star:focus-visible{outline:2px solid var(--ug-signal);outline-offset:2px;border-radius:4px}
