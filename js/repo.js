@@ -172,6 +172,16 @@ const Repo = (function () {
     };
   }
 
+  function toSos(s) {
+    return {
+      id: s.id, user_id: s.user_id, profile_name: s.profile_name, profile_phone: s.profile_phone,
+      barangay: s.barangay, lat: s.lat, lng: s.lng, accuracy: s.accuracy,
+      note: s.note, status: s.status || 'sent', kind: s.kind || 'other', report_id: s.report_id || null,
+      created_at: s.created_at,
+      time: UG_UTIL.relTime(s)
+    };
+  }
+
   function toNotification(n) {
     return {
       id: n.id,
@@ -409,7 +419,7 @@ const Repo = (function () {
       let reportsQuery = c.from('reports_feed').select('*').order('created_at', { ascending: false }).limit(300);
 
       const [reports, advisories, centers, hotlines, notifications, subscriptions, assignments, relief, beneficiaries, guides, faqs, roadWork, roadStatus,
-             dispatches, units, ratings] = await Promise.all([
+             dispatches, units, ratings, sos] = await Promise.all([
         reportsQuery,
         c.from('advisories').select('*').order('published_at', { ascending: false }).limit(100),
         c.from('evacuation_centers').select('*').order('name'),
@@ -428,7 +438,11 @@ const Repo = (function () {
            without opening each report (migration 057) */
         c.from('report_dispatches').select('*').order('dispatched_at', { ascending: false }).limit(400),
         c.from('dispatch_units').select('id, name, unit_type, contact_number'),
-        c.from('report_ratings').select('*').order('created_at', { ascending: false }).limit(500)
+        c.from('report_ratings').select('*').order('created_at', { ascending: false }).limit(500),
+        /* the SOS log rides the same refresh, so a new SOS shows on the LGU and
+           barangay consoles (and rings) the moment Realtime reports it; RLS
+           limits officials to their barangay and residents to their own */
+        c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100)
       ]);
       /* load change requests in parallel — the Super Admin hotlines page and
          the LGU/BO "your pending requests" section both read this. */
@@ -437,7 +451,7 @@ const Repo = (function () {
       if (reports.error) throw reports.error;
 
       const sig = JSON.stringify([reports, advisories, centers, hotlines, notifications, subscriptions, assignments,
-        relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings]
+        relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings, sos]
         .map((r) => r && (r.error ? 'error' : [r.data, r.count]))
         .concat([UG.DATA.changeRequests || null]));
       if (opts.silent && sig === lastDataSig && state.hasSynced && state.source === 'supabase') {
@@ -460,6 +474,7 @@ const Repo = (function () {
         row.rating = ratingOf[r.id] || null;
         return row;
       });
+      if (sos && !sos.error) UG.DATA.sosLog = (sos.data || []).map(toSos);
       if (dispatches && !dispatches.error) {
         const byReport = {};
         (dispatches.data || []).forEach((d) => { (byReport[d.report_id] = byReport[d.report_id] || []).push(d); });
@@ -1594,13 +1609,7 @@ const Repo = (function () {
     if (!c) return [];
     const { data, error } = await c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100);
     if (error) return [];
-    return (data || []).map((s) => ({
-      id: s.id, profile_name: s.profile_name, profile_phone: s.profile_phone,
-      barangay: s.barangay, lat: s.lat, lng: s.lng, accuracy: s.accuracy,
-      note: s.note, status: s.status || 'sent', kind: s.kind || 'other', report_id: s.report_id || null,
-      created_at: s.created_at,
-      time: UG_UTIL.relTime(s)
-    }));
+    return (data || []).map(toSos);
   }
 
   /* SOS status changes go through the update_sos_status RPC (migration 029):

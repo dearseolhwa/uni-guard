@@ -795,6 +795,7 @@ const UG_SUPERADMIN = (function () {
     return '<div class="ug-sa"><div class="sa-wrap"><div class="sa-frame">' +
       sidebar(counts, total) +
       '<main class="sa-main ug-scroll">' +
+        (typeof UG_SOS !== 'undefined' ? UG_SOS.activeStrip(Object.assign({}, appSt, { session: UG_SCREENS.sess(appSt) })) : '') +
         hero(total, disabledN) +
         (st.loadError ? '<p class="sa-loaderr">' + esc(st.loadError) + '</p>' : '') +
         body +

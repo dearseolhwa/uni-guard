@@ -38,7 +38,20 @@ const UG_ALARM = (function () {
     if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) { } }
     return ctx;
   }
-  function unlock() { try { audio(); } catch (e) { } }
+  /* a console left open without a tap stays silent (browser autoplay rule);
+     the app shows an "enable alarm sound" banner until this fires */
+  function unlock() {
+    const was = !needsUnlock();
+    try { audio(); } catch (e) { }
+    if (!was && ctx) {
+      const done = () => { if (!needsUnlock()) { try { document.dispatchEvent(new CustomEvent('ug:alarm-unlocked')); } catch (e) { } } };
+      if (ctx.state === 'running') done(); else setTimeout(done, 150);
+    }
+  }
+  function needsUnlock() {
+    if (!(window.AudioContext || window.webkitAudioContext)) return false;
+    return !ctx || ctx.state !== 'running';
+  }
   ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => {
     document.addEventListener(ev, unlock, { passive: true });
   });
@@ -117,12 +130,13 @@ const UG_ALARM = (function () {
   }
 
   /* play the alarm for a hazard / 'sos' / 'dispatch'. Overlapping calls (a
-     burst of new reports) play one alarm, not a pile-up. */
+     burst of new reports) play one alarm, not a pile-up; an SOS is never
+     swallowed by an alarm that just played. */
   function play(kind, opts) {
     opts = opts || {};
     if (muted() && !opts.force) return false;
     const now = Date.now();
-    if (!opts.force && now - lastAt < 4000) return false;
+    if (!opts.force && kind !== 'sos' && now - lastAt < 4000) return false;
     lastAt = now;
     try { if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 800]); } catch (e) { }
     const ac = audio();
@@ -157,6 +171,6 @@ const UG_ALARM = (function () {
     } catch (e) { return false; }   /* sound is an enhancement, never a blocker */
   }
 
-  return { play, groupFor, muted, setMuted, roleAlarms };
+  return { play, groupFor, muted, setMuted, roleAlarms, needsUnlock, unlock };
 })();
 window.UG_ALARM = UG_ALARM;

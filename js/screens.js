@@ -1417,7 +1417,7 @@ const UG_SCREENS = (() => {
     ['dispatch-units', 'nav.dispatch-units', 'truck', null, ['lgu_ldrrmc']],
     ['guides', 'nav.guides', 'guide', null, ['lgu_ldrrmc']],
     ['faqs', 'nav.faqs', 'faq', null, ['lgu_ldrrmc']],
-    ['sos', 'nav.sos', 'sos', null, ['lgu_ldrrmc']],
+    ['sos', 'nav.sos', 'sos', null, ['lgu_ldrrmc', 'barangay_official']],
     ['hotlines', 'nav.hotlines', 'phone', null],
     ['analytics', 'nav.analytics', 'layers', null],
     /* Module G: situation report, incident summary, damage and needs */
@@ -2827,6 +2827,7 @@ const UG_SCREENS = (() => {
           ? '<div class="ug-offline">' + I('alert', 14) +
             '<span>No barangay is assigned to your account yet, so you cannot see any reports. Contact your LGU administrator.</span></div>'
           : '') +
+        (typeof UG_SOS !== 'undefined' ? UG_SOS.activeStrip(st) : '') +
         '<div class="ug-d-body ug-scroll">' + desktopBody(st) + '</div>' +
       '</div>' +
     '</div>' +

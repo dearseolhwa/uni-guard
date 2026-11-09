@@ -1338,6 +1338,8 @@
     'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); loadDispatchesFor(d.id); },
     'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); loadDispatchesFor(d.id); },
     'open-sos-detail': (d) => { UG_SOS.sosDetailModal(S, d.id); },
+    /* the tap itself unlocks browser audio; play a short SOS so they hear it works */
+    'alarm-unlock': () => { UG_ALARM.unlock(); try { UG_ALARM.play('sos', { force: true }); } catch (e) { } render(); },
     'history-all': (d) => { S.historyAll = S.historyAll === d.id ? null : d.id; render(); },
     'auto-dispatch': async (d) => {
       try {
@@ -4428,7 +4430,8 @@
               status: 'sent',
               id: res && res.id ? res.id : null,
               reach: res && typeof res.reach === 'number' ? res.reach : null,
-              team: res && res.dispatched ? res.team : null
+              team: res && res.dispatched ? res.team : null,
+              report_id: res && res.report_id ? res.report_id : null
             }, base);
             try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); } catch (e) { }
           }
@@ -4805,7 +4808,8 @@
       S.lastSos = Object.assign({}, S.lastSos, {
         status: 'sent', message: '', id: res.id || null,
         reach: typeof res.reach === 'number' ? res.reach : null,
-        team: res.dispatched ? res.team : null
+        team: res.dispatched ? res.team : null,
+        report_id: res.report_id || null
       });
     }
     toast(T('sos.delivered'), 'prepared');
@@ -4892,8 +4896,10 @@
     const inc = UG.DATA.incidents || [];
     const notifs = UG.DATA.notifications || [];
     const crs = UG.DATA.changeRequests || [];
+    const sosRows = UG.DATA.sosLog || [];
     const who = S.session.id || S.session.email || '';
-    const keys = inc.map((i) => 'r' + i.uuid).concat(notifs.map((n) => 'n' + n.id), crs.map((c) => 'c' + c.id));
+    const keys = inc.map((i) => 'r' + i.uuid).concat(notifs.map((n) => 'n' + n.id), crs.map((c) => 'c' + c.id),
+      sosRows.map((x) => 's' + x.id));
     if (!alarmSeen || alarmSeenFor !== who) {
       alarmSeen = new Set(keys);
       alarmSeenFor = who;
@@ -4902,9 +4908,13 @@
     const newInc = inc.filter((i) => i.uuid && !alarmSeen.has('r' + i.uuid) && i.status !== 'resolved' && i.status !== 'rejected');
     const newN = notifs.filter((n) => n.id && !alarmSeen.has('n' + n.id));
     const newCr = crs.filter((c) => c.id && !alarmSeen.has('c' + c.id) && (c.status || 'pending') === 'pending');
+    /* a new SOS row also rings, so the alarm does not hang on the notification
+       fan-out alone (RLS already limits officials to their barangay) */
+    const newSos = sosRows.filter((x) => x.id && !alarmSeen.has('s' + x.id) && x.status !== 'resolved' &&
+      x.user_id !== S.session.id);
     keys.forEach((k) => alarmSeen.add(k));
 
-    const sos = newN.some((n) => n.type === 'sos');
+    const sos = role !== 'citizen' && (newN.some((n) => n.type === 'sos') || newSos.length > 0);
     const needsDispatch = newN.some((n) => NEEDS_DISPATCH.test(n.title));
     let kind = null;
     if (role === 'citizen') {
@@ -4922,12 +4932,9 @@
       kind = sos ? 'sos' : newInc.length ? newInc[0].hazard : needsDispatch ? 'attention' : null;
     }
     if (kind) { try { UG_ALARM.play(kind); } catch (e) { } }
-
-    /* the SOS log is read on entering its screen; keep it current there */
-    if (sos && S.route === 'sos') {
-      Repo.listSos().then((rows) => { UG.DATA.sosLog = rows; if (S.session) render(); }).catch(() => { });
-    }
   }
+  /* the "enable alarm sound" banner goes away once the page has been tapped */
+  document.addEventListener('ug:alarm-unlocked', () => { if (S.session) render(); });
 
   /* Live refreshes rebuild #ug-root, so hold one back while that would cost
      the user something: a field they are typing in, an open dropdown, or a
