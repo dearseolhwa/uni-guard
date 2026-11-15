@@ -134,3 +134,102 @@ NAMRIA records before production reliance.** When official Lingayen barangay
 boundaries become available, load them into `barangay_geoms.geojson` and swap
 `resolve_barangay()` for a point-in-polygon test — the routing trigger will
 not need to change.
+
+## 061 · Corroboration fixes
+
+Run after 060 (safe to re-run). Stops reports auto-verifying after a single
+confirmation:
+
+- the new-report path now uses the same 500 m rule as the confirm button
+  (it counted the whole barangay before);
+- a report without coordinates is judged on its own, never on the barangay;
+- confirming without GPS is limited to residents of the report's barangay;
+- rejected reports never count, and closed reports cannot be confirmed.
+
+Threshold (3, reporter included), radius (500 m) and window (±6 h) are
+unchanged; already-verified reports are left as they are. Check with:
+
+    select public.corroboration_count('<report uuid>');
+
+## 062 · Advisory fan-out lock-down, dispatch unit delete
+
+Run after 061 (safe to re-run).
+
+- `fanout_advisory` can no longer be called by anyone holding the public key:
+  only LGU / LDRRMC and barangay officials (own barangay only), and it never
+  inserts a second copy of the same advisory for one person.
+- `delete_dispatch_unit` now exists (Super Admin only, refused while the unit
+  is out on an open dispatch). Member accounts are unlinked; the unit's
+  equipment list, roster, shifts and requests are removed with it; past
+  dispatches keep their record.
+
+Redeploy the two Edge Functions changed in the same pass:
+
+    supabase functions deploy push-dispatch
+    supabase functions deploy sms-fallback
+
+- `push-dispatch` refuses residents and dispatch teams, and accepts
+  `barangayIds` (several barangays) so a targeted advisory only reaches them.
+- `sms-fallback` only accepts calls from `push-dispatch` (service role key),
+  only texts emergency / warning alerts, and skips people who have a push
+  device.
+
+## 063 · Scheduled jobs
+
+Run after 062 (safe to re-run). Schedules with pg_cron:
+
+- `uniguard-overdue-reports` every 5 minutes → `refresh_overdue_reports()`
+- `uniguard-cleanup` nightly 04:00 → `cleanup_rate_limits()`
+
+If pg_cron is off, the migration prints a notice and does nothing: enable it
+under Database → Extensions and run 063 again. Check with:
+
+    select jobname, schedule, active from cron.job where jobname like 'uniguard-%';
+
+## 064 · SOS: who acknowledged it
+
+Run after 063 (safe to re-run). `sos_log` records who acknowledged / resolved
+an SOS and when; a second acknowledgement does nothing and says who was
+first; the sender's notification names who received it. The console shows
+"Acknowledged by …" on the SOS card and in the detail; the resident's
+"Help on the way" card shows "Seen by Barangay … (name)".
+
+## 065 · Re-send a dispatch nobody acknowledges
+
+Run after 064 (safe to re-run; needs pg_cron like 063). Every minute, a BFP,
+PNP, Rescue or Ambulance unit that has not acknowledged its dispatch within
+3 minutes is taken off it and the same team is sent to the next nearest unit
+not yet tried on that report. The LGU is notified either way; with no other
+unit and no team left, the report returns to verified. Check with:
+
+    select jobname, schedule, active from cron.job where jobname = 'uniguard-reroute-unacknowledged';
+
+## 066 · Alert when an SOS sent no team
+
+Run after 065 (safe to re-run). When an SOS ends with no team on the way (no
+GPS, outside Lingayen, or no free unit), the duty officers and the officials
+of the sender's barangay get an urgent "NO TEAM SENT — SOS · …" notification
+(type sos, so it rings) saying why and to call the sender, then dispatch.
+
+## 067 · Unanswered SOS and unverified reports: escalate, then expire
+
+Run after 066 (safe to re-run; needs pg_cron like 063). One job,
+`uniguard-unanswered-sweep`, runs every minute:
+
+- **SOS nobody acknowledged:** a reminder to the sender's barangay officials
+  and the LGU at 5 min, an urgent "UNANSWERED 15 MIN" alert to every LGU
+  account at 15 min, and after 12 h it closes automatically (status
+  `resolved`, `expired_at` set). The consoles show it as "Unanswered", and the
+  sender is told to call 911 or the LDRRMO hotline, or to send a new SOS.
+- **Reports nobody verified:** the LGU and the barangay's officials are
+  notified once when a report is 1 h overdue. After 3 days it closes
+  automatically (status `rejected`, `expired_at` set, reason `expired` in its
+  history). The app shows it as "Expired", and the reporter is told to report
+  again if the hazard is still there.
+
+Closed items keep the existing final statuses, so every open/closed count and
+rule keeps working. `reports_feed` is recreated with `expired_at` added as the
+last column. Check with:
+
+    select jobname, schedule, active from cron.job where jobname = 'uniguard-unanswered-sweep';
+    select public.ug_unanswered_sweep();   -- runs one pass now, returns the counts

@@ -49,7 +49,14 @@ const MapView = (function () {
   function destroy() {
     if (ctx) {
       if (ctx.resizeObserver) { try { ctx.resizeObserver.disconnect(); } catch (e) {} }
-      if (ctx.map) { try { ctx.map.remove(); } catch (e) {} }
+      /* stop any pan/zoom animation first: removing a map mid-animation
+         makes Leaflet's next frame read a pane that is gone (_leaflet_pos) */
+      if (ctx.map) {
+        /* a zoom animation still running ends on a timer that reads the
+           removed panes; make that late callback a no-op on this map */
+        try { ctx.map.stop(); ctx.map.off(); } catch (e) {}
+        try { ctx.map.remove(); } catch (e) {}
+      }
     }
     ctx = null;
   }
@@ -74,6 +81,117 @@ const MapView = (function () {
       popupAnchor: [0, -size / 2]
     });
   }
+
+  /* ------------------------------------------------------------- map pins
+     The markers of the React build (uniguard/src/components/ResidentHazard-
+     MapView.tsx): a coloured teardrop pointing at the spot with a white
+     symbol in it, every kind with its own symbol, and hazards sized by danger
+     so the level never depends on colour alone. Lucide paths, 24×24, stroked. */
+  const PIN_ICON = {
+    hazard: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    shelter: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    relief: '<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7"/>',
+    closed: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+    caution: '<rect x="2" y="6" width="20" height="8" rx="1"/><path d="M17 14v7"/><path d="M7 14v7"/><path d="M17 3v3"/><path d="M7 3v3"/><path d="M10 14 2.3 6.3"/><path d="m14 6 7.7 7.7"/><path d="m8 6 8 8"/>',
+    open: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    unit: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>'
+  };
+  /* the plain-language words and colours for every kind of marker */
+  const PIN_LEVEL = {
+    emergency: { word: 'High', color: '#B91C1C', meaning: 'Dangerous. Stay away from this area.', size: 30 },
+    warning: { word: 'Medium', color: '#C2410C', meaning: 'Be careful. Avoid this area if you can.', size: 26 },
+    advisory: { word: 'Low', color: '#A16207', meaning: 'Be alert when you pass by.', size: 22 }
+  };
+  const PIN_SHELTER = {
+    open: { word: 'Open', color: '#15803D', meaning: 'You can go here now.' },
+    full: { word: 'Full', color: '#B45309', meaning: 'No space left. Please go to another shelter.' },
+    closed: { word: 'Closed', color: '#525252', meaning: 'Not open right now.' }
+  };
+  /* road_status.status (migration 031): passable, one_lane, blocked,
+     under_repair; caution is the pre-031 value still found in old rows */
+  const PIN_ROAD = {
+    blocked: { word: 'Road closed', icon: 'closed', color: '#B91C1C', meaning: 'You cannot pass. Take another road.' },
+    one_lane: { word: 'One lane', icon: 'caution', color: '#B45309', meaning: 'Only one lane is open. Expect delays.' },
+    under_repair: { word: 'Under repair', icon: 'caution', color: '#B45309', meaning: 'Road work ongoing. Drive carefully.' },
+    caution: { word: 'Use caution', icon: 'caution', color: '#B45309', meaning: 'Drive carefully through this area.' },
+    passable: { word: 'Passable', icon: 'open', color: '#15803D', meaning: 'The road is open.' }
+  };
+  const PIN_RELIEF = '#6D28D9';
+  /* the resident map draws every pin at the same sizes as the legend
+     ("What the markers mean"): hazards by level, everything else 26 px */
+  const PIN_SIZE = 26;
+  const PIN_UNIT = '#1D4ED8';
+  const PIN_RESOLVED = '#737373';
+  const REPORT_STATUS = {
+    reported: 'Reported by a resident, not yet confirmed', verified: 'Confirmed by officials',
+    dispatched: 'Help is on the way', resolved: 'Already resolved', rejected: 'Not confirmed'
+  };
+
+  function pinHtml(iconKey, bg, size) {
+    size = size || 32;
+    /* border and symbol size are set inline so a stale stylesheet can never
+       bring back the white ring or a large symbol */
+    return '<div class="ug-pin" style="width:' + size + 'px;height:' + size + 'px;background:' + bg + ';border:0">' +
+      '<svg width="' + Math.round(size * 0.42) + '" height="' + Math.round(size * 0.42) + '" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+      (PIN_ICON[iconKey] || PIN_ICON.hazard) + '</svg></div>';
+  }
+  /* the symbol alone in its colour, for text lists beside the map */
+  function pinGlyph(iconKey, color, size) {
+    size = size || 20;
+    return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      (PIN_ICON[iconKey] || PIN_ICON.hazard) + '</svg>';
+  }
+  function pinIcon(iconKey, bg, size) {
+    size = size || 32;
+    return window.L.divIcon({
+      className: 'ug-pin-wrap',
+      html: pinHtml(iconKey, bg, size),
+      iconSize: [size, size],
+      iconAnchor: [size / 2, Math.round(size * 1.2)],   /* the tip of the pin */
+      popupAnchor: [0, -Math.round(size * 1.1)]
+    });
+  }
+
+  /* a popup in plain words: the name, a coloured label, one sentence on what
+     to do, short facts with icons, then the buttons */
+  const FACT_ICON = {
+    place: '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+    check: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+    time: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    people: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    note: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+    calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>'
+  };
+  function pinPopup(p) {
+    const esc = UG_UTIL.esc;
+    const facts = (p.facts || []).filter((f) => f[1]);
+    return '<div class="ug-pop">' +
+      '<div class="ug-pop-t">' + esc(p.title) + '</div>' +
+      '<div class="ug-pop-tag" style="color:' + p.color + '"><i style="background:' + p.color + '"></i>' + esc(p.tag) + '</div>' +
+      (p.advice ? '<div class="ug-pop-a">' + esc(p.advice) + '</div>' : '') +
+      (facts.length ? '<div class="ug-pop-f">' + facts.map((f) =>
+        '<div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a3a3a3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        FACT_ICON[f[0]] + '</svg><span>' + esc(f[1]) + '</span></div>').join('') + '</div>' : '') +
+      (p.extra || '') +
+      (p.act ? '<button type="button" class="ug-pop-btn"' + Object.keys(p.act).map((k) => ' data-' + k + '="' + esc(p.act[k]) + '"').join('') + '>' + esc(p.actLabel || 'View details') + '</button>' : '') +
+    '</div>';
+  }
+  /* "5 minutes ago": easier to read than "20h 49m ago" */
+  function ago(iso) {
+    const ms = iso ? Date.now() - Date.parse(iso) : NaN;
+    if (!isFinite(ms)) return '';
+    const min = Math.floor(ms / 60000);
+    if (min < 1) return 'just now';
+    if (min < 60) return min === 1 ? '1 minute ago' : min + ' minutes ago';
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return hr === 1 ? '1 hour ago' : hr + ' hours ago';
+    const day = Math.floor(hr / 24);
+    if (day < 30) return day === 1 ? 'yesterday' : day + ' days ago';
+    return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  /* the resident portal reads the popup and taps its button; the consoles keep
+     opening the incident straight from the marker */
+  const residentMap = () => document.documentElement.getAttribute('data-portal') === 'resident';
 
   function wazeButtonHtml(lat, lng, label) {
     const state = UG_GEO.classify(lat, lng);
@@ -121,6 +239,19 @@ const MapView = (function () {
     }
 
     const L = window.L;
+    /* Leaflet 1.9 ends a zoom animation on a 250 ms timer that it never
+       cancels; when a re-render removes the map first, that timer reads the
+       removed panes and throws (_leaflet_pos). Skip it on removed maps. */
+    if (!L.Map.prototype._ugZoomEndSafe) {
+      const end = L.Map.prototype._onZoomTransitionEnd;
+      L.Map.prototype._onZoomTransitionEnd = function () { if (this._mapPane) end.apply(this, arguments); };
+      L.Map.prototype._ugZoomEndSafe = true;
+      /* the same for a canvas redraw queued just before the map went away */
+      if (L.Canvas) {
+        const redraw = L.Canvas.prototype._redraw;
+        L.Canvas.prototype._redraw = function () { if (!this._ctx) { this._redrawRequest = null; return; } redraw.apply(this, arguments); };
+      }
+    }
     container.innerHTML = '';
 
     /* if a report pin is given, start the map on the pin instead of the town
@@ -208,8 +339,21 @@ const MapView = (function () {
         ctx.resizeObserver.observe(container);
       } catch (e) {}
     }
+    map.on('popupopen', (e) => {
+      const el = e.popup && e.popup.getElement && e.popup.getElement();
+      if (!el) return;
+      el.querySelectorAll('.ug-pop-btn[data-act]').forEach((b) => {
+        b.onclick = () => {
+          const d = Object.assign({}, b.dataset);
+          try { map.closePopup(); } catch (err) {}
+          document.dispatchEvent(new CustomEvent('ug:map-action', { detail: d }));
+        };
+      });
+    });
     setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 100);
     setTimeout(() => { try { map.invalidateSize(); fitOnce(); } catch (e) {} }, 400);
+    /* phones settle their layout later (address bar, fonts): one more pass */
+    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 1200);
     return ctx;
   }
 
@@ -278,79 +422,118 @@ const MapView = (function () {
 
   /* per-category marker styling + popup, in one place so clusters, spider
      members and single markers all look and behave the same */
-  function markerEntry(cat, item) {
-    const L = window.L;
+  /* staff maps (barangay, LGU, dispatch, super admin) use the React
+     consoles' markers: a red dot per open report (pulsing when an
+     emergency), EVAC / REL tags, a ring per road point and a dark unit tag */
+  const STAFF_ROAD = { blocked: '#DC2626', one_lane: '#F59E0B', under_repair: '#F59E0B', caution: '#F59E0B', passable: '#00BCD4' };
+  const STAFF_SHELTER = { open: '#16A34A', full: '#EA580C', closed: '#475569' };
+  function staffIcon(html, w, h) {
+    return window.L.divIcon({ className: 'ug-sm-wrap', html: html, iconSize: [w, h], iconAnchor: [w / 2, h / 2], popupAnchor: [0, -h / 2 - 2] });
+  }
+  function staffEntry(cat, item) {
+    const portal = document.documentElement.getAttribute('data-portal');
     if (cat === 'hazards') {
-      const resolved = item.status === 'resolved';
-      const entry = resolved ? UG_THEME.STATUS.resolved : UG_THEME.sev(item.sev);
-      return { entry: entry, size: item.sev === 'emergency' ? 26 : 22 };
+      if (item.status === 'resolved') return { icon: staffIcon('<span class="ug-sm-dot is-done"></span>', 28, 28), z: 0 };
+      const hot = item.sev === 'emergency';
+      const tone = hot ? '#DC2626' : item.sev === 'warning' ? '#EA580C' : '#D97706';
+      return { icon: staffIcon((hot ? '<span class="ug-sm-ping"></span>' : '') + '<span class="ug-sm-dot" style="background:' + tone + '"></span>', 28, 28), z: hot ? 600 : 500 };
     }
     if (cat === 'centers') {
-      const avail = UG_THEME.SHELTER[item.status] || UG_THEME.SHELTER.closed;
-      const entry = Object.assign({}, UG_THEME.SHELTER.marker, { color: avail.color, on: avail.on, short: 'EVAC' });
-      return { entry: entry, size: 22 };
+      return { icon: staffIcon('<span class="ug-sm-tag" style="background:' + (STAFF_SHELTER[item.status] || STAFF_SHELTER.closed) + '">EVAC</span>', 44, 22), z: 100 };
     }
     if (cat === 'relief') {
-      return { entry: { color: '#8B5CF6', on: '#FFFFFF', short: 'REL', shape: 'square' }, size: 22 };
+      return { icon: staffIcon('<span class="ug-sm-tag" style="background:' + (portal === 'barangay' ? '#052659' : '#8B5CF6') + '">REL</span>', 40, 22), z: 100 };
     }
     if (cat === 'units') {
-      const short = item.team === 'BFP' ? 'BFP' : item.team === 'PNP' ? 'PNP' : item.team === 'Ambulance' ? 'AMB'
-        : item.team === 'Barangay Response Team' ? 'BRT' : 'RES';
-      return { entry: { color: '#1D4ED8', on: '#FFFFFF', short: short, shape: 'circle' }, size: 26 };
+      const team = String(item.team || 'Unit');
+      const label = team === 'Barangay Response Team' ? 'BRT' : team.length > 12 ? team.split(/\s+/).map((w) => w.charAt(0)).join('').toUpperCase() : team;
+      return { icon: staffIcon('<span class="ug-sm-tag ug-sm-unit">' + UG_UTIL.esc(label) + (item.code ? ' · ' + UG_UTIL.esc(item.code) : '') + '</span>', 96, 20), z: 700 };
     }
+    return { icon: staffIcon('<span class="ug-sm-ring" style="border-color:' + (STAFF_ROAD[item.status] || STAFF_ROAD.under_repair) + '"></span>', 22, 22), z: 200 };
+  }
+
+  /* phones: the staff consoles use the resident portal's pins too (one
+     symbol per kind, colour by level), which read better on a small screen
+     than the console's EVAC / REL tags and dots */
+  const pinMarkers = () => residentMap() || (typeof window !== 'undefined' && window.innerWidth <= 767);
+  function markerEntry(cat, item) {
+    if (!pinMarkers()) return staffEntry(cat, item);
+    if (cat === 'hazards') {
+      if (item.status === 'resolved') return { icon: pinIcon('hazard', PIN_RESOLVED, 22), z: 0 };
+      const lv = PIN_LEVEL[item.sev] || PIN_LEVEL.advisory;
+      return { icon: pinIcon('hazard', lv.color, lv.size), z: 500 };
+    }
+    if (cat === 'centers') {
+      const st = PIN_SHELTER[item.status] || PIN_SHELTER.closed;
+      return { icon: pinIcon('shelter', st.color, PIN_SIZE), z: 100 };
+    }
+    if (cat === 'relief') return { icon: pinIcon('relief', PIN_RELIEF, PIN_SIZE), z: 100 };
+    if (cat === 'units') return { icon: pinIcon('unit', PIN_UNIT, PIN_SIZE), z: 700 };
     /* roadStatus */
-    const tone = item.status === 'blocked' ? 'road-blocked'
-               : item.status === 'caution'  ? 'road-caution'
-               : 'road-passable';
-    const label = item.status === 'blocked' ? 'X' : item.status === 'caution' ? '!' : '';
-    return {
-      entry: null, size: 22,
-      icon: L.divIcon({
-        className: '',
-        html: '<div class="ug-marker ' + tone + '" style="width:22px;height:22px">' + UG_UTIL.esc(label) + '</div>',
-        iconSize: [22, 22], iconAnchor: [11, 11], popupAnchor: [0, -11]
-      })
-    };
+    const rd = PIN_ROAD[item.status] || PIN_ROAD.under_repair;
+    return { icon: pinIcon(rd.icon, rd.color, PIN_SIZE), z: 200 };
   }
 
   function bindItemPopup(marker, cat, item) {
+    const brgy = (n) => n ? 'Barangay ' + n : '';
     if (cat === 'hazards') {
-      const resolved = item.status === 'resolved';
-      const entry = resolved ? UG_THEME.STATUS.resolved : UG_THEME.sev(item.sev);
-      marker.bindPopup(
-        '<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(item.hazard) + '</div>' +
-        '<div class="p-m">' + UG_UTIL.esc(item.id) + ' &middot; ' + UG_UTIL.esc(item.brgy) + '</div>' +
-        '<div class="p-m" style="margin-top:4px">' + UG_UTIL.esc(entry.label) + ' &middot; ' +
-        UG_UTIL.esc((UG_THEME.status(item.status) || {}).label || String(item.status).replace(/_/g, ' ')) + ' &middot; ' +
-        UG_UTIL.esc(UG_UTIL.corroborationLabel(item.corr)) + '</div>' +
-        '</div>'
-      );
-      marker.on('click', () => {
-        document.dispatchEvent(new CustomEvent('ug:open-incident', { detail: { id: item.uuid || item.id } }));
-      });
+      const lv = item.status === 'resolved' ? { word: 'Resolved', color: PIN_RESOLVED, meaning: 'This hazard has been cleared.' }
+        : (PIN_LEVEL[item.sev] || PIN_LEVEL.advisory);
+      marker.bindPopup(pinPopup({
+        title: item.hazard,
+        tag: item.status === 'resolved' ? 'Resolved' : lv.word + ' danger',
+        color: lv.color,
+        advice: lv.meaning,
+        facts: [['place', brgy(item.brgy)],
+          ['check', REPORT_STATUS[item.status] || String(item.status || '').replace(/_/g, ' ')],
+          ['time', item.created_at ? 'Reported ' + ago(item.created_at) : ''],
+          ['people', UG_UTIL.corroborationLabel ? UG_UTIL.corroborationLabel(item.corr) : ''],
+          ['note', item.mine ? 'Your report · ' + item.id : (residentMap() ? '' : item.id)]],
+        act: { act: 'open-incident', id: item.uuid || item.id },
+        actLabel: item.mine ? 'View my report' : 'View details'
+      }));
+      if (!residentMap()) {
+        marker.on('click', () => {
+          document.dispatchEvent(new CustomEvent('ug:open-incident', { detail: { id: item.uuid || item.id } }));
+        });
+      }
       marker.options.title = item.hazard + ' — ' + item.brgy;
     } else if (cat === 'centers') {
-      const avail = UG_THEME.SHELTER[item.status] || UG_THEME.SHELTER.closed;
-      marker.bindPopup('<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(item.name) + '</div>' +
-        '<div class="p-m">' + UG_UTIL.esc(avail.label) + ' &middot; ' + item.occ + ' of ' + item.cap + '</div>' +
-        '<div class="p-act">' + wazeButtonHtml(item.lat, item.lng, 'Waze') + '</div></div>');
+      const st = PIN_SHELTER[item.status] || PIN_SHELTER.closed;
+      const space = Math.max(0, (item.cap || 0) - (item.occ || 0)) + ' of ' + (item.cap || 0) + ' spaces left';
+      marker.bindPopup(pinPopup({
+        title: item.name, tag: 'Shelter ' + st.word.toLowerCase(), color: st.color, advice: st.meaning,
+        facts: [['people', item.status === 'closed' ? '' : space], ['place', brgy(item.brgy)]],
+        extra: '<div class="p-act">' + wazeButtonHtml(item.lat, item.lng, 'Waze') + '</div>',
+        act: { act: 'open-center-detail', id: item.uuid || item.id }, actLabel: 'View shelter'
+      }));
       marker.options.title = item.name;
     } else if (cat === 'units') {
-      marker.bindPopup('<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(item.team) + (item.name ? ' · ' + UG_UTIL.esc(item.name) : '') + '</div>' +
-        '<div class="p-m">' + UG_UTIL.esc(item.statusLabel || '') + ' &middot; to ' + UG_UTIL.esc(item.code || '') + '</div>' +
-        '<div class="p-m">Updated ' + UG_UTIL.esc(UG_UTIL.relTime({ created_at: item.at })) + '</div></div>');
+      marker.bindPopup(pinPopup({
+        title: item.team + (item.name ? ' · ' + item.name : ''), tag: item.statusLabel || 'Responding', color: PIN_UNIT,
+        advice: 'A response team on its way to ' + (item.code || 'the report') + '.',
+        facts: [['time', item.at ? 'Updated ' + ago(item.at) : '']]
+      }));
       marker.options.title = item.team + ' (responding)';
     } else if (cat === 'relief') {
-      marker.bindPopup('<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(item.title || item.location_name || 'Relief') + '</div>' +
-        '<div class="p-m">' + UG_UTIL.esc(item.barangay || '') + '</div>' +
-        '<div class="p-act">' + wazeButtonHtml(item.lat, item.lng, 'Waze') + '</div></div>');
+      const when = item.distribution_at ? new Date(item.distribution_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      marker.bindPopup(pinPopup({
+        title: item.title || 'Relief distribution', tag: 'Relief handout', color: PIN_RELIEF,
+        advice: 'Food and supplies are handed out here.',
+        facts: [['calendar', when], ['place', item.location_name || ''],
+          ['people', item.barangay ? 'For Barangay ' + item.barangay : 'For everyone in Lingayen']],
+        extra: '<div class="p-act">' + wazeButtonHtml(item.lat, item.lng, 'Waze') + '</div>',
+        act: { act: 'nav', route: 'relief' }, actLabel: 'View schedule'
+      }));
       marker.options.title = item.title || item.location_name || 'Relief distribution';
     } else {
-      marker.bindPopup('<div class="ug-map-pop"><div class="p-t">' + UG_UTIL.esc(item.road_name) + '</div>' +
-        '<div class="p-m">' + UG_UTIL.esc(String(item.status).toUpperCase()) + ' &middot; ' + UG_UTIL.esc(item.barangay) + '</div>' +
-        (item.note ? '<div class="p-m">' + UG_UTIL.esc(item.note) + '</div>' : '') +
-        '</div>');
-      marker.options.title = item.road_name + ' — ' + String(item.status).toUpperCase();
+      const rd = PIN_ROAD[item.status] || PIN_ROAD.under_repair;
+      marker.bindPopup(pinPopup({
+        title: item.road_name || 'Road', tag: rd.word, color: rd.color, advice: rd.meaning,
+        facts: [['place', brgy(item.barangay)], ['note', item.note || ''],
+          ['time', item.updated_at ? 'Updated ' + ago(item.updated_at) : '']]
+      }));
+      marker.options.title = (item.road_name || 'Road') + ' — ' + rd.word;
     }
   }
 
@@ -414,15 +597,10 @@ const MapView = (function () {
   function clusterIcon(members) {
     const L = window.L;
     const n = members.length;
-    const size = n <= 4 ? 30 : n <= 9 ? 36 : 42;
+    const size = residentMap() ? (n <= 4 ? 30 : n <= 9 ? 36 : 42) : (n <= 4 ? 34 : n <= 9 ? 38 : 44);
     const cats = {};
     members.forEach((m) => { cats[m.cat] = true; });
-    const CAT_COLORS = {
-      hazards: UG_THEME.SEVERITY.emergency.color,
-      relief: '#8B5CF6',
-      centers: UG_THEME.SHELTER.marker.color,
-      roadStatus: UG_THEME.SEVERITY.warning.color
-    };
+    const CAT_COLORS = { hazards: PIN_LEVEL.emergency.color, relief: PIN_RELIEF, centers: PIN_SHELTER.open.color, roadStatus: PIN_ROAD.one_lane.color, units: PIN_UNIT };
     const dots = Object.keys(CAT_COLORS).filter((k) => cats[k])
       .map((k) => '<i style="background:' + CAT_COLORS[k] + '"></i>').join('');
     const names = { hazards: 'hazard reports', centers: 'evacuation centers', relief: 'relief distributions', roadStatus: 'road status points' };
@@ -476,9 +654,27 @@ const MapView = (function () {
       if (ctx.skipped.invalid) reasons.push(ctx.skipped.invalid + ' with invalid coordinates');
       if (ctx.skipped.swapped) reasons.push(ctx.skipped.swapped + ' with swapped lat/lng');
       if (ctx.skipped.outside) reasons.push(ctx.skipped.outside + ' outside the Lingayen service area');
-      ctx.container.insertAdjacentHTML('beforeend',
-        '<div class="ug-map-warn" role="status">' + UG_UTIL.esc(
-          skippedTotal + ' record' + (skippedTotal === 1 ? '' : 's') + ' not shown: ' + reasons.join(', ') + '.') + '</div>');
+      const text = skippedTotal + ' record' + (skippedTotal === 1 ? '' : 's') + ' not shown: ' + reasons.join(', ') + '.';
+      /* dismissible: stays hidden for this session until the message changes */
+      let dismissed = false;
+      try { dismissed = sessionStorage.getItem('ug_map_warn_x') === text; } catch (e) { }
+      if (!dismissed) {
+        ctx.container.insertAdjacentHTML('beforeend',
+          '<div class="ug-map-warn" role="status" title="' + UG_UTIL.esc(reasons.join(', ')) + '"><span>' + UG_UTIL.esc(text) + '</span>' +
+            '<button type="button" class="ug-map-warn-x" aria-label="Dismiss" title="Dismiss">' +
+              '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>');
+        const warn = ctx.container.querySelector('.ug-map-warn');
+        const x = warn && warn.querySelector('.ug-map-warn-x');
+        if (x) {
+          /* keep the tap off the map (no pan / popup close) */
+          if (window.L && window.L.DomEvent) { window.L.DomEvent.disableClickPropagation(warn); }
+          x.addEventListener('click', (e) => {
+            e.stopPropagation();
+            try { sessionStorage.setItem('ug_map_warn_x', text); } catch (err) { }
+            warn.remove();
+          });
+        }
+      }
     }
 
     const oldEmpty = ctx.container.querySelector('.ug-map-empty');
@@ -495,11 +691,7 @@ const MapView = (function () {
       if (cl.members.length === 1) {
         const m = cl.members[0];
         const mk = markerEntry(m.cat, m.item);
-        const marker = L.marker(m.ll, {
-          icon: mk.icon || shapeIcon(mk.entry, mk.size),
-          riseOnHover: true,
-          title: (mk.entry && mk.entry.short) ? mk.entry.short : undefined
-        });
+        const marker = L.marker(m.ll, { icon: mk.icon, riseOnHover: true, zIndexOffset: mk.z || 0, keyboard: true });
         bindItemPopup(marker, m.cat, m.item);
         marker.addTo(ctx.layer);
       } else {
@@ -565,7 +757,7 @@ const MapView = (function () {
       const px = L.point(anchorPoint.x + radius * Math.cos(angle), anchorPoint.y + radius * Math.sin(angle));
       const ll = ctx.map.containerPointToLatLng(px);
       const mk = markerEntry(m.cat, m.item);
-      const marker = L.marker(ll, { icon: mk.icon || shapeIcon(mk.entry, mk.size), zIndexOffset: 900 });
+      const marker = L.marker(ll, { icon: mk.icon, zIndexOffset: 900 });
       bindItemPopup(marker, m.cat, m.item);
       marker.addTo(ctx.layer);
       ctx.spider.markers.push(marker);
@@ -674,7 +866,7 @@ const MapView = (function () {
       if (onDrop) onDrop(ll.lat, ll.lng);
     });
     ctx.reportMarker = marker;
-    if (inside) ctx.map.panTo(center);
+    if (inside) ctx.map.panTo(center, { animate: false });
     else ctx.map.setView(UG_GEO.CENTER, UG_GEO.ZOOM);
     if (hasPoint(initial) && !inside && onOutside) onOutside();
   }
@@ -734,5 +926,6 @@ const MapView = (function () {
      needs it, it talks through the setters above. */
   const getMap = () => (ctx && !ctx.fallback) ? ctx.map : null;
 
-  return { mount, destroy, owns, getMap, setIncidents, setCenters, setRelief, setRoadStatus, setUnits, setLayers, setReportPin, invalidate, isFallback, wazeButtonHtml };
+  return { mount, destroy, owns, getMap, setIncidents, setCenters, setRelief, setRoadStatus, setUnits, setLayers, setReportPin, invalidate, isFallback, wazeButtonHtml,
+    pinHtml, pinGlyph, PIN_SIZE, PIN_LEVEL, PIN_SHELTER, PIN_ROAD, PIN_RELIEF, REPORT_STATUS };
 })();

@@ -48,8 +48,8 @@ const UG_SOS = (function () {
     /* a real tel: link, so the call works even if every script action fails */
     const hotline = '<div class="ug-card"><div class="ug-card-h"><h3>Backup Hotline</h3></div>' +
         '<div class="ug-card-b ug-col" style="gap:10px">' +
-          '<p class="ug-dim" style="font-size:11.5px;line-height:1.55">If you cannot reach the LGU through the app, call the MDRRMO hotline directly. The call works even when the data signal is too weak for the SOS to send.</p>' +
-          '<a class="ug-btn ug-btn--signal ug-btn--block" href="tel:0756322222" style="text-decoration:none">' + I('phone', 16) + 'Call Lingayen MDRRMO</a>' +
+          '<p class="ug-dim" style="font-size:12px;line-height:1.55">If you cannot reach the LGU through the app, call the LDRRMO hotline directly. The call works even when the data signal is too weak for the SOS to send.</p>' +
+          '<a class="ug-btn ug-btn--signal ug-btn--block" href="tel:0756322222" style="text-decoration:none">' + I('phone', 16) + 'Call Lingayen LDRRMO</a>' +
         '</div></div>';
     const hotlineFirst = status === 'queued' || status === 'error';
     const statusLine = !last ? ''
@@ -65,14 +65,14 @@ const UG_SOS = (function () {
               (last.team ? '<p style="font-size:12px;line-height:1.5;max-width:320px;font-weight:600">' + esc(last.team) + (/,/.test(last.team) ? ' have' : ' has') + ' been dispatched to your location.</p>' : '') + '</div>';
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">One-Tap Emergency</div>' +
-      '<h2 style="font-size:19px;margin-top:3px">SOS</h2>' +
+      '<h2 style="font-size:18px;margin-top:3px">SOS</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Tap the kind of emergency. Your GPS position, name and contact number go to the LGU/LDRRMO duty officer, and the matching response team is sent right away. Use only when you are in immediate danger.</p></div>' +
 
       (hotlineFirst ? hotline : '') +
       tracking(st) +
 
       '<div class="ug-card ug-tick"><div class="ug-card-b ug-col" style="gap:14px;align-items:center;text-align:center;padding:20px 16px">' +
-        '<h3 style="font-size:17px">' + (sending ? 'Sending SOS…' : 'What is the emergency?') + '</h3>' +
+        '<h3 style="font-size:16px">' + (sending ? 'Sending SOS…' : 'What is the emergency?') + '</h3>' +
         '<div class="ug-sos-kinds">' + KINDS.map((k) =>
           '<button class="ug-sos-kind kind-' + k[0] + '" data-act="sos-trigger" data-kind="' + k[0] + '"' + (sending ? ' disabled' : '') + '>' +
             I(k[2], 26) + '<span class="k-l">' + esc(k[1]) + '</span><span class="k-t">Sends: ' + esc(k[3]) + '</span></button>').join('') +
@@ -126,22 +126,32 @@ const UG_SOS = (function () {
       const unit = units[d.unit_id];
       const far = (d.last_lat != null && inc && inc.lat != null) ? UG_UTIL.distanceM(d.last_lat, d.last_lng, inc.lat, inc.lng) : null;
       return '<div class="ug-col" style="gap:4px;padding:9px 0;border-bottom:1px solid var(--ug-line)">' +
-        '<div class="ug-rowf ug-between" style="gap:8px;font-size:12.5px"><span style="font-weight:700">' + I('truck', 13) + ' ' + esc(d.team) +
+        '<div class="ug-rowf ug-between" style="gap:8px;font-size:13px"><span style="font-weight:700">' + I('truck', 13) + ' ' + esc(d.team) +
           (unit ? '<span class="ug-dim" style="font-weight:600"> · ' + esc(unit.name) + '</span>' : '') + '</span>' +
           '<span class="ug-badge ug-badge--dispatched">' + esc(stepLabel[d.dispatch_status] || d.dispatch_status || 'Sent') + '</span></div>' +
-        '<div class="ug-rowf ug-wrap" style="gap:4px 12px;font-size:11.5px">' +
+        '<div class="ug-rowf ug-wrap" style="gap:4px 12px;font-size:12px">' +
           (far != null
             ? '<span style="font-weight:600;color:var(--ug-st-dispatched)">' + I('radar', 12) + ' ' + esc(UG_UTIL.fmtDistance(far)) + ' away</span>' +
               '<span class="ug-dimmer">updated ' + esc(UG_UTIL.relTime({ created_at: d.last_loc_at })) + '</span>'
             : '<span class="ug-dimmer">Waiting for the team\'s GPS</span>') +
           (d.eta && d.dispatch_status !== 'on_scene' && d.dispatch_status !== 'done' ? '<span class="ug-dim">ETA ' + esc(clock(d.eta)) + '</span>' : '') +
         '</div>' +
-        (unit && unit.contact_number ? '<a class="ug-dim" style="font-size:11.5px" href="tel:' + esc(unit.contact_number.replace(/\s+/g, '')) + '">' + I('phone', 12) + ' ' + esc(unit.contact_number) + '</a>' : '') +
+        (unit && unit.contact_number ? '<a class="ug-dim" style="font-size:12px" href="tel:' + esc(unit.contact_number.replace(/\s+/g, '')) + '">' + I('phone', 12) + ' ' + esc(unit.contact_number) + '</a>' : '') +
       '</div>';
     }).join('');
     return '<div class="ug-card" style="border-left:3px solid var(--ug-st-dispatched)"><div class="ug-card-h"><h3>Help on the way</h3>' +
         '<span class="ug-chip is-on">' + I('radar', 13) + 'Live</span></div>' +
       '<div class="ug-card-b ug-col" style="gap:8px">' +
+        /* has a person seen it yet? (migration 064 records who) */
+        (() => {
+          const me = mineOpen || (UG.DATA.sosLog || []).find((x) => x.report_id === reportId);
+          if (!me) return '';
+          return me.status === 'sent'
+            ? '<p class="sos-seen is-wait">' + I('clock', 13) + '<span>Sent. Waiting for an official to see it…</span></p>'
+            : '<p class="sos-seen is-ok">' + I('check', 13) + '<span>Seen by ' + esc(me.acknowledged_by_office || 'an official') +
+                (me.acknowledged_by_name ? ' (' + esc(me.acknowledged_by_name) + ')' : '') +
+                (me.acknowledged_at ? ' · ' + esc(UG_UTIL.relTime({ created_at: me.acknowledged_at })) : '') + '</span></p>';
+        })() +
         (rows || '<p class="ug-dim" style="font-size:12px;line-height:1.5">Your SOS is with the duty officer. The responding team will appear here as soon as it is sent.</p>') +
         (inc ? '<button class="ug-btn ug-btn--signal ug-btn--block" style="margin-top:4px"' + A('open-incident', attr({ id: inc.id })) + '>' + I('pin', 15) + 'Track on the map</button>' : '') +
       '</div></div>';
@@ -153,34 +163,112 @@ const UG_SOS = (function () {
   function activeStrip(st) {
     const role = st && st.session && st.session.role;
     if (role !== 'lgu_ldrrmc' && role !== 'barangay_official') return '';
-    const sound = (typeof UG_ALARM !== 'undefined' && !UG_ALARM.muted() && UG_ALARM.needsUnlock())
-      ? '<div class="ug-offline" style="cursor:pointer"' + A('alarm-unlock') + '>' + I('alert', 14) +
-          '<span>Alarm sound is off until you tap here. Tap once so SOS and new reports can ring on this screen.</span></div>'
+    const needSound = typeof UG_ALARM !== 'undefined' && !UG_ALARM.muted() && UG_ALARM.needsUnlock();
+    const sound = needSound
+      ? UG.note('alarm', 'off', 'bell', 'Alarm sound is off', 'Tap here once so SOS and new reports can ring on this screen.',
+          { session: true, act: 'alarm-unlock', btn: '<button class="n2-go n2-go--q"' + A('alarm-sound-help') + '>Always allow</button><button class="n2-go"' + A('alarm-unlock') + '>Turn on sound</button>' })
       : '';
     const since = Date.now() - 24 * 3600000;
     const open = (UG.DATA.sosLog || []).filter((x) => x.status !== 'resolved' && (!x.created_at || Date.parse(x.created_at) >= since));
     if (!open.length) return sound;
-    return sound + '<div class="ug-card ug-card--flat" style="border-left:3px solid var(--ug-emergency);margin:12px 16px 0"><div class="ug-card-b ug-col" style="gap:8px">' +
-      '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:center"><span style="color:var(--ug-emergency);display:flex">' + I('alert', 16) + '</span>' +
-        '<div style="font-size:13px;font-weight:700;color:var(--ug-emergency)">' + open.length + ' open SOS</div>' +
-        '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto"' + A('nav', attr({ route: 'sos' })) + '>SOS Log</button></div>' +
-      '<div class="ug-rows">' + open.slice(0, 3).map((x) =>
-        '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-sos-detail', attr({ id: x.id })) + '>' +
-          '<span class="r-dot" style="background:var(--ug-emergency)"></span>' +
-          '<div class="r-main"><div class="r-t">' + esc(x.profile_name || 'Resident') +
-            '<span class="ug-badge ug-badge--emergency" style="margin-left:6px">' + esc(kindLabel(x.kind)) + '</span>' +
-            (x.status === 'sent' ? '<span class="ug-badge ug-badge--warning" style="margin-left:6px">New</span>' : '') + '</div>' +
-          '<div class="r-m"><span>' + I('pin', 12) + esc(x.barangay || (x.lat != null ? UG_GEO.fmt(x.lat, x.lng) : 'no fix')) + '</span>' +
-            '<span class="ug-mono">' + esc(x.profile_phone || '') + '</span>' +
-            '<span>' + I('clock', 12) + esc(x.time || '') + '</span></div></div></button>').join('') + '</div>' +
-    '</div></div>';
+    /* the SOS Log page already lists every SOS: no floating button there */
+    if (st.route === 'sos') return sound;
+    /* Built for a crisis: the requests nobody has answered come first and
+       turn solid red, then the longest wait. Each card says what is wrong,
+       who and where, how long they have waited, and gives the next step in
+       one tap (call, acknowledge, route), so no one has to open the log. */
+    const now = Date.now();
+    const waitMin = (x) => x.created_at ? Math.max(0, Math.floor((now - Date.parse(x.created_at)) / 60000)) : 0;
+    const dur = (m) => m < 1 ? 'just now' : m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    /* newest first; the header still names the longest wait */
+    const sorted = open.slice().sort((p, q) => waitMin(p) - waitMin(q));
+    const waiting = sorted.filter((x) => x.status === 'sent');
+    const longestWait = waiting.reduce((m, x) => Math.max(m, waitMin(x)), 0);
+    const KIND_ICON = { medical: 'plus', fire: 'flame', crime: 'shield', rescue: 'flood', other: 'alert' };
+    const OVERDUE = 5;   /* minutes without an answer before a card is flagged */
+    const card = (x) => {
+      const m = waitMin(x);
+      const isNew = x.status === 'sent';
+      const late = isNew && m >= OVERDUE;
+      const tel = String(x.profile_phone || '').replace(/[^\d+]/g, '');
+      const where = x.barangay ? 'Brgy. ' + x.barangay : x.lat != null ? UG_GEO.fmt(x.lat, x.lng) : 'No location yet';
+      /* one structure for every card (new or acknowledged): type · status and
+         time, name, place · "No team sent", then a bottom row with the main
+         action (or who acknowledged it) and round Call / Route */
+      return '<article class="sx-card sxc' + (isNew ? ' is-new' : ' is-ack') + (late ? ' is-late' : '') + '">' +
+        '<button class="sxc-main"' + A('open-sos-detail', attr({ id: x.id })) + ' aria-label="Open SOS from ' + esc(x.profile_name || 'Resident') + '">' +
+          '<span class="sxc-top"><span class="sxc-k">' + I(KIND_ICON[x.kind] || 'alert', 13) + esc(kindLabel(x.kind)) + '</span>' +
+            '<span class="sxc-st"><i></i>' + (isNew ? (late ? 'No response' : 'New') : 'Acknowledged') + '</span>' +
+            '<span class="sxc-time">' + dur(m) + (isNew ? '' : ' ago') + '</span></span>' +
+          '<b class="sxc-name">' + esc(x.profile_name || 'Resident') + '</b>' +
+          '<span class="sxc-meta"><span>' + esc(where) + '</span>' + (!x.report_id ? '<span class="sxc-warn">No team sent</span>' : '') + '</span>' +
+        '</button>' +
+        '<div class="sxc-foot">' +
+          (isNew ? '<button class="sxc-go"' + A('sos-ack', attr({ id: x.id })) + '>' + I('check', 14) + 'Acknowledge</button>'
+            : '<span class="sxc-by">' + I('check', 12) + (x.acknowledged_by_name ? 'By ' + esc(x.acknowledged_by_name) : 'Help is on it') + '</span>') +
+          (tel ? '<a class="sxc-ic" href="tel:' + esc(tel) + '" aria-label="Call" title="Call ' + esc(x.profile_phone) + '">' + I('phone', 15) + '</a>' : '') +
+          (x.lat != null ? '<a class="sxc-ic" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(x.lat, x.lng) + '" aria-label="Directions" title="Directions">' + I('route', 15) + '</a>' : '') +
+        '</div></article>';
+    };
+    const oldest = waiting.length ? dur(longestWait) : '';
+    /* A floating panel over the page (bottom right; a sheet on phones), so
+       the dashboard keeps its layout. It can be folded into a pill, and it
+       opens itself again the moment a new unanswered SOS arrives. */
+    const sig = waiting.map((x) => x.id).sort().join(',');
+    if (dock.min && sig && sig !== dock.sig && waiting.some((x) => dock.sig.split(',').indexOf(String(x.id)) < 0)) dock.min = false;
+    dock.sig = sig;
+    /* phones: a blurred backdrop behind the open sheet; tapping it folds the sheet */
+    return '<div class="sx-scrim"' + A('sos-dock') + ' aria-hidden="true"></div>' +
+      /* it keeps pulsing until every open SOS is resolved (not only acknowledged) */
+      '<aside class="ug-sosx' + (open.length ? ' is-hot' : '') + (waiting.length ? ' is-waiting' : '') + (dock.min ? ' is-min' : '') + '" role="region" aria-label="Open SOS requests">' +
+      /* folded: one pill */
+      '<button class="sx-pill"' + A('sos-dock') + ' aria-expanded="false" aria-label="Show open SOS requests">' +
+        '<span class="sx-siren" aria-hidden="true">' + I('alert', 15) + '</span>' +
+        /* phones show the folded state as a round button with this count */
+        '<i class="sx-pill-n" aria-hidden="true">' + (waiting.length || open.length) + '</i>' +
+        '<b>' + open.length + ' open SOS</b>' + (waiting.length ? '<em>' + waiting.length + ' waiting · ' + oldest + '</em>' : '<em>All acknowledged</em>') +
+        I('chevron', 14) + '</button>' +
+      '<div class="sx-panel">' +
+        '<div class="sx-head">' +
+          '<span class="sx-siren" aria-hidden="true">' + I('alert', 16) + '</span>' +
+          '<div class="sx-title"><b>' + open.length + ' open SOS</b>' +
+            '<span>' + (waiting.length ? waiting.length + ' waiting for a response · longest ' + oldest : 'All acknowledged · responders on it') + '</span></div>' +
+          '<button class="sx-x"' + A('sos-dock') + ' aria-expanded="true" aria-label="Minimise" title="Minimise (opens again on a new SOS)">' + I('chevdn', 16) + '</button>' +
+        '</div>' +
+        (needSound ? '<button class="sx-sound"' + A('alarm-unlock') + ' title="The browser keeps the alarm silent until you tap once on this screen">' + I('bell', 13) + 'Alarm is silent · tap to turn on sound</button>' : '') +
+        '<div class="sx-list" data-sx-list>' + sorted.slice(0, 8).map(card).join('') + '</div>' +
+        /* phones: one SOS per swipe, with a dot per card and a View all link */
+        (Math.min(sorted.length, 8) > 1 ? '<div class="sx-dots" aria-hidden="true">' + sorted.slice(0, 8).map((x, n) => '<i class="' + (n ? '' : 'is-on') + '"></i>').join('') + '</div>' : '') +
+        '<button class="sx-log"' + A('nav', attr({ route: 'sos' })) + '><span class="sx-log-d">Open SOS Log</span><span class="sx-log-m">View all ' + sorted.length + ' SOS</span>' +
+          (sorted.length > 8 ? '<span class="sx-log-d">&nbsp;· +' + (sorted.length - 8) + ' more</span>' : '') + I('chevron', 13) + '</button>' +
+      '</div>' +
+    '</aside>';
+  }
+  /* phones start folded into the top banner; a new unanswered SOS opens it */
+  const dock = { min: typeof window !== 'undefined' && window.innerWidth <= 767, sig: '' };
+  function toggleDock() {
+    dock.min = !dock.min;
+    const el = document.querySelector('.ug-sosx');
+    if (el) el.classList.toggle('is-min', dock.min);
   }
 
   /* the LGU view: list of recent SOS events. Rows are clickable and open the
      full detail (sender, time, location on a map, status, contact) with the
      acknowledge / resolve actions — the detail view that was missing. */
   function dSos(st) {
-    const rows = UG.DATA.sosLog || [];
+    const all = UG.DATA.sosLog || [];
+    /* status filter + search (Nov 2026); the list itself is the original one */
+    const stat = (x) => (x.status === 'resolved' || x.status === 'acknowledged') ? x.status : 'sent';
+    const n = { all: all.length, sent: 0, acknowledged: 0, resolved: 0 };
+    all.forEach((x) => { n[stat(x)]++; });
+    const f = st.sosFilter || 'all';
+    const q = String(st.sosSearch || '').trim().toLowerCase();
+    const rows = all
+      .filter((x) => f === 'all' || stat(x) === f)
+      .filter((x) => !q || [x.profile_name, x.profile_phone, x.barangay, kindLabel(x.kind)].some((v) => String(v || '').toLowerCase().indexOf(q) >= 0));
+    const TABS = [['all', 'All'], ['sent', 'New'], ['acknowledged', 'Acknowledged'], ['resolved', 'Resolved']];
+    /* nothing loaded because the server cannot be reached: say so, not "no SOS" */
+    const offlineNow = typeof Repo !== 'undefined' && Repo.state && (Repo.state.source !== 'supabase' || (typeof navigator !== 'undefined' && navigator.onLine === false));
     const statusBadge = (s) => s === 'resolved'
       ? U.badge('resolved', 'Resolved')
       : s === 'acknowledged' ? U.badge('warning', 'Acknowledged') : U.badge('emergency', 'New');
@@ -188,19 +276,65 @@ const UG_SOS = (function () {
       head('SOS Log', (st.session && st.session.role === 'barangay_official'
           ? 'Every one-tap SOS from a resident of your barangay, newest first.'
           : 'Every one-tap SOS received from a citizen, newest first.') + ' Tap a row for the full record and the response actions.',
-        '<span class="ug-chip is-on">' + rows.length + ' events</span>') +
-      '<div class="ug-card"><div class="ug-rows ug-scroll" style="max-height:540px">' + (rows.length ? rows.map((s) =>
-        '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer" data-act="open-sos-detail" data-id="' + esc(s.id) + '"><span class="r-dot" style="background:' + (s.status === 'resolved' ? 'var(--ug-prepared)' : 'var(--ug-emergency)') + '"></span>' +
-          '<div class="r-main"><div class="r-t">' + esc(s.profile_name || 'Resident') + '<span style="margin-left:6px">' + statusBadge(s.status) + '</span>' +
-            '<span class="ug-badge ug-badge--emergency" style="margin-left:6px">' + esc(kindLabel(s.kind)) + '</span></div>' +
-            '<div class="r-m"><span class="ug-mono">' + esc(s.profile_phone || '') + '</span>' +
-              '<span>' + I('pin', 12) + (s.lat != null ? UG_GEO.fmt(s.lat, s.lng) : 'no fix') + '</span>' +
-              '<span>' + I('clock', 12) + esc(s.time || '') + '</span></div></div>' +
-          (s.lat != null ? '<a class="ug-waze-btn" style="margin-left:6px" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(s.lat, s.lng) + '" onclick="event.stopPropagation()">' + I('route', 13) + '</a>' : '') +
-        '</button>').join('') :
-        '<div class="ug-empty"><span class="e-ico">' + I('alert', 20) + '</span>' +
-        '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No SOS events yet</div>' +
-        '<div class="ug-dim" style="font-size:11px">When a citizen sends one, it appears here in real time.</div></div>') + '</div></div>' +
+        '<span class="ug-chip is-on">' + all.length + ' events</span>') +
+      '<div class="sos-tool">' +
+        /* phones: the status filter as a dropdown (the tabs hide there) */
+        '<div class="ug-wmore inc-dd sos-dd"><button class="inc-dd-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Filter by status">' +
+          '<span>' + (f === 'all' ? 'All statuses' : (TABS.find((t) => t[0] === f) || TABS[0])[1]) + '</span><b>' + n[f] + '</b>' + I('chevdn', 16) + '</button>' +
+          '<div class="inc-dd-panel" data-more-panel hidden role="listbox">' + TABS.map((t) =>
+            '<button role="option" class="' + (f === t[0] ? 'is-on' : '') + (t[0] === 'sent' && n.sent ? ' is-esc' : '') + '"' + A('sos-filter', attr({ v: t[0] })) + '>' +
+              '<span>' + (t[0] === 'all' ? 'All statuses' : t[1]) + '</span><b>' + n[t[0]] + '</b>' + (f === t[0] ? I('check', 14) : '') + '</button>').join('') +
+          '</div></div>' +
+        '<div class="sos-tabs" role="tablist" aria-label="SOS status">' + TABS.map((t) =>
+          '<button role="tab" aria-selected="' + (f === t[0]) + '" class="' + (f === t[0] ? 'is-on' : '') + '"' + A('sos-filter', attr({ v: t[0] })) + '>' + t[1] + '<i>' + n[t[0]] + '</i></button>').join('') + '</div>' +
+        '<span class="sos-search">' + I('search', 14) +
+          '<input data-field="rw.sosSearch" value="' + esc(st.sosSearch || '') + '" placeholder="Search SOS" aria-label="Search SOS by name, number or barangay">' +
+          (st.sosSearch ? '<button' + A('sos-search-clear') + ' aria-label="Clear search">' + I('x', 11) + '</button>' : '') + '</span>' +
+      '</div>' +
+      /* the list: newest first; each row says what kind, who, where, how long,
+         who answered it, and offers Call / Acknowledge without opening it */
+      /* the list, after a social notification feed: "New" (waiting for an
+         answer) then "Earlier"; a round avatar with the sender's initial and
+         a small badge with the SOS type; one sentence; the time in crimson;
+         a dot while it is new; Call / Acknowledge on the right */
+      '<div class="ug-card sl-card sf-card"><div class="sl-list">' + (rows.length ? (() => {
+        const KI = { medical: 'plus', fire: 'flame', crime: 'shield', rescue: 'flood', other: 'alert' };
+        const sorted = rows.slice().sort((p, q) => Date.parse(q.created_at || 0) - Date.parse(p.created_at || 0));
+        const item = (s) => {
+          const st0 = stat(s);
+          const tel = String(s.profile_phone || '').replace(/[^\d+]/g, '');
+          const where = s.barangay ? 'Brgy. ' + s.barangay : s.lat != null ? UG_GEO.fmt(s.lat, s.lng) : '';
+          const mins = s.created_at ? Math.max(0, Math.floor((Date.now() - Date.parse(s.created_at)) / 60000)) : 0;
+          const late = st0 === 'sent' && mins >= 5;
+          const name = s.profile_name || 'A resident';
+          const what = st0 === 'sent' ? (late ? 'No response yet' : 'New')
+            : st0 === 'acknowledged' ? 'Acknowledged' + (s.acknowledged_by_name ? ' by ' + s.acknowledged_by_name : '')
+            : s.expired ? 'Unanswered · closed automatically after 12 h'
+            : 'Resolved' + (s.resolved_by_name ? ' by ' + s.resolved_by_name : '');
+          return '<div class="sf-row is-' + st0 + (s.expired ? ' is-expired' : '') + '" role="button" tabindex="0" data-act="open-sos-detail" data-id="' + esc(s.id) + '">' +
+            '<span class="sf-av">' + esc(name.trim().charAt(0).toUpperCase()) + '<i class="sf-badge is-' + esc(s.kind || 'other') + '">' + I(KI[s.kind] || 'alert', 11) + '</i></span>' +
+            '<div class="sf-main"><p class="sf-txt"><b>' + esc(name) + '</b> sent a <b>' + esc(kindLabel(s.kind)) + ' SOS</b>' + (where ? ' from ' + esc(where) : '') + '.' +
+              (!s.report_id && st0 !== 'resolved' ? ' <span class="sf-warn">No team sent.</span>' : '') + '</p>' +
+              '<span class="sf-time">' + esc(s.time || '') + ' · ' + esc(what) + '</span>' +
+              (st0 === 'sent' ? '<div class="sf-acts" onclick="event.stopPropagation()">' +
+                  '<button class="sf-go"' + A('sos-ack', attr({ id: s.id })) + '>Acknowledge</button>' +
+                  (tel ? '<a class="sf-call" href="tel:' + esc(tel) + '">Call</a>' : '') + '</div>' : '') +
+            '</div>' +
+            (st0 === 'sent' ? '<i class="sf-dot" aria-label="New"></i>' : tel ? '<a class="sf-tel" href="tel:' + esc(tel) + '" onclick="event.stopPropagation()" aria-label="Call">' + I('phone', 15) + '</a>' : '') +
+          '</div>';
+        };
+        /* by time, like a notification feed: "New" is the last 24 hours,
+           "Earlier" is anything older (an unanswered older SOS still keeps
+           its dot and Acknowledge button) */
+        const recent = (x) => x.created_at && Date.now() - Date.parse(x.created_at) < 24 * 3600000;
+        const fresh = sorted.filter(recent);
+        const older = sorted.filter((x) => !recent(x));
+        return (fresh.length ? '<h4 class="sf-h">New</h4>' + fresh.map(item).join('') : '') +
+          (older.length ? '<h4 class="sf-h">Earlier</h4>' + older.map(item).join('') : '');
+      })() :
+        '<div class="ug-empty"><span class="e-ico">' + I(all.length ? 'search' : 'alert', 20) + '</span>' +
+        '<div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">' + (all.length ? 'No SOS matches this filter' : offlineNow ? 'Can\'t reach the server' : 'No SOS events yet') + '</div>' +
+        '<div class="ug-dim" style="font-size:11px">' + (all.length ? 'Try another status or clear the search.' : offlineNow ? 'Check your connection. SOS events load again as soon as you are back online.' : 'When a citizen sends one, it appears here in real time.') + '</div></div>') + '</div></div>' +
     '</div>';
   }
 
@@ -209,42 +343,107 @@ const UG_SOS = (function () {
   function sosDetailModal(st, id) {
     const s = (UG.DATA.sosLog || []).find((x) => x.id === id);
     if (!s) return;
-    const statusBadge = (v) => v === 'resolved' ? 'Resolved' : v === 'acknowledged' ? 'Acknowledged' : 'New';
-    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + UG_UTIL.esc(k) + '</span><span style="text-align:right;font-weight:600">' + UG_UTIL.esc(v) + '</span></div>';
+    /* What the record shows follows what submit_sos (migration 060) does:
+       - with a GPS fix the SOS becomes an emergency report and the teams for
+         its type are sent at once (report_id is set);
+       - without a fix (or when that step failed) no report is made and no
+         team is sent, so someone has to call the sender back.
+       The SOS stays New until a duty officer or official acknowledges it,
+       which notifies the sender that help has seen it. */
+    const KIND = {
+      medical: ['Medical emergency', 'plus', ['Ambulance', 'Barangay Response Team']],
+      fire:    ['Fire', 'flame', ['BFP', 'Barangay Response Team']],
+      crime:   ['Crime / violence', 'shield', ['PNP', 'Barangay Response Team']],
+      rescue:  ['Rescue needed', 'flood', ['Rescue Unit', 'Barangay Response Team']],
+      other:   ['Other / not sure', 'alert', ['Barangay Response Team']]
+    };
+    const k = KIND[s.kind] || KIND.other;
+    const st8 = s.status === 'resolved' ? 'resolved' : s.status === 'acknowledged' ? 'acknowledged' : 'sent';
+    const STATE = {
+      sent: ['New', 'Nobody has acknowledged this SOS yet. Acknowledging tells the sender that help has seen it.'],
+      acknowledged: ['Acknowledged', 'The sender has been told that help has seen their SOS.'],
+      resolved: s.expired ? ['Unanswered', 'No one acknowledged this SOS within 12 hours, so it was closed automatically and the sender was told to call the hotline. Follow up with them if you can.']
+        : ['Resolved', 'This emergency has been closed.']
+    }[st8];
+    /* who answered it and when (migration 064) */
+    const whoAck = s.acknowledged_by_name ? 'Acknowledged by ' + s.acknowledged_by_name + (s.acknowledged_by_office ? ' (' + s.acknowledged_by_office + ')' : '') +
+      (s.acknowledged_at ? ' · ' + UG_UTIL.absTime(s.acknowledged_at) : '') : '';
+    const whoRes = s.expired ? (s.expired_at ? 'Closed ' + UG_UTIL.absTime(s.expired_at) : '') : s.resolved_by_name ? 'Resolved by ' + s.resolved_by_name + (s.resolved_at ? ' · ' + UG_UTIL.absTime(s.resolved_at) : '') : '';
+    if (whoAck || whoRes) STATE[1] = [STATE[1], whoAck, whoRes].filter(Boolean).join(' · ');
+    const hasFix = s.lat != null && s.lng != null;
+    const inc = s.report_id ? (UG.DATA.incidents || []).find((r) => r.uuid === s.report_id || r.id === s.report_id) : null;
+    const tel = s.profile_phone ? 'tel:' + String(s.profile_phone).replace(/[^+\d]/g, '') : '';
+    const teamsHtml = (list) => list.map((t) => '<span class="sd-team">' + esc(t) + '</span>').join('');
+    const sent = s.report_id ? ((UG.DATA.dispatches || {})[s.report_id] || []).filter((d) => d.dispatch_status !== 'declined') : [];
+
+    const response = s.report_id
+      ? '<div class="sd-box is-ok"><span class="sd-box-i">' + I('truck', 15) + '</span><div>' +
+          '<b>Teams were sent automatically</b>' +
+          '<p>The SOS became an emergency report' + (inc && inc.id ? ' (' + esc(inc.id) + ')' : '') + ' and the teams for this type of SOS were dispatched.</p>' +
+          '<div class="sd-teams" data-sos-teams>' + teamsHtml(sent.length ? sent.map((d) => d.team) : k[2]) + '</div>' +
+          (sent.length ? '' : '<small class="sd-fine" data-sos-teams-note>Teams for this type. A municipal team with no free unit is flagged to the LGU instead.</small>') +
+        '</div></div>'
+      : '<div class="sd-box is-warn"><span class="sd-box-i">' + I('warning', 15) + '</span><div>' +
+          '<b>No team has been sent</b>' +
+          '<p>' + (hasFix
+            ? 'The SOS could not be turned into a report automatically (for example, it was sent from outside Lingayen). Call the sender and send a team from the Incident Queue.'
+            : 'It was sent without a GPS location, so the system could not create a report or dispatch a team. Call the sender to find out where they are, then send a team.') + '</p>' +
+          '<div class="sd-teams">' + teamsHtml(k[2]) + '</div>' +
+          '<small class="sd-fine">Teams normally sent for this type of SOS.</small>' +
+        '</div></div>';
+
+    const where = hasFix
+      ? '<div class="sd-map ug-map" data-map="sos-detail"></div>' +
+        '<div class="sd-where"><span>' + I('pin', 13) + esc(UG_GEO.fmt(s.lat, s.lng)) + (s.accuracy != null ? ' <em>± ' + Math.round(s.accuracy) + ' m</em>' : '') + '</span>' +
+          '<a class="sd-link" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(s.lat, s.lng) + '">' + I('route', 13) + 'Route in Waze</a></div>'
+      : '<div class="sd-nofix">' + I('pin', 15) + '<span>No GPS location was shared with this SOS.</span></div>';
+
     UG_FEATURES.modal({
-      title: 'SOS from ' + (s.profile_name || 'a resident'),
+      title: 'SOS · ' + k[0],
       body:
-        kv('Status', statusBadge(s.status)) +
-        kv('Type', kindLabel(s.kind)) +
-        kv('Response', s.report_id ? 'Team dispatched automatically (see the linked report)' : 'Not dispatched automatically · send a team') +
-        kv('Received', UG_UTIL.absTime(s.created_at || s.time) || s.time || '') +
-        kv('Sender', s.profile_name || '—') +
-        kv('Contact number', s.profile_phone || '—') +
-        kv('Barangay', s.barangay || '—') +
-        kv('Position', (s.lat != null) ? UG_GEO.fmt(s.lat, s.lng) : 'No GPS fix') +
-        kv('Accuracy', (s.accuracy != null) ? s.accuracy + ' m' : '—') +
-        (s.note ? kv('Note', s.note) : '') +
-        (s.lat != null
-          ? '<div class="ug-map" data-map="sos-detail" style="height:180px;margin-top:12px;border-radius:10px;overflow:hidden"></div>' +
-            '<a class="ug-waze-btn" style="margin-top:10px;display:inline-flex" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(s.lat, s.lng) + '">' + I('route', 13) + ' Open in Waze</a>'
-          : '<div class="ug-note" style="margin-top:10px">This SOS was sent without a GPS fix. Call the sender back on the number above.</div>'),
+        '<div class="sd-top">' +
+          '<span class="sd-ico is-' + st8 + '">' + I(k[1], 18) + '</span>' +
+          '<div class="sd-who"><b>' + esc(s.profile_name || 'Resident') + '</b>' +
+            '<small>' + esc(s.barangay ? 'Brgy. ' + s.barangay : 'Barangay unknown') + ' · ' + esc(s.time || '') + ' · ' + esc(UG_UTIL.absTime(s.created_at) || '') + '</small></div>' +
+          '<span class="sd-state is-' + st8 + '"><i></i>' + STATE[0] + '</span>' +
+        '</div>' +
+        '<p class="sd-statehint">' + esc(STATE[1]) + '</p>' +
+        (tel
+          ? '<a class="sd-call" href="' + esc(tel) + '">' + I('phone', 16) + '<span><b>Call ' + esc(s.profile_name ? s.profile_name.split(' ')[0] : 'the sender') + '</b><small>' + esc(s.profile_phone) + '</small></span></a>'
+          : '<div class="sd-nofix">' + I('phone', 15) + '<span>The sender has no phone number on their profile.</span></div>') +
+        (s.note ? '<div class="sd-sec"><h4>Message from the sender</h4><p class="sd-note">' + esc(s.note) + '</p></div>' : '') +
+        '<div class="sd-sec"><h4>Response</h4>' + response + '</div>' +
+        '<div class="sd-sec"><h4>Location</h4>' + where +
+          '<p class="sd-fine">The barangay comes from the GPS location, or from the sender\'s profile when there is no location.</p></div>',
       footer:
         '<button class="ug-btn" data-modal-close>Close</button>' +
-        (s.report_id ? '<button class="ug-btn ug-btn--sm" data-act="open-incident" data-id="' + esc(s.report_id) + '">' + I('truck', 14) + 'Open report</button>' : '') +
-        (s.status === 'sent' ? '<button class="ug-btn ug-btn--signal" data-act="sos-ack" data-id="' + esc(s.id) + '">' + I('check', 14) + 'Acknowledge</button>' : '') +
-        (s.status !== 'resolved' ? '<button class="ug-btn ug-btn--sm" data-act="sos-resolve" data-id="' + esc(s.id) + '">' + I('check', 14) + 'Mark resolved</button>' : ''),
+        (s.report_id ? '<button class="ug-btn" data-act="open-incident" data-id="' + esc(s.report_id) + '">' + I('doc', 14) + 'Open report</button>' : '') +
+        (st8 !== 'resolved' ? '<button class="ug-btn" data-act="sos-resolve" data-id="' + esc(s.id) + '">' + I('check', 14) + 'Mark resolved</button>' : '') +
+        (st8 === 'sent' ? '<button class="ug-btn ug-btn--signal sd-ack" data-act="sos-ack" data-id="' + esc(s.id) + '">' + I('check', 14) + 'Acknowledge</button>' : ''),
       /* MapView holds one map at a time, so the mini map replaced the page's
          map; re-render on close to bring the page map back */
       onClose: () => {
-        if (s.lat != null && typeof MapView !== 'undefined') {
+        if (hasFix && typeof MapView !== 'undefined') {
           try { MapView.destroy(); } catch (e) {}
           try { (window.APP_RENDER || function () {})(); } catch (e) {}
         }
       },
       onMount: (wrap) => {
+        wrap.classList.add('sd-modal');
+        /* the teams actually on the report, once loaded */
+        if (s.report_id && typeof Repo !== 'undefined' && Repo.loadDispatches) {
+          Repo.loadDispatches(s.report_id).then((rows) => {
+            const live = (rows || []).filter((d) => d.dispatch_status !== 'declined');
+            const box = wrap.querySelector('[data-sos-teams]');
+            if (!box || !live.length) return;
+            box.innerHTML = teamsHtml(live.map((d) => d.team + (d.dispatch_status ? ' · ' + String(d.dispatch_status).replace(/_/g, ' ') : '')));
+            const note = wrap.querySelector('[data-sos-teams-note]');
+            if (note) note.remove();
+          }).catch(() => {});
+        }
         /* mount the mini map after the modal is in the DOM. Unbounded: an SOS
            sent from outside Lingayen must still show where it came from. */
-        if (s.lat != null && typeof MapView !== 'undefined' && window.L) {
+        if (hasFix && typeof MapView !== 'undefined' && window.L) {
           const el = wrap.querySelector('[data-map="sos-detail"]');
           if (el) MapView.mount(el, { center: [s.lat, s.lng], zoom: 16, unbounded: true }).then(() => {
             try { MapView.setIncidents([{ lat: s.lat, lng: s.lng, sev: 'emergency', id: 'SOS', brgy: s.barangay || '', hazard: 'SOS', status: 'reported', corr: 0 }]); } catch (e) {}
@@ -255,11 +454,11 @@ const UG_SOS = (function () {
   }
 
   function head(title, sub, actions) {
-    return '<div class="ug-rowf ug-between ug-wrap" style="gap:14px;align-items:flex-end">' +
+    return '<div class="ug-rowf ug-between ug-wrap ug-phead" style="gap:14px;align-items:flex-end">' +
       '<div><h2 style="font-size:20px">' + esc(title) + '</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:4px">' + esc(sub) + '</p></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';
   }
 
-  return { kindLabel, floatingButton, mSos, dSos, sosDetailModal, activeStrip, head };
+  return { kindLabel, floatingButton, mSos, dSos, sosDetailModal, activeStrip, toggleDock, tracking, head };
 })();

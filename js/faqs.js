@@ -36,10 +36,10 @@ const UG_FAQS = (function () {
       .filter((f) => !q || (f.question.toLowerCase().indexOf(q) >= 0 || f.answer.toLowerCase().indexOf(q) >= 0 || f.category.toLowerCase().indexOf(q) >= 0));
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">Frequently Asked Questions</div>' +
-      '<h2 style="font-size:19px;margin-top:3px">Help Center</h2></div>' +
+      '<h2 style="font-size:18px;margin-top:3px">Help Center</h2></div>' +
       '<div class="ug-card"><div class="ug-card-b"><input class="ug-in" data-field="faqSearch" placeholder="Search FAQs…" value="' + esc(st.faqSearch || '') + '"></div></div>' +
       (cats.length === 0 ? '<div class="ug-card"><div class="ug-empty"><span class="e-ico">' + I('help', 20) + '</span>' +
-        '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No FAQs yet</div>' +
+        '<div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">No FAQs yet</div>' +
         '<div class="ug-dim" style="font-size:11px">The LGU has not published any FAQs.</div></div></div>' :
         cats.map((cat) => {
           const rows = list.filter((f) => f.category === cat);
@@ -52,30 +52,66 @@ const UG_FAQS = (function () {
 
   function faqItem(f) {
     return '<details class="ug-faq"><summary>' + esc(f.question) + '</summary>' +
-      '<p class="ug-dim" style="font-size:12.5px;line-height:1.65;margin-top:8px">' + esc(f.answer) + '</p></details>';
+      '<p class="ug-dim" style="font-size:13px;line-height:1.65;margin-top:8px">' + esc(f.answer) + '</p></details>';
   }
 
   /* --------------------------------------------------------------- LGU */
   function dFaqs(st) {
-    const rows = UG.DATA.faqs || [];
-    return '<div class="ug-col" style="gap:18px">' +
-      head('FAQ Management', 'Add, edit or remove entries. Citizens see changes immediately — no app release required.',
-        '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('faq-add') + '>' + I('plus', 15) + 'Add FAQ</button>') +
-      '<div class="ug-card"><div class="ug-card-h"><h3>All FAQs</h3><span class="ug-chip is-on">' + rows.length + '</span></div>' +
-        '<div class="ug-rows ug-scroll" style="max-height:520px">' + (rows.length ? rows.map((f) =>
-          '<div class="ug-row"><span class="r-dot" style="background:var(--ug-signal)"></span>' +
-            '<div class="r-main"><div class="r-t">' + esc(f.question) + '</div>' +
-              '<div class="r-m"><span class="ug-mono">' + esc(f.category) + '</span><span>' + esc(f.answer.slice(0, 80)) + (f.answer.length > 80 ? '…' : '') + '</span></div></div>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="faq-edit" data-id="' + esc(f.id) + '">' + I('settings', 14) + '</button>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="faq-del" data-id="' + esc(f.id) + '">' + I('x', 14) + '</button></div>').join('') :
-          '<div class="ug-empty"><span class="e-ico">' + I('help', 20) + '</span>' +
-          '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No FAQs yet</div>' +
-          '<div class="ug-dim" style="font-size:11px">Add the first one.</div></div>') + '</div></div>' +
+    /* Layout (Nov 2026): category pills + search, questions grouped by
+       category, each one opens to its answer; edit / delete as quiet round
+       buttons. Same faq-add / faq-edit / faq-del actions. */
+    const all = UG.DATA.faqs || [];
+    const counts = all.reduce((m, f) => { const c = f.category || 'General'; m[c] = (m[c] || 0) + 1; return m; }, {});
+    const cats = Object.keys(counts).sort();
+    const cf = st.faqCat && (st.faqCat === 'all' || counts[st.faqCat]) ? st.faqCat : 'all';
+    const q = String(st.faqAdminQ || '').trim().toLowerCase();
+    const rows = all.filter((f) => cf === 'all' || (f.category || 'General') === cf)
+      .filter((f) => !q || [f.question, f.answer, f.category].some((v) => String(v || '').toLowerCase().indexOf(q) >= 0));
+    const stop = ' onclick="event.preventDefault()"';
+    const item = (f) => '<details class="fq-item">' +
+        '<summary><span class="fq-chev">' + I('chevron', 14) + '</span>' +
+          '<span class="fq-q">' + esc(f.question) + '</span>' +
+          '<span class="fq-acts">' +
+            '<button class="hl-ico" data-act="faq-edit" data-id="' + esc(f.id) + '" title="Edit" aria-label="Edit"' + stop + '>' + I('settings', 14) + '</button>' +
+            '<button class="hl-ico is-del" data-act="faq-del" data-id="' + esc(f.id) + '" title="Delete" aria-label="Delete"' + stop + '>' + I('x', 14) + '</button>' +
+          '</span></summary>' +
+        '<p class="fq-a">' + esc(f.answer) + '</p>' +
+      '</details>';
+    const groups = (cf === 'all' ? cats : [cf]).map((c) => {
+      const list = rows.filter((f) => (f.category || 'General') === c);
+      if (!list.length) return '';
+      return '<section class="fq-group"><header><h3>' + esc(c) + '</h3><span>' + list.length + ' question' + (list.length === 1 ? '' : 's') + '</span></header>' +
+        list.map(item).join('') + '</section>';
+    }).join('');
+
+    return '<div class="ug-col fq" style="gap:20px">' +
+      head('FAQ Management', 'Questions residents see in the Help Center. Changes appear right away.',
+        '<button class="hl-ghost hl-primary fq-add"' + A('faq-add') + ' aria-label="Add FAQ">' + I('plus', 14) + 'Add FAQ</button>') +
+      '<div class="hl-tool fq-tool">' +
+        /* phones: the category as a compact dropdown left of the search */
+        (function () {
+          const opts = [['all', 'All', all.length]].concat(cats.map((c) => [c, c, counts[c]]));
+          const cur = opts.find((o) => o[0] === cf) || opts[0];
+          return '<div class="ug-wmore inc-dd hl-dd fq-dd"><button class="inc-dd-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Category">' +
+              I('sort', 15) + '<span>' + esc(cur[1]) + '</span>' + I('chevdn', 14) + '</button>' +
+            '<div class="inc-dd-panel" data-more-panel hidden role="listbox">' + opts.map((o) =>
+              '<button role="option" class="' + (o[0] === cf ? 'is-on' : '') + '"' + A('faq-cat', attr({ v: o[0] })) + '>' +
+                '<span>' + esc(o[0] === 'all' ? 'All categories' : o[1]) + '</span><b>' + o[2] + '</b>' + (o[0] === cf ? I('check', 14) : '') + '</button>').join('') +
+            '</div></div>';
+        })() +
+        '<label class="fq-sel"><span>' + I('layers', 14) + '</span><select data-field="rw.faqCat" aria-label="Category">' +
+          [['all', 'All categories', all.length]].concat(cats.map((c) => [c, c, counts[c]])).map((t) =>
+            '<option value="' + esc(t[0]) + '"' + (cf === t[0] ? ' selected' : '') + '>' + esc(t[1]) + ' (' + t[2] + ')</option>').join('') + '</select></label>' +
+        '<span class="sos-search">' + I('search', 14) + '<input data-field="rw.faqAdminQ" value="' + esc(st.faqAdminQ || '') + '" placeholder="Search FAQs" aria-label="Search questions and answers">' +
+          (st.faqAdminQ ? '<button data-act="faq-q-clear" aria-label="Clear search">' + I('x', 11) + '</button>' : '') + '</span></div>' +
+      (groups || '<div class="rl-card"><div class="rl-empty"><span>' + I('help', 20) + '</span><b>' + (all.length ? 'No question matches' : 'No FAQs yet') + '</b><p>' +
+        (all.length ? 'Try another category or clear the search.' : 'Add the first question residents often ask.') + '</p>' +
+        (all.length ? '' : '<button class="hl-ghost hl-primary"' + A('faq-add') + '>' + I('plus', 14) + 'Add FAQ</button>') + '</div></div>') +
     '</div>';
   }
 
   function head(title, sub, actions) {
-    return '<div class="ug-rowf ug-between ug-wrap" style="gap:14px;align-items:flex-end">' +
+    return '<div class="ug-rowf ug-between ug-wrap ug-phead" style="gap:14px;align-items:flex-end">' +
       '<div><h2 style="font-size:20px">' + esc(title) + '</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:4px">' + esc(sub) + '</p></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';

@@ -56,11 +56,13 @@ const UG_ALARM = (function () {
     document.addEventListener(ev, unlock, { passive: true });
   });
 
+  /* the alarm is always on (no mute): an old saved "muted" is cleared */
+  try { localStorage.removeItem(MUTE_KEY); } catch (e) { }
   function muted() {
-    try { return localStorage.getItem(MUTE_KEY) === '1'; } catch (e) { return false; }
+    return false;
   }
   function setMuted(on) {
-    try { localStorage.setItem(MUTE_KEY, on ? '1' : '0'); } catch (e) { }
+    try { localStorage.removeItem(MUTE_KEY); } catch (e) { }   /* always on: muting is not offered */
   }
 
   /* each pattern is a list of [startHz, endHz, seconds, wave] steps (endHz 0
@@ -171,6 +173,39 @@ const UG_ALARM = (function () {
     } catch (e) { return false; }   /* sound is an enhancement, never a blocker */
   }
 
-  return { play, groupFor, muted, setMuted, roleAlarms, needsUnlock, unlock };
+  /* "Always allow alarm sound": browsers block sound until the page is
+     tapped; this shows how to let UniGuard ring right away, with the steps
+     for the browser the person is using. Opens above the emergency card. */
+  function soundHelp() {
+    if (typeof UG_FEATURES === 'undefined' || !UG_FEATURES.modal) return;
+    const ua = navigator.userAgent || '';
+    const b = /Edg\//.test(ua) ? 'edge' : /Firefox\//.test(ua) ? 'firefox' : (/Safari\//.test(ua) && !/Chrome\//.test(ua)) ? 'safari' : 'chrome';
+    const phone = /Android|iPhone|iPad/i.test(ua);
+    const installed = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+    const I = (n) => (typeof UG !== 'undefined' && UG.icon) ? UG.icon(n, 15) : '';
+    const steps = {
+      chrome: ['Click the icon to the left of the web address (the slider or lock).', 'Choose <b>Site settings</b>.', 'Find <b>Sound</b> and set it to <b>Allow</b>.', 'Come back to UniGuard and reload once.'],
+      edge: ['Click the lock icon to the left of the web address.', 'Choose <b>Permissions for this site</b>.', 'Set <b>Media autoplay</b> to <b>Allow</b>.', 'Reload UniGuard once.'],
+      firefox: ['Click the icon to the left of the web address.', 'Next to <b>Autoplay</b>, choose <b>Allow Audio and Video</b>.', 'Reload UniGuard once.'],
+      safari: ['In the menu bar, choose <b>Safari</b> then <b>Settings for This Website</b>.', 'Set <b>Auto-Play</b> to <b>Allow All Auto-Play</b>.', 'Reload UniGuard once.']
+    }[b];
+    const name = { chrome: 'Chrome', edge: 'Microsoft Edge', firefox: 'Firefox', safari: 'Safari' }[b];
+    const ol = (list) => '<ol class="sh-steps">' + list.map((x, n) => '<li><b>' + (n + 1) + '</b><span>' + x + '</span></li>').join('') + '</ol>';
+    UG_FEATURES.modal({
+      title: 'Always allow alarm sound',
+      body:
+        '<p class="sh-lead">Browsers keep websites quiet until you tap the page. Do this once so emergency and SOS alarms ring the moment they arrive.</p>' +
+        (!installed && (b === 'chrome' || b === 'edge') ? '<section class="sh-sec sh-best"><h4>' + I('download') + 'Best: install UniGuard as an app</h4>' +
+          ol(phone ? ['Open the browser menu (⋮).', 'Choose <b>Install app</b> or <b>Add to Home screen</b>.', 'Open UniGuard from its new icon from now on.']
+                   : ['Click the install icon at the right end of the address bar, or the menu (⋯) then <b>Apps</b> then <b>Install UniGuard</b>.', 'Open UniGuard from its own window from now on.']) + '</section>' : '') +
+        '<section class="sh-sec"><h4>' + I('settings') + 'Allow sound in ' + name + '</h4>' + ol(steps) + '</section>' +
+        '<section class="sh-sec"><h4>' + I('bell') + 'Also turn on push alerts</h4><p>Device notifications play your phone or computer\'s own sound, even when UniGuard is closed. Turn them on in <b>Settings</b> → <b>Alerts</b>.</p></section>' +
+        '<p class="sh-fine">On office computers, your IT staff can allow sound for UniGuard on every machine at once (Chrome\'s AutoplayAllowlist policy).</p>',
+      footer: '<button class="ug-btn" data-modal-close>Got it</button>',
+      onMount: (wrap) => { wrap.classList.add('sh-modal'); }
+    });
+  }
+
+  return { play, groupFor, muted, setMuted, roleAlarms, needsUnlock, unlock, soundHelp };
 })();
 window.UG_ALARM = UG_ALARM;

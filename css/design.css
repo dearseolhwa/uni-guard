@@ -54,8 +54,8 @@ html[data-portal] .ug {
   --ug-tx-muted: #71717A;
   --ug-tx-soft: #52525B;
 
-  --ug-display: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --ug-body: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --ug-display: var(--ug-font);
+  --ug-body: var(--ug-font);
   --ug-r-sm: 10px;
   --ug-r-md: 14px;
   --ug-r-lg: 20px;
@@ -88,7 +88,7 @@ html[data-portal="admin"] .ug {
   --ug-em-left: #B7791F; --ug-em-right: #F6C445; --ug-em-keel: #5C3A0A; --ug-em-hub: #FFFFFF; --ug-em-dot: #D69E2E;
   --ug-page: linear-gradient(135deg, #FFFBF0 0%, #FDF1CF 55%, #FBE6A8 100%);
   --ug-backdrop: linear-gradient(135deg, #F7CE6A 0%, #F2B744 55%, #E9A12A 100%);
-  --ug-line: #EFE3C4;
+  --ug-line: #E8E8EA;
 }
 
 /* Barangay official: navy blue (brandTokens "barangay") */
@@ -148,7 +148,7 @@ html[data-portal] { background: var(--ug-page); }
 html[data-portal] body {
   background: var(--ug-page);
   color: var(--ug-ink);
-  font-family: var(--ug-body);
+  font-family: var(--ug-font);
 }
 html[data-portal] .ug-frame { background: var(--ug-page); }
 
@@ -192,8 +192,8 @@ html[data-portal] .ug-wordmark em { color: var(--ug-signal); }
 
 /* ================================================================ type */
 html[data-portal] .ug-lab {
-  font-family: var(--ug-body);
-  font-size: 10.5px;
+  font-family: var(--ug-font);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: .08em;
   color: var(--ug-ink-3);

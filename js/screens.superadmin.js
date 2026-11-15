@@ -795,7 +795,9 @@ const UG_SUPERADMIN = (function () {
     return '<div class="ug-sa"><div class="sa-wrap"><div class="sa-frame">' +
       sidebar(counts, total) +
       '<main class="sa-main ug-scroll">' +
-        (typeof UG_SOS !== 'undefined' ? UG_SOS.activeStrip(Object.assign({}, appSt, { session: UG_SCREENS.sess(appSt) })) : '') +
+        /* the alarm prompt and open SOS get their own padded row above the hero */
+        ((typeof UG_SOS !== 'undefined' && (function (h) { return h ? '<div class="sa-strips">' + h + '</div>' : ''; })(
+          UG_SOS.activeStrip(Object.assign({}, appSt, { session: UG_SCREENS.sess(appSt) })))) || '') +
         hero(total, disabledN) +
         (st.loadError ? '<p class="sa-loaderr">' + esc(st.loadError) + '</p>' : '') +
         body +

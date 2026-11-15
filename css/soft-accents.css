@@ -1,0 +1,212 @@
+/* UniGuard · softer accents for the staff consoles (Nov 2026)
+ * Barangay (navy), LGU (charcoal) and Super Admin (gold) consoles (.ug-bg).
+ * Solid black / navy / gold blocks were too heavy. Selected and primary
+ * states now use a soft tint of the portal's own colour with the colour as
+ * text and a thin outline; they fill solid only on hover or keyboard focus.
+ * Emergency signals (the SOS panel, the escalated reminder) are untouched.
+ * Loaded last so it wins over css/barangay.css and css/staff-pages.css.
+ */
+.ug-bg {
+  --soft-bg: rgba(var(--bg-ice-rgb), .55);
+  --soft-bd: rgba(var(--bg-navy-rgb), .22);
+  --soft-tx: var(--bg-navy);
+}
+/* the one solid fill, kept for hover / focus */
+.ug-bg :is(.bg-btn--solid, .bg-qa--solid, .bg-rt.is-on, .ug-btn--signal, .tp-go):is(:hover, :focus-visible) {
+  background: var(--bg-navy) !important; border-color: var(--bg-navy) !important; color: #fff !important;
+}
+.ug-bg :is(.bg-btn--solid, .ug-btn--signal):is(:hover, :focus-visible) svg { color: #fff !important; }
+
+/* top menu: the current section stays solid in the portal colour
+   (charcoal / navy / gold) so it is clear where you are */
+.ug-bg .bg-nav button.is-on { background: var(--bg-navy); color: #fff; font-weight: 600; box-shadow: 0 1px 2px rgba(var(--bg-ink-rgb),.15); }
+.ug-bg .bg-nav button.is-on:hover { background: var(--bg-mid); }
+.ug-bg .bg-nav button.is-on i { background: rgba(255,255,255,.2); color: #fff; font-weight: 700; }
+
+/* main buttons: Declare Emergency, Incident Queue, Command View, Dispatch, ... */
+.ug-bg .bg-btn--solid, .ug-bg .bg-qa--solid, .ug-bg .bg-rt.is-on,
+.ug-bg .bg-page .ug-btn--signal, .ug-bg :is(.bg-page) .iq-act .ug-btn--signal {
+  background: var(--soft-bg) !important; border: 1px solid var(--soft-bd) !important; color: var(--soft-tx) !important; box-shadow: none !important; font-weight: 600;
+}
+.ug-bg .bg-btn--solid svg, .ug-bg .bg-page .ug-btn--signal svg { color: var(--soft-tx); }
+.ug-bg .bg-rt.is-on i { background: var(--soft-tx); }
+
+/* selected chips and filters */
+.ug-bg .bg-page .ug-chip.is-on { background: var(--soft-bg); border-color: var(--soft-bd); color: var(--soft-tx); box-shadow: none; font-weight: 600; }
+.ug-bg .bg-page .ug-chip.is-on svg { color: var(--soft-tx); }
+.ug-bg .sc-seg button.is-on, .ug-bg .inc-tabs button.is-on { color: var(--soft-tx); }
+
+.ug-bg .tp-lang button.is-on { color: var(--soft-tx); }
+
+/* Publish Broadcast: soft and muted until the title and message are filled
+   in, then solid in the portal's colour (charcoal / navy / gold) so it is
+   clear the broadcast is ready to go */
+.ug-bg .bg-page .ug-btn--signal.adv-publish.is-disabled { background: rgba(0,0,0,.04) !important; border-color: rgba(0,0,0,.08) !important; color: var(--bg-soft) !important; cursor: not-allowed; }
+.ug-bg .bg-page .ug-btn--signal.adv-publish.is-disabled svg { color: var(--bg-soft) !important; }
+.ug-bg .bg-page .ug-btn--signal.adv-publish.is-ready { background: var(--bg-navy) !important; border-color: var(--bg-navy) !important; color: #fff !important;
+  box-shadow: 0 8px 18px -10px rgba(var(--bg-navy-rgb), .7) !important; transition: background .25s, box-shadow .25s; }
+.ug-bg .bg-page .ug-btn--signal.adv-publish.is-ready svg { color: #fff !important; }
+.ug-bg .bg-page .ug-btn--signal.adv-publish.is-ready:hover { filter: brightness(1.15); }
+
+/* "Add Evacuation Center" at the top of Shelters: soft at rest, solid in
+   the portal's colour (black on LGU) on hover; the form opens under it */
+.ug-bg .bg-page .ug-btn--signal.ac-open { transition: background .2s, color .2s, border-color .2s, box-shadow .2s; }
+.ug-bg .bg-page .ug-btn--signal.ac-open:hover, .ug-bg .bg-page .ug-btn--signal.ac-open:focus-visible {
+  background: var(--bg-navy) !important; border-color: var(--bg-navy) !important; color: #fff !important; box-shadow: 0 8px 18px -10px rgba(var(--bg-navy-rgb),.7) !important; }
+.ug-bg .bg-page .ug-btn--signal.ac-open:hover svg { color: #fff !important; }
+.ug-bg .ac { animation: ac-in .2s ease-out; }
+@keyframes ac-in { from { opacity: 0; transform: translateY(-6px); } }
+.ug-bg .ac-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ug-bg .ac-x { width: 32px; height: 32px; flex: none; border-radius: 999px; border: 0; display: grid; place-items: center; cursor: pointer; background: none; color: var(--bg-soft); }
+.ug-bg .ac-x:hover { background: rgba(0,0,0,.06); color: var(--bg-ink); }
+.ug-bg .ac-x svg { width: 14px; height: 14px; }
+.ug-bg .ac-btns { display: flex; gap: 8px; }
+@media (prefers-reduced-motion: reduce) { .ug-bg .ac { animation: none; } }
+/* Publish & Notify: solid once a title is in */
+.ug-bg .bg-page .ug-btn--signal.rw-go.is-ready { background: var(--bg-navy) !important; border-color: var(--bg-navy) !important; color: #fff !important; }
+.ug-bg .bg-page .ug-btn--signal.rw-go.is-ready svg { color: #fff !important; }
+
+/* ------------------------------------------------ Emergency alert overlay (.ux)
+   An emergency advisory: a red header with a pulsing hazard icon, the
+   message large, where / when / who in one row, the alarm status with Mute,
+   and a red Acknowledge. Red is right here: it is the one thing that must
+   interrupt. */
+.ug-urgent-host:has(.ux) { background: radial-gradient(120% 90% at 50% 40%, rgba(127,29,29,.45), rgba(10,4,4,.72)); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  animation: ux-flash 1.6s ease-in-out infinite; }
+@keyframes ux-flash { 0%, 100% { box-shadow: inset 0 0 0 0 rgba(239,68,68,0); } 50% { box-shadow: inset 0 0 140px 0 rgba(239,68,68,.35); } }
+.ug-urgent.ux { display: block; width: min(560px, 100%); border-radius: 26px; border: 0; background: #fff; overflow: hidden;
+  box-shadow: 0 40px 90px -30px rgba(220,38,38,.75), 0 0 0 1px rgba(220,38,38,.35); }
+.ux-top { position: relative; display: flex; align-items: center; gap: 16px; padding: 22px 22px 20px; color: #fff;
+  background: linear-gradient(135deg, #DC2626 0%, #B91C1C 55%, #7F1D1D 100%); }
+.ux-top::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, rgba(255,255,255,.06) 0 14px, transparent 14px 28px); pointer-events: none; }
+.ux-ico { position: relative; z-index: 1; width: 56px; height: 56px; flex: none; border-radius: 999px; display: grid; place-items: center; background: #fff; color: #DC2626; }
+.ux-ico svg { position: relative; width: 26px; height: 26px; }
+.ux-ico i { position: absolute; inset: 0; border-radius: 999px; border: 2px solid rgba(255,255,255,.7); animation: ux-ring 1.6s ease-out infinite; }
+.ux-ico i + i { animation-delay: .8s; }
+@keyframes ux-ring { from { transform: scale(1); opacity: .9; } to { transform: scale(1.75); opacity: 0; } }
+.ux-ht { position: relative; z-index: 1; min-width: 0; flex: 1; }
+.ux-kick { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,.18);
+  font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.ux-kick svg { width: 12px; height: 12px; }
+.ux-title { margin: 8px 0 0; font-size: 24px; font-weight: 700; line-height: 30px; letter-spacing: -.01em; color: #fff; }
+.ux-x { position: relative; z-index: 1; align-self: flex-start; width: 34px; height: 34px; flex: none; border-radius: 999px; border: 0; display: grid; place-items: center; cursor: pointer;
+  background: rgba(255,255,255,.16); color: #fff; transition: background .15s; }
+.ux-x:hover { background: rgba(255,255,255,.28); }
+.ux-x svg { width: 16px; height: 16px; }
+.ux-body { padding: 20px 22px 22px; }
+.ux-text { margin: 0; font-size: 16px; line-height: 1.6; color: #1F1F1F; }
+.ux-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.ux-meta span { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 999px; background: #F7F7F7; border: 1px solid #EDEDED;
+  font-size: 12px; font-weight: 500; color: #525252; }
+.ux-meta svg { width: 13px; height: 13px; color: #8A8A8A; }
+.ux-sound { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 10px 12px 10px 14px; border-radius: 14px; background: #FAFAFA; border: 1px solid #EFEFEF;
+  font-size: 12.5px; color: #6B6B6B; }
+.ux-sound > i { width: 8px; height: 8px; flex: none; border-radius: 999px; background: #C4C4C4; }
+.ux-sound.is-on { background: rgba(220,38,38,.06); border-color: rgba(220,38,38,.18); color: #991B1B; font-weight: 600; }
+.ux-sound.is-on > i { background: #DC2626; animation: ux-beat .6s ease-in-out infinite alternate; }
+.ux-sound.is-blocked { background: rgba(245,158,11,.08); border-color: rgba(245,158,11,.25); color: #92400E; font-weight: 600; }
+.ux-sound.is-blocked > i { background: #F59E0B; }
+@keyframes ux-beat { to { transform: scale(1.5); opacity: .55; } }
+.ux-sound span { flex: 1; min-width: 0; }
+.ux-sound button { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid #E5E5E5; background: #fff; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; color: #262626; }
+.ux-sound button:hover { background: #F5F5F5; }
+.ux-acts { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; margin-top: 18px; }
+.ux-ack, .ux-view { height: 50px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; }
+.ux-ack { border: 0; background: #DC2626; color: #fff; box-shadow: 0 14px 28px -14px rgba(220,38,38,.9); transition: background .15s, transform .12s; }
+.ux-ack:hover { background: #B91C1C; transform: translateY(-1px); }
+.ux-ack svg { width: 16px; height: 16px; }
+.ux-view { border: 1px solid #E5E5E5; background: #fff; color: #262626; transition: background .15s; }
+.ux-view:hover { background: #F7F7F7; }
+.ux-view svg { width: 14px; height: 14px; color: #8A8A8A; }
+.ux-ack:focus-visible, .ux-view:focus-visible, .ux-x:focus-visible, .ux-sound button:focus-visible { outline: 3px solid rgba(220,38,38,.35); outline-offset: 2px; }
+@media (max-width: 560px) {
+  .ux-top { padding: 18px 16px; gap: 12px; }
+  .ux-ico { width: 46px; height: 46px; }
+  .ux-title { font-size: 20px; line-height: 26px; }
+  .ux-body { padding: 16px; }
+  .ux-text { font-size: 15px; }
+  .ux-acts { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ug-urgent-host:has(.ux), .ux-ico i, .ux-sound.is-on > i { animation: none; }
+}
+/* more than one emergency at once: stack them with a gap and let the overlay scroll */
+.ug-urgent-host:has(.ux) { overflow-y: auto; align-content: center; gap: 16px; padding: 24px 16px; }
+/* Acknowledge: the one action that matters here */
+.ux-ack { position: relative; gap: 10px; font-size: 15px; font-weight: 700; letter-spacing: .01em;
+  background: linear-gradient(180deg, #EF4444 0%, #DC2626 55%, #B91C1C 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 16px 30px -14px rgba(220,38,38,.95);
+  animation: ux-ack-glow 1.8s ease-in-out infinite; }
+.ux-ack:hover { background: linear-gradient(180deg, #DC2626 0%, #B91C1C 100%); transform: translateY(-1px); animation-play-state: paused; }
+.ux-ack:active { transform: translateY(0); }
+.ux-ack-i { width: 24px; height: 24px; flex: none; border-radius: 999px; display: grid; place-items: center; background: #fff; color: #DC2626; }
+.ux-ack-i svg { width: 14px; height: 14px; stroke-width: 3; }
+@keyframes ux-ack-glow {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 16px 30px -14px rgba(220,38,38,.95), 0 0 0 0 rgba(220,38,38,.35); }
+  50% { box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 16px 30px -14px rgba(220,38,38,.95), 0 0 0 7px rgba(220,38,38,0); }
+}
+@media (prefers-reduced-motion: reduce) { .ux-ack { animation: none; } }
+
+/* ---------------------------------------------- Super Admin: the uniguard gold
+   As in the React app (.ug-admin-ops, SuperAdminPortal): selected pills and
+   segments and the primary buttons fill with the gold gradient and white
+   text; everything else stays neutral. */
+html[data-portal="admin"] .ug-bg {
+  --adm-grad: linear-gradient(140deg, #DDA024 0%, #B9770E 55%, #A2650A 100%);
+  --adm-solid: #A2650A;
+}
+html[data-portal="admin"] .ug-bg :is(.sc-seg, .inc-tabs, .an-seg, .gd-phases, .an-tabs) button.is-on,
+html[data-portal="admin"] .ug-bg :is(.sos-tabs, .du-types) button.is-on,
+html[data-portal="admin"] .ug-bg .bg-page .ug-chip.is-on {
+  background: var(--adm-grad) !important; border-color: transparent !important; color: #fff !important; box-shadow: 0 6px 14px -8px rgba(162,101,10,.8) !important;
+}
+html[data-portal="admin"] .ug-bg :is(.sc-seg, .inc-tabs, .an-seg, .gd-phases, .an-tabs, .sos-tabs, .du-types) button.is-on :is(i, em, small, svg) { color: rgba(255,255,255,.9) !important; }
+html[data-portal="admin"] .ug-bg :is(.sos-tabs, .du-types, .inc-tabs) button.is-on i { background: rgba(255,255,255,.22) !important; }
+html[data-portal="admin"] .ug-bg :is(.bg-btn--solid, .bg-qa--solid, .hl-primary, .hl-save, .lv-btn, .np-go, .ug-btn--signal),
+html[data-portal="admin"] .ug-bg .bg-page .ug-btn--signal {
+  background: var(--adm-grad) !important; border-color: transparent !important; color: #fff !important; box-shadow: 0 10px 20px -12px rgba(162,101,10,.9) !important;
+}
+html[data-portal="admin"] .ug-bg :is(.bg-btn--solid, .bg-qa--solid, .hl-primary, .hl-save, .lv-btn, .ug-btn--signal) svg { color: #fff !important; }
+html[data-portal="admin"] .ug-bg :is(.bg-btn--solid, .bg-qa--solid, .hl-primary, .hl-save, .lv-btn, .ug-btn--signal):is(:hover, :focus-visible) {
+  background: #8A5A00 !important; filter: none;
+}
+html[data-portal="admin"] .ug-bg .hl-primary:disabled { opacity: .45; }
+/* bars and dots that carry the portal colour */
+html[data-portal="admin"] .ug-bg :is(.an-bar i, .rl-bar i, .sc-bar i) { background: var(--adm-grad) !important; opacity: 1; }
+
+/* hide the scroll bars around the console frames (the page still scrolls
+   with the wheel, touch and keyboard) */
+html, body, #ug-root, .ug-frame, .ug-scroll, .ug-d-body, .bg-body,
+.ug-sa .sa-main, .ug-sa .sa-side, .ug-sa .sa-pulse-scroll, .dp-body { scrollbar-width: none; -ms-overflow-style: none; }
+html::-webkit-scrollbar, body::-webkit-scrollbar, #ug-root::-webkit-scrollbar, .ug-frame::-webkit-scrollbar,
+.ug-scroll::-webkit-scrollbar, .ug-d-body::-webkit-scrollbar, .bg-body::-webkit-scrollbar,
+.ug-sa .sa-main::-webkit-scrollbar, .ug-sa .sa-side::-webkit-scrollbar, .ug-sa .sa-pulse-scroll::-webkit-scrollbar, .dp-body::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+/* rounded console frame: the layer behind it must not paint a square of
+   grey over the backdrop, or the frame's corners look square */
+@media (min-width: 1100px) {
+  html[data-portal="command"] .ug-stage--d, html[data-portal="admin"] .ug-stage--d,
+  html[data-portal="barangay"] .ug-stage--d, html[data-portal="dispatch"] .ug-stage--d { background: transparent !important; }
+}
+/* notices are plain white (no yellow showing through the glass) */
+html[data-portal="admin"] .ug-note2 { background: #fff !important; backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+/* "Always allow sound" link on the emergency card and the alarm notice */
+.ux-help { font-size: 12px; font-weight: 600; color: inherit; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.ux-sound:not(.is-blocked) .ux-help { display: none; }
+.n2-go--q { background: none !important; border-color: transparent !important; text-decoration: underline; text-underline-offset: 3px; }
+/* the guide opens above the emergency card */
+.ug-modal.sh-modal { z-index: 980; }
+.sh-modal .ug-modal-card { width: min(520px, 100%); border-radius: 24px; }
+.sh-modal .ug-modal-body { padding: 16px 24px 20px; }
+.sh-lead { margin: 0 0 14px; font-size: 13px; line-height: 1.6; color: #525252; }
+.sh-sec { padding: 14px 16px; border-radius: 16px; background: #FAFAFA; border: 1px solid #EFEFEF; }
+.sh-sec + .sh-sec { margin-top: 10px; }
+.sh-best { background: #FEF2F2; border-color: #FBDADA; }
+.sh-sec h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 14px; font-weight: 600; color: #171717; }
+.sh-sec h4 svg { width: 15px; height: 15px; color: #991B1B; }
+.sh-sec p { margin: 0; font-size: 13px; line-height: 1.55; color: #525252; }
+.sh-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.sh-steps li { display: flex; gap: 10px; font-size: 13px; line-height: 1.5; color: #262626; }
+.sh-steps li > b { flex: none; width: 20px; height: 20px; border-radius: 999px; display: grid; place-items: center; background: #fff; border: 1px solid #E5E5E5; font-size: 11px; color: #991B1B; }
+.sh-fine { margin: 12px 0 0; font-size: 11px; color: #A3A3A3; }

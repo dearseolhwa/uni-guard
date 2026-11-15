@@ -72,19 +72,19 @@ const UG_ROADWORK = (function () {
     const roadStatus = UG.DATA.roadStatus || [];
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">Road Conditions</div>' +
-      '<h2 style="font-size:19px;margin-top:3px">Road Work & Road Status</h2>' +
+      '<h2 style="font-size:18px;margin-top:3px">Road Work & Road Status</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Active road work posts from the LGU and the live road-status overlay. Tap a road-closed marker on the map to see why.</p></div>' +
 
       '<div class="ug-card"><div class="ug-card-h"><h3>Active Road Work</h3><span class="ug-chip is-on">' + list.length + ' posts</span></div>' +
         '<div class="ug-card-b ug-col" style="gap:11px">' + (list.length ? list.map((r) =>
           '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
             '<span style="color:var(--ug-warning);display:flex">' + I('road', 18) + '</span>' +
-            '<div style="min-width:0;flex:1"><div style="font-size:12.5px;font-weight:600">' + esc(r.title) + '</div>' +
-              '<div class="ug-dim" style="font-size:11.5px;line-height:1.5;margin-top:3px">' + esc(r.description) + '</div>' +
+            '<div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:600">' + esc(r.title) + '</div>' +
+              '<div class="ug-dim" style="font-size:12px;line-height:1.5;margin-top:3px">' + esc(r.description) + '</div>' +
               '<div class="r-m"><span>' + I('pin', 12) + esc(r.barangay) + '</span>' +
                 '<span>' + I('clock', 12) + (r.expected_end ? 'Until ' + fmt(r.expected_end) : 'Until further notice') + '</span></div></div></div>').join('') :
           '<div class="ug-empty"><span class="e-ico">' + I('road', 20) + '</span>' +
-          '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No Active Road Work</div>' +
+          '<div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">No Active Road Work</div>' +
           '<div class="ug-dim" style="font-size:11px">The road is clear municipality-wide.</div></div>') + '</div></div>' +
 
       '<div class="ug-card"><div class="ug-card-h"><h3>Road Status</h3>' +
@@ -105,7 +105,7 @@ const UG_ROADWORK = (function () {
   function roadDetailModal(id, st) {
     const r = (UG.DATA.roadStatus || []).find((x) => x.id === id);
     if (!r) return;
-    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
+    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
     const sess = (st && st.session) || (window.UG_App && UG_App.S && UG_App.S.session) || null;
     const isStaff = !!(sess && (sess.role === 'barangay_official' || sess.role === 'lgu_ldrrmc'));
     UG_FEATURES.modal({
@@ -147,37 +147,54 @@ const UG_ROADWORK = (function () {
       head(T('title.roadwork'), T('roadwork.subtitle'),
         '<span class="ug-chip is-on">' + (UG.DATA.roadWork || []).filter((r) => r.status === 'active').length + ' ' + esc(T('label.active')) + '</span>') +
 
-      '<div class="ug-card ug-tick"><div class="ug-card-h"><h3>' + esc(T('roadwork.newPost')) + '</h3></div>' +
-        '<div class="ug-card-b ug-col" style="gap:0">' +
-          '<div class="ug-field"><label class="ug-lab">' + esc(T('label.title')) + '</label>' +
-            '<input class="ug-in" data-field="rwTitle" value="' + esc(d.title || '') + '" placeholder="e.g. Road clearing: Aguila Rd"></div>' +
-          '<div class="ug-field"><label class="ug-lab">' + esc(T('label.description')) + '</label>' +
-            '<textarea class="ug-ta" rows="3" data-field="rwDescription" placeholder="What is happening, what lane is closed, any detour to recommend.">' + esc(d.description || '') + '</textarea></div>' +
-          '<div class="ug-rowf ug-gap12" style="gap:12px">' +
-            '<div class="ug-field" style="flex:1"><label class="ug-lab">' + esc(T('label.barangay')) + '</label>' +
-              '<select class="ug-sel" data-field="rwBarangay">' +
-              [UG_GEO.PLACE.areaAll].concat(brgys).map((b) => '<option' + (d.barangay === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select></div>' +
-            '<div class="ug-field" style="flex:1"><label class="ug-lab">' + esc(T('label.roadName')) + '</label>' +
-              '<input class="ug-in" data-field="rwRoad" value="' + esc(d.road_name || '') + '" placeholder="Aguila Rd"></div>' +
+      /* New Road Work Post (Nov 2026): two groups side by side, the notice
+         itself and where / how long, each field with a short hint; the
+         duration is picked from quick choices (or typed) and shows when it
+         ends; the footer says who is notified. Same fields and actions. */
+      (function () {
+        const hrs = d.expected_hours != null && !isNaN(d.expected_hours) ? Number(d.expected_hours) : 6;
+        const ends = new Date(Date.now() + hrs * 3600000);
+        const endsTxt = ends.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+        const hasPin = d.lat != null && d.lng != null && !isNaN(d.lat) && !isNaN(d.lng);
+        const where = hasPin ? esc(UG_GEO.fmt(d.lat, d.lng)) + (d.address ? ' · ' + esc(d.address) : '') : d.address ? esc(d.address) : '';
+        const allArea = d.barangay === UG_GEO.PLACE.areaAll;
+        const step = Number(st.rwStep) === 2 ? 2 : 1;
+        return '<section class="rw" data-rw-step="' + step + '">' +
+          '<header class="rw-h"><h3>' + I('road', 16) + esc(T('roadwork.newPost')) + '</h3><p>Fill in what is happening and where. Residents ' + (allArea ? 'across Lingayen' : 'of Barangay ' + esc(d.barangay)) + ' get a push notification when you publish.</p></header>' +
+          /* phones: two pages (Notice → Location & duration) */
+          '<ol class="rf-stepper rw-stepper">' + [['1', 'Notice'], ['2', 'Location & duration']].map((x) =>
+            '<li class="' + (Number(x[0]) <= step ? 'is-on' : '') + (Number(x[0]) === step ? ' is-cur' : '') + '"><button type="button"' + A('rw-step', attr({ v: x[0] })) + '><i></i><span>' + x[1] + '</span></button></li>').join('') + '</ol>' +
+          '<div class="rw-cols">' +
+            '<fieldset class="rw-g" data-g="1"><legend><b>1</b>Notice</legend>' +
+              '<label class="rw-f"><span>Title <em>required</em></span><input class="ug-in" data-field="rwTitle" value="' + esc(d.title || '') + '" placeholder="e.g. Road clearing: Aguila Rd"><small>Short and specific. This is the headline residents see.</small></label>' +
+              '<label class="rw-f"><span>Description</span><textarea class="ug-ta" rows="4" data-field="rwDescription" placeholder="e.g. Fallen tree being cleared. Northbound lane closed; use Avenida Rizal instead.">' + esc(d.description || '') + '</textarea><small>Say what is happening, which lane is closed and the detour to take.</small></label>' +
+            '</fieldset>' +
+            '<fieldset class="rw-g" data-g="2"><legend><b>2</b>Location &amp; duration</legend>' +
+              '<div class="rw-two">' +
+                '<label class="rw-f"><span>Barangay</span><select class="ug-sel" data-field="rwBarangay">' +
+                  [UG_GEO.PLACE.areaAll].concat(brgys).map((b) => '<option' + (d.barangay === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select><small>Decides who gets the notification.</small></label>' +
+                '<label class="rw-f"><span>Road name</span><input class="ug-in" data-field="rwRoad" value="' + esc(d.road_name || '') + '" placeholder="e.g. Aguila Rd"></label>' +
+              '</div>' +
+              '<div class="rw-f"><span>Map pin <em>optional</em></span>' +
+                '<div class="rw-pin' + (where ? ' is-set' : '') + '"><span class="rw-pin-ico">' + I('pin', 15) + '</span>' +
+                  '<span class="rw-pin-t">' + (where ? '<b>' + where + '</b>' : '<b>No pin yet</b><i>Use your location, or type the street.</i>') + '</span>' +
+                  '<button type="button" class="rw-chip"' + A('rw-locate') + '>' + I('target', 13) + 'My location</button>' +
+                  '<button type="button" class="rw-chip"' + A('rw-manual-pin') + '>' + I('doc', 13) + 'Type address</button></div>' +
+                '<small>The address is what residents read. With a map pin they also get Waze directions.</small></div>' +
+              '<div class="rw-f"><span>Expected duration</span>' +
+                '<div class="rw-dur"><div class="rw-dur-opts" role="radiogroup" aria-label="Expected duration">' +
+                  [[2, '2 h'], [4, '4 h'], [6, '6 h'], [12, '12 h'], [24, '1 day'], [48, '2 days']].map((o) =>
+                    '<button type="button" role="radio" aria-checked="' + (hrs === o[0]) + '" class="' + (hrs === o[0] ? 'is-on' : '') + '"' + A('rw-hours', attr({ v: o[0] })) + '>' + o[1] + '</button>').join('') + '</div>' +
+                  '<label class="rw-dur-in"><input class="ug-in" data-field="rwHours" value="' + esc(String(hrs)) + '" inputmode="decimal" aria-label="Hours"><em>hours</em></label></div>' +
+                '<small>' + I('clock', 12) + 'Ends around <b>' + esc(endsTxt) + '</b>. The post closes on its own after that.</small></div>' +
+            '</fieldset>' +
           '</div>' +
-          '<div class="ug-field"><label class="ug-lab">' + esc(T('label.roadPin')) + '</label>' +
-            '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:center">' +
-              '<span class="ug-mono" style="flex:1;font-size:12px">' + (
-                (d.lat != null && d.lng != null) ? esc(UG_GEO.fmt(d.lat, d.lng)) + (d.address ? ' · ' + esc(d.address) : '')
-                : d.address ? esc(d.address)
-                : esc(T('roadwork.noPinSet'))
-              ) + '</span>' +
-              '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('rw-locate') + '>' + I('pin', 15) + esc(T('action.myLocation')) + '</button>' +
-              '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('rw-manual-pin') + '>' + esc(T('action.type')) + '</button>' +
-            '</div>' +
-            '<div class="ug-help">' + esc(T('roadwork.pinHelp')) + '</div></div>' +
-          '<div class="ug-field"><label class="ug-lab">' + esc(T('label.expectedDuration')) + '</label>' +
-            '<input class="ug-in" data-field="rwHours" value="' + esc(d.expected_hours != null ? d.expected_hours : 6) + '" inputmode="numeric"></div>' +
-          '<div class="ug-rowf ug-gap8" style="gap:8px">' +
-            '<button class="ug-btn ug-btn--signal"' + A('rw-publish') + '>' + I('megaphone', 16) + esc(T('action.publishNotify')) + '</button>' +
-            '<button class="ug-btn ug-btn--ghost"' + A('rw-clear') + '>' + esc(T('action.clear')) + '</button>' +
-          '</div>' +
-        '</div></div>' +
+          '<div class="rw-snav"><button type="button" class="ac-next"' + A('rw-step', attr({ v: '2' })) + '>Next' + I('chevron', 14) + '</button></div>' +
+          '<footer class="rw-foot"><span>' + I('bell', 13) + 'Publishing sends a push notification to ' + (allArea ? 'all residents' : 'residents of Barangay ' + esc(d.barangay)) + '.</span>' +
+            '<div><button class="ug-btn ug-btn--ghost rw-back"' + A('rw-step', attr({ v: '1' })) + '>Back</button><button class="ug-btn ug-btn--ghost rw-clr"' + A('rw-clear') + '>Clear</button>' +
+            '<button class="ug-btn ug-btn--signal rw-go' + ((d.title || '').trim() ? ' is-ready' : '') + '"' + A('rw-publish') + '>' + I('megaphone', 15) + esc(T('action.publishNotify')) + '</button></div></footer>' +
+        '</section>';
+      })() +
 
       '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(T('roadwork.roadStatusOverlay')) + '</h3>' +
         '<div class="ug-rowf ug-gap8" style="gap:8px">' +
@@ -203,7 +220,7 @@ const UG_ROADWORK = (function () {
   }
 
   function head(title, sub, actions) {
-    return '<div class="ug-rowf ug-between ug-wrap" style="gap:14px;align-items:flex-end">' +
+    return '<div class="ug-rowf ug-between ug-wrap ug-phead" style="gap:14px;align-items:flex-end">' +
       '<div><h2 style="font-size:20px">' + esc(title) + '</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:4px">' + esc(sub) + '</p></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';

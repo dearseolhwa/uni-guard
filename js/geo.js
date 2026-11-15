@@ -23,8 +23,8 @@ const UG_GEO = (function () {
     /* wording that replaces the old "Citywide" */
     areaAll: 'Municipality-wide',
     scope: 'Municipality-wide · Lingayen',
-    office: 'Municipal DRRMO',
-    controller: 'Municipal Government of Lingayen, through the Municipal Disaster Risk Reduction and Management Office (MDRRMO)'
+    office: 'Lingayen LDRRMO',
+    controller: 'Municipal Government of Lingayen, through the Local Disaster Risk Reduction and Management Office (LDRRMO)'
   };
 
   /* municipal centre, then a zoom that shows the whole built-up area */

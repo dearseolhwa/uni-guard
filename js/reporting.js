@@ -119,9 +119,11 @@ const UG_REPORTING = (function () {
       const clean = Object.assign({}, row);
       const id = clean.id;
       delete clean.id; delete clean.created_at; delete clean.updated_at; delete clean.created_by;
-      const q = id ? c.from('damage_assessments').update(clean).eq('id', id) : c.from('damage_assessments').insert(clean);
-      const { error } = await q;
+      const q = id ? c.from('damage_assessments').update(clean).eq('id', id).select('id') : c.from('damage_assessments').insert(clean).select('id');
+      const { data: saved, error } = await q;
       if (error) throw new Error(error.message);
+      /* row security refuses silently: nothing saved means not allowed */
+      if (!saved || !saved.length) throw new Error('This assessment could not be saved. Your account may not have permission.');
       await loadDna();
       return;
     }
@@ -138,7 +140,8 @@ const UG_REPORTING = (function () {
 
   async function removeDna(id) {
     if (state.dnaMode === 'server') {
-      const { error } = await client().from('damage_assessments').delete().eq('id', id);
+      const { data: gone, error } = await client().from('damage_assessments').delete().eq('id', id).select('id');
+      if (!error && (!gone || !gone.length)) throw new Error('This assessment could not be deleted. Your account may not have permission.');
       if (error) throw new Error(error.message);
       await loadDna();
       return;
@@ -207,8 +210,8 @@ const UG_REPORTING = (function () {
     const relief = (UG.DATA.relief || []).filter((r) => inScope(r.barangay) && inPeriod(r.distribution_at));
     const distLog = (UG.DATA.distributionLog || []).filter((r) => inScope(r.barangay) && inPeriod(r.distributed_at || r.date || r.created_at));
     /* same rule as the relief inventory screen: an official sees their own
-       barangay's store and the shared (unassigned) MDRRMO stock */
-    const inventory = (UG.DATA.inventory || []).filter((i) => !isOfficial() || !i.barangay || (i.barangay || 'MDRRMO Warehouse') === me().barangay);
+       barangay's store and the shared (unassigned) LDRRMO stock */
+    const inventory = (UG.DATA.inventory || []).filter((i) => !isOfficial() || !i.barangay || (i.barangay || 'LDRRMO Warehouse') === me().barangay);
 
     const byStatus = {};
     incidents.forEach((i) => { byStatus[i.status] = (byStatus[i.status] || 0) + 1; });
@@ -506,81 +509,94 @@ const UG_REPORTING = (function () {
 
   /* ----------------------------------------------------------------- render */
   function head(title, sub, actions) {
-    return '<div class="ug-rowf ug-between ug-wrap" style="gap:14px;align-items:flex-end">' +
+    return '<div class="ug-rowf ug-between ug-wrap ug-phead" style="gap:14px;align-items:flex-end">' +
       '<div><h2 style="font-size:20px">' + esc(title) + '</h2><p class="ug-dim" style="font-size:12px;margin-top:4px">' + esc(sub) + '</p></div>' +
       '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:8px">' + (actions || '') + '</div></div>';
   }
 
   const exportButtons = (pdfAct, xlsAct, extra) =>
-    '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A(pdfAct, extra) + '>' + I('doc', 15) + 'Export PDF</button>' +
-    '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A(xlsAct, extra) + '>' + I('download', 15) + 'Export Excel</button>';
+    '<button class="hl-ghost"' + A(pdfAct, extra) + '>' + I('doc', 14) + 'PDF</button>' +
+    '<button class="hl-ghost"' + A(xlsAct, extra) + '>' + I('download', 14) + 'Excel</button>';
+  /* phones: one round Export button with a small PDF / Excel menu */
+  const exportMenu = (pdfAct, xlsAct, extra) =>
+    '<div class="ug-wmore an-xdd rp-xdd"><button class="an-xbtn"' + A('toggle-more') + ' aria-haspopup="menu" aria-label="Export">' + I('download', 17) + '</button>' +
+      '<div class="an-xpanel" data-more-panel hidden role="menu">' +
+        '<button role="menuitem"' + A(pdfAct, extra) + '>' + I('doc', 15) + '<span><b>PDF</b><small>Ready to print or share</small></span></button>' +
+        '<button role="menuitem"' + A(xlsAct, extra) + '>' + I('download', 15) + '<span><b>Excel</b><small>Spreadsheet with every row</small></span></button>' +
+      '</div></div>';
+  /* quiet white figure card (Nov 2026 look) */
+  const fig = (label, value, sub, icon) => '<div class="rp-fig"><span class="rp-fig-i">' + I(icon, 15) + '</span><p>' + esc(label) + '</p><b>' + esc(value) + '</b><small>' + esc(sub) + '</small></div>';
 
   function previewTable(s, cap) {
     const rows = s.rows.slice(0, cap || 6);
     const types = s.types || [];
     const cell = (c, i) => { const t = (c && typeof c === 'object' && 't' in c) ? c.t : types[i];
-      return '<td' + (UG_EXPORT.isNumericType(t) ? ' class="t-num"' : '') + ' style="max-width:320px">' + esc(typeof c === 'string' && UG_EXPORT.isNumericType(t) ? c : UG_EXPORT.formatCell(c, t)) + '</td>'; };
-    return '<div class="ug-card" style="overflow:hidden"><div class="ug-card-h"><h3>' + esc(s.name) + '</h3>' +
-        '<span class="ug-chip">' + s.rows.length + ' row' + (s.rows.length === 1 ? '' : 's') + '</span></div>' +
+      return '<td' + (UG_EXPORT.isNumericType(t) ? ' class="rp-n"' : '') + ' data-l="' + esc(s.head[i] || '') + '">' + esc(typeof c === 'string' && UG_EXPORT.isNumericType(t) ? c : UG_EXPORT.formatCell(c, t)) + '</td>'; };
+    return '<section class="rl-card rp-tbl"><div class="rl-ch"><h2>' + I('doc', 15) + esc(s.name) + '</h2><div class="rl-ch-r"><span class="rl-count">' + s.rows.length + ' row' + (s.rows.length === 1 ? '' : 's') + '</span></div></div>' +
       (s.rows.length
-        ? '<div style="overflow-x:auto"><table class="ug-table"><thead><tr>' + s.head.map((h) => '<th>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
+        ? '<div class="rl-tablewrap"><table class="rl-table"><thead><tr>' + s.head.map((h, i) => '<th' + (UG_EXPORT.isNumericType(types[i]) ? ' class="rp-n"' : '') + '>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
             rows.map((r) => '<tr>' + r.map(cell).join('') + '</tr>').join('') +
-            (s.total ? '<tr style="font-weight:700">' + s.total.map(cell).join('') + '</tr>' : '') +
+            (s.total ? '<tr class="rp-total">' + s.total.map(cell).join('') + '</tr>' : '') +
           '</tbody></table></div>' +
-          (s.rows.length > rows.length ? '<div class="ug-dimmer" style="font-size:11px;padding:9px 14px">+ ' + (s.rows.length - rows.length) + ' more in the exported document</div>' : '')
-        : '<div class="ug-dimmer" style="font-size:11.5px;padding:14px">Nothing to report for this period and scope.</div>') +
-      '</div>';
+          (s.rows.length > rows.length ? '<p class="rp-more">+ ' + (s.rows.length - rows.length) + ' more in the exported document</p>' : '')
+        : '<p class="rp-empty">Nothing to report for this period and scope.</p>') +
+      '</section>';
   }
 
   function deviceNote() {
     if (state.dnaMode === 'server') return '';
-    return '<div class="ug-card ug-card--flat" style="border-left:3px solid var(--ug-warning)"><div class="ug-card-b" style="font-size:11.5px;line-height:1.55">' +
-      '<b style="color:var(--ug-warning)">Saved on this device only.</b> Damage assessments and the situation report register are kept in this browser until ' +
-      'migration 044 is applied to the database. After that they are shared across every LDRRMO and barangay device and written to the activity log.</div></div>';
+    return UG.note('rp-device', 1, 'info', 'Saved on this device only',
+      'Damage assessments and the situation report register stay in this browser until migration 044 is applied. After that they are shared across every LDRRMO and barangay device and written to the activity log.');
   }
 
   function tabs() {
-    const list = [['sitrep', 'Situation Report', 'doc'], ['incident', 'Incident Summary', 'alert'], ['dna', 'Damage & Needs Assessment', 'layers']];
-    return '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:8px">' + list.map((t) =>
-      '<button class="ug-chip' + (state.tab === t[0] ? ' is-on' : '') + '"' + A('rp-tab', attr({ v: t[0] })) + '>' + I(t[2], 14) + t[1] + '</button>').join('') + '</div>';
+    const list = [['sitrep', 'Situation Report', 'doc', 'Compiled from live data'], ['incident', 'Incident Summary', 'alert', 'One report, start to finish'], ['dna', 'Damage & Needs', 'layers', 'Assessments per barangay']];
+    const cur = list.find((t) => t[0] === state.tab) || list[0];
+    const dd = '<div class="ug-wmore inc-dd rp-dd"><button class="inc-dd-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Report type">' +
+        I(cur[2], 17) + '<span><b>' + cur[1] + '</b><small>' + cur[3] + '</small></span>' + I('chevdn', 16) + '</button>' +
+      '<div class="inc-dd-panel" data-more-panel hidden role="listbox">' + list.map((t) =>
+        '<button role="option" class="' + (t[0] === state.tab ? 'is-on' : '') + '"' + A('rp-tab', attr({ v: t[0] })) + '>' + I(t[2], 16) +
+          '<span><b>' + t[1] + '</b><small>' + t[3] + '</small></span>' + (t[0] === state.tab ? I('check', 14) : '') + '</button>').join('') + '</div></div>';
+    return dd + '<div class="an-tabs rp-tabs" role="tablist" aria-label="Report type">' + list.map((t) =>
+      '<button role="tab" aria-selected="' + (state.tab === t[0]) + '" class="' + (state.tab === t[0] ? 'is-on' : '') + '"' + A('rp-tab', attr({ v: t[0] })) + '>' + I(t[2], 18) +
+        '<span><b>' + t[1] + '</b><small>' + t[3] + '</small></span></button>').join('') + '</div>';
   }
 
-  const field = (label, inner, style) => '<div class="ug-field" style="margin:0;' + (style || '') + '"><label class="ug-lab">' + esc(label) + '</label>' + inner + '</div>';
+  const field = (label, inner, style) => '<label class="rp-field"' + (style ? ' style="' + style + '"' : '') + '><span>' + esc(label) + '</span>' + inner + '</label>';
   const brgyOptions = (sel, withAll) => (withAll ? '<option value="All"' + (sel === 'All' ? ' selected' : '') + '>All barangays</option>' : '') +
     barangayNames().map((b) => '<option' + (b === sel ? ' selected' : '') + '>' + esc(b) + '</option>').join('');
 
   function vSitrep() {
     const built = sitrepSections();
     const c = built.counts;
-    const controls = '<div class="ug-card"><div class="ug-card-b ug-col" style="gap:12px">' +
-      '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:flex-end">' +
-        field('Event or incident name', '<input class="ug-in" data-rp="eventName" value="' + esc(state.eventName) + '" placeholder="e.g. Typhoon Pepito, Southwest Monsoon">', 'flex:2;min-width:220px') +
-        field('From', '<input class="ug-in" type="date" data-rp="from" value="' + esc(state.from) + '">') +
-        field('To', '<input class="ug-in" type="date" data-rp="to" value="' + esc(state.to) + '">') +
-        (isLgu() ? field('Barangay', '<select class="ug-sel" data-rp="brgy">' + brgyOptions(state.brgy, true) + '</select>', 'min-width:170px') : '') +
+    const controls = '<section class="rp-form"><header class="rp-form-h"><div><h3>' + esc(sitrepTitle()) + '</h3><p>' + esc(scopeLabel()) + ' · the number advances when you save it to the register.</p></div>' +
+        '<div class="rp-acts">' + exportButtons('rp-sitrep-pdf', 'rp-sitrep-xlsx') +
+          '<button class="hl-ghost hl-primary"' + A('rp-sitrep-save') + '>' + I('check', 14) + 'Save to register</button></div>' + exportMenu('rp-sitrep-pdf', 'rp-sitrep-xlsx') + '</header>' +
+      '<div class="rp-grid">' +
+        field('Event or incident name', '<input class="rl-in" data-rp="eventName" value="' + esc(state.eventName) + '" placeholder="e.g. Typhoon Pepito, Southwest Monsoon">', 'grid-column:span 2') +
+        field('From', '<input class="rl-in" type="date" data-rp="from" value="' + esc(state.from) + '">') +
+        field('To', '<input class="rl-in" type="date" data-rp="to" value="' + esc(state.to) + '">') +
+        (isLgu() ? field('Barangay', '<select class="rl-in rl-sel" data-rp="brgy">' + brgyOptions(state.brgy, true) + '</select>') : '') +
       '</div>' +
-      field('Remarks and actions taken (optional)', '<textarea class="ug-ta" rows="2" data-rp="remarks" placeholder="Summary of actions taken, coordination with BFP / PNP / DSWD / DOH / OCD, and next steps.">' + esc(state.remarks) + '</textarea>') +
-      '<div class="ug-rowf ug-between ug-wrap" style="gap:10px;align-items:center">' +
-        '<span class="ug-dimmer" style="font-size:11px">This will be <b>' + esc(sitrepTitle()) + '</b> · ' + esc(scopeLabel()) + '. The number advances when you save it to the register.</span>' +
-        '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:8px">' + exportButtons('rp-sitrep-pdf', 'rp-sitrep-xlsx') +
-          '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('rp-sitrep-save') + '>' + I('check', 15) + 'Save to register</button></div>' +
-      '</div></div></div>';
+      '<div class="rp-grid rp-grid--1">' + field('Remarks and actions taken (optional)', '<textarea class="rp-ta" rows="3" data-rp="remarks" placeholder="Actions taken, coordination with BFP / PNP / DSWD / DOH / OCD, and next steps.">' + esc(state.remarks) + '</textarea>') + '</div>' +
+      '<div class="rp-msave"><button class="rp-msave-b"' + A('rp-sitrep-save') + '>' + I('check', 15) + 'Save to register</button><small>Records the number, period and headline figures.</small></div>' +
+      '</section>';
 
-    const stats = '<div class="ug-dgrid4">' +
-      UG.stat({ label: 'Incidents in period', value: String(c.incidents), delta: periodText(), dir: 'flat', tone: 'advisory', icon: 'inbox' }) +
-      UG.stat({ label: 'Evacuees in centers', value: fmt(c.evacuees), delta: c.openCenters + ' center(s) open', dir: 'flat', tone: 'warning', icon: 'shelter' }) +
-      UG.stat({ label: 'Affected families', value: fmt(c.families), delta: fmt(c.persons) + ' persons assessed', dir: 'flat', tone: 'emergency', icon: 'users' }) +
-      UG.stat({ label: 'Assessments included', value: String(c.dna), delta: 'Damage and needs', dir: 'flat', tone: 'resolved', icon: 'layers' }) +
+    const stats = '<div class="rp-figs">' +
+      fig('Incidents in period', String(c.incidents), periodText(), 'inbox') +
+      fig('Evacuees in centers', fmt(c.evacuees), c.openCenters + ' center(s) open', 'shelter') +
+      fig('Affected families', fmt(c.families), fmt(c.persons) + ' persons assessed', 'users') +
+      fig('Assessments included', String(c.dna), 'Damage and needs', 'layers') +
       '</div>';
 
     const issued = state.issued || [];
-    const register = '<div class="ug-card" style="overflow:hidden"><div class="ug-card-h"><h3>Situation report register</h3><span class="ug-chip">' + issued.length + ' issued</span></div>' +
+    const register = '<section class="rl-card rp-tbl"><div class="rl-ch"><h2>' + I('layers', 15) + 'Situation report register</h2><div class="rl-ch-r"><span class="rl-count">' + issued.length + ' issued</span></div></div>' +
       (issued.length
-        ? '<table class="ug-table"><thead><tr><th>No.</th><th>Event</th><th>Period</th><th>Scope</th><th>Prepared by</th><th>Saved</th></tr></thead><tbody>' +
-          issued.slice(0, 12).map((r) => '<tr><td class="t-num">' + esc(r.sitrep_no) + '</td><td>' + esc(r.event_name || '—') + '</td><td>' + esc((r.period_from || '') + ' to ' + (r.period_to || '')) + '</td>' +
-            '<td>' + esc(r.barangay ? 'Barangay ' + r.barangay : UG_GEO.PLACE.areaAll) + '</td><td>' + esc(r.prepared_by_name || '') + '</td><td class="t-num">' + esc(when(r.created_at)) + '</td></tr>').join('') + '</tbody></table>'
-        : '<div class="ug-dimmer" style="font-size:11.5px;padding:14px">No situation report has been saved yet. Saving records the number, period and headline figures so the next report continues the series.</div>') +
-      '</div>';
+        ? '<div class="rl-tablewrap"><table class="rl-table"><thead><tr><th>No.</th><th>Event</th><th>Period</th><th>Scope</th><th>Prepared by</th><th>Saved</th></tr></thead><tbody>' +
+          issued.slice(0, 12).map((r) => '<tr><td class="t-num" data-l="No.">' + esc(r.sitrep_no) + '</td><td data-l="Event">' + esc(r.event_name || '—') + '</td><td data-l="Period">' + esc((r.period_from || '') + ' to ' + (r.period_to || '')) + '</td>' +
+            '<td data-l="Scope">' + esc(r.barangay ? 'Barangay ' + r.barangay : UG_GEO.PLACE.areaAll) + '</td><td data-l="Prepared by">' + esc(r.prepared_by_name || '') + '</td><td class="t-num" data-l="Saved">' + esc(when(r.created_at)) + '</td></tr>').join('') + '</tbody></table></div>'
+        : '<p class="rp-empty">No situation report has been saved yet. Saving records the number, period and headline figures so the next report continues the series.</p>') +
+      '</section>';
 
     return controls + stats + built.sections.map((s) => previewTable(s, 5)).join('') + register;
   }
@@ -588,16 +604,15 @@ const UG_REPORTING = (function () {
   function vIncident() {
     const list = UG.DATA.incidents || [];
     const inc = findIncident(state.incidentId);
-    const picker = '<div class="ug-card"><div class="ug-card-b ug-rowf ug-gap12 ug-wrap" style="gap:12px;align-items:flex-end">' +
-      field('Incident', '<select class="ug-sel" data-rp="incidentId"><option value="">Choose an incident</option>' +
+    const picker = '<section class="rp-form rp-form--row">' +
+      field('Incident', '<select class="rl-in rl-sel" data-rp="incidentId"><option value="">Choose an incident</option>' +
         list.map((i) => '<option value="' + esc(i.id) + '"' + (inc && inc.id === i.id ? ' selected' : '') + '>' + esc(i.id + ' · ' + i.hazard + ' · ' + i.brgy + ' · ' + statusLabel(i.status)) + '</option>').join('') +
         '</select>', 'flex:1;min-width:280px') +
-      (inc ? '<div class="ug-rowf ug-gap8" style="gap:8px">' + exportButtons('rp-inc-pdf', 'rp-inc-xlsx') + '</div>' : '') +
-      '</div></div>';
+      (inc ? '<div class="rp-acts">' + exportButtons('rp-inc-pdf', 'rp-inc-xlsx') + '</div>' + exportMenu('rp-inc-pdf', 'rp-inc-xlsx') : '') +
+      '</section>';
     if (!inc) {
-      return picker + '<div class="ug-empty"><span class="e-ico">' + I('alert', 20) + '</span>' +
-        '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">Choose an incident to summarise</div>' +
-        '<div class="ug-dim" style="font-size:11px">The summary pulls the report, its status timeline, the teams dispatched and any linked damage assessment into one document.</div></div>';
+      return picker + '<div class="rl-card"><div class="rl-empty"><span>' + I('alert', 20) + '</span><b>Choose an incident to summarise</b>' +
+        '<p>The summary pulls the report, its status timeline, the teams dispatched and any linked damage assessment into one document.</p></div></div>';
     }
     return picker + incidentSections(inc).map((s) => previewTable(s, 14)).join('');
   }
@@ -607,47 +622,47 @@ const UG_REPORTING = (function () {
     const t = dnaTotals(rows);
     const canValidate = isLgu();
     const body = rows.map((d) => {
-      const tone = d.status === 'validated' ? 'var(--ug-prepared)' : d.status === 'submitted' ? 'var(--ug-signal)' : 'var(--ug-ink-3)';
+      const st8 = d.status === 'validated' ? 'is-ok' : d.status === 'submitted' ? 'is-on' : '';
       const locked = d.status === 'validated' && !canValidate;
       return '<tr>' +
-        '<td class="t-num" style="white-space:nowrap">' + esc(d.assessed_on || '') + '</td>' +
-        '<td><div style="font-weight:600">' + esc(d.barangay) + '</div><div class="ug-dimmer" style="font-size:10.5px">' + esc([d.event_name, d.hazard_type].filter(Boolean).join(' · ')) + '</div></td>' +
-        '<td class="t-num">' + fmt(d.affected_families) + ' / ' + fmt(d.affected_persons) + '</td>' +
-        '<td class="t-num">' + fmt(d.dead) + ' / ' + fmt(d.injured) + ' / ' + fmt(d.missing) + '</td>' +
-        '<td class="t-num">' + fmt(d.houses_totally) + ' / ' + fmt(d.houses_partially) + '</td>' +
-        '<td class="t-num">' + esc(php(num(d.infra_damage_php) + num(d.agri_damage_php))) + '</td>' +
-        '<td style="max-width:220px;font-size:11px">' + esc((d.needs || []).join(', ') || '—') + '</td>' +
-        '<td><span class="ug-badge" style="color:' + tone + ';border-color:' + tone + '">' + esc(DNA_STATUS[d.status] || d.status || 'Draft') + '</span></td>' +
-        '<td class="t-right" style="white-space:nowrap">' +
-          (canValidate && d.status === 'submitted' ? '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('rp-dna-status', attr({ id: d.id, v: 'validated' })) + '>Validate</button> ' : '') +
-          (!locked ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('rp-dna-edit', attr({ id: d.id })) + '>Edit</button> ' : '') +
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('rp-dna-one-pdf', attr({ id: d.id })) + ' title="Export this assessment as PDF">' + I('doc', 14) + '</button> ' +
+        '<td class="t-num" style="white-space:nowrap" data-l="Assessed">' + esc(d.assessed_on || '') + '</td>' +
+        '<td class="rp-t1"><b>' + esc(d.barangay) + '</b><small>' + esc([d.event_name, d.hazard_type].filter(Boolean).join(' · ')) + '</small></td>' +
+        '<td class="t-num" data-l="Families / persons">' + fmt(d.affected_families) + ' / ' + fmt(d.affected_persons) + '</td>' +
+        '<td class="t-num" data-l="Dead / injured / missing">' + fmt(d.dead) + ' / ' + fmt(d.injured) + ' / ' + fmt(d.missing) + '</td>' +
+        '<td class="t-num" data-l="Houses total / partial">' + fmt(d.houses_totally) + ' / ' + fmt(d.houses_partially) + '</td>' +
+        '<td class="t-num" data-l="Est. damage">' + esc(php(num(d.infra_damage_php) + num(d.agri_damage_php))) + '</td>' +
+        '<td class="rp-needs" data-l="Needs">' + esc((d.needs || []).join(', ') || '—') + '</td>' +
+        '<td data-l="Status"><span class="rp-st ' + st8 + '"><i></i>' + esc(DNA_STATUS[d.status] || d.status || 'Draft') + '</span></td>' +
+        '<td class="rp-act"><div class="rp-acts">' +
+          (canValidate && d.status === 'submitted' ? '<button class="hl-ghost hl-primary rp-sm"' + A('rp-dna-status', attr({ id: d.id, v: 'validated' })) + '>' + I('check', 13) + 'Validate</button>' : '') +
+          (!locked ? '<button class="hl-ico"' + A('rp-dna-edit', attr({ id: d.id })) + ' title="Edit" aria-label="Edit">' + I('settings', 14) + '</button>' : '') +
+          '<button class="hl-ico"' + A('rp-dna-one-pdf', attr({ id: d.id })) + ' title="Export this assessment as PDF" aria-label="Export PDF">' + I('doc', 14) + '</button>' +
           /* a barangay may withdraw its own draft; anything further along is LDRRMO only */
-          ((canValidate || !d.status || d.status === 'draft') ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('rp-dna-delete', attr({ id: d.id })) + ' title="Delete">' + I('x', 14) + '</button>' : '') +
-        '</td></tr>';
+          ((canValidate || !d.status || d.status === 'draft') ? '<button class="hl-ico is-del"' + A('rp-dna-delete', attr({ id: d.id })) + ' title="Delete" aria-label="Delete">' + I('x', 14) + '</button>' : '') +
+        '</div></td></tr>';
     }).join('');
 
-    const toolbar = '<div class="ug-card"><div class="ug-card-b ug-rowf ug-between ug-wrap" style="gap:12px;align-items:flex-end">' +
-      (isLgu() ? field('Barangay', '<select class="ug-sel" data-rp="dnaBrgy">' + brgyOptions(state.dnaBrgy, true) + '</select>', 'min-width:190px')
-        : '<span class="ug-dim" style="font-size:12px">Assessments for Barangay ' + esc(me().barangay || '') + '</span>') +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:8px">' + exportButtons('rp-dna-pdf', 'rp-dna-xlsx') +
-        '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('rp-dna-add') + '>' + I('plus', 15) + 'New Assessment</button></div>' +
-      '</div></div>';
+    const toolbar = '<section class="rp-form rp-form--row">' +
+      (isLgu() ? field('Barangay', '<select class="rl-in rl-sel" data-rp="dnaBrgy">' + brgyOptions(state.dnaBrgy, true) + '</select>', 'min-width:220px')
+        : '<p class="rp-scope">Assessments for Barangay ' + esc(me().barangay || '') + '</p>') +
+      '<div class="rp-acts">' + exportButtons('rp-dna-pdf', 'rp-dna-xlsx') +
+        '<button class="hl-ghost hl-primary"' + A('rp-dna-add') + '>' + I('plus', 14) + 'New assessment</button></div>' + exportMenu('rp-dna-pdf', 'rp-dna-xlsx') +
+      '</section>';
 
-    const stats = '<div class="ug-dgrid4">' +
-      UG.stat({ label: 'Affected families', value: fmt(t.affected_families), delta: fmt(t.affected_persons) + ' persons', dir: 'flat', tone: 'emergency', icon: 'users' }) +
-      UG.stat({ label: 'Displaced families', value: fmt(t.displaced_families), delta: fmt(t.displaced_persons) + ' persons', dir: 'flat', tone: 'warning', icon: 'shelter' }) +
-      UG.stat({ label: 'Houses damaged', value: fmt(t.houses_totally + t.houses_partially), delta: fmt(t.houses_totally) + ' totally · ' + fmt(t.houses_partially) + ' partially', dir: 'flat', tone: 'advisory', icon: 'home' }) +
-      UG.stat({ label: 'Estimated damage', value: php(t.infra_damage_php + t.agri_damage_php), delta: 'Infrastructure + agriculture', dir: 'flat', tone: 'resolved', icon: 'layers' }) +
+    const stats = '<div class="rp-figs">' +
+      fig('Affected families', fmt(t.affected_families), fmt(t.affected_persons) + ' persons', 'users') +
+      fig('Displaced families', fmt(t.displaced_families), fmt(t.displaced_persons) + ' persons', 'shelter') +
+      fig('Houses damaged', fmt(t.houses_totally + t.houses_partially), fmt(t.houses_totally) + ' totally · ' + fmt(t.houses_partially) + ' partially', 'home') +
+      fig('Estimated damage', php(t.infra_damage_php + t.agri_damage_php), 'Infrastructure + agriculture', 'layers') +
       '</div>';
 
     const table = rows.length
-      ? '<div class="ug-card" style="overflow:hidden"><div style="overflow-x:auto"><table class="ug-table"><thead><tr><th>Assessed</th><th>Barangay / event</th><th>Families / persons</th><th>Dead / inj. / missing</th>' +
-        '<th>Houses total / partial</th><th>Est. damage</th><th>Needs</th><th>Status</th><th class="t-right">Action</th></tr></thead><tbody>' + body + '</tbody></table></div></div>'
-      : '<div class="ug-empty"><span class="e-ico">' + I('layers', 20) + '</span>' +
-        '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No damage assessment recorded yet</div>' +
-        '<div class="ug-dim" style="font-size:11px">Record one per barangay after a hazard. The figures feed the situation report automatically.</div>' +
-        (UG_CONFIG.DEV ? '<button class="ug-btn ug-btn--sm" style="margin-top:10px"' + A('rp-dna-sample') + '>Load sample rows (preview only)</button>' : '') + '</div>';
+      ? '<section class="rl-card rp-tbl"><div class="rl-ch"><h2>' + I('layers', 15) + 'Assessments</h2><div class="rl-ch-r"><span class="rl-count">' + rows.length + '</span></div></div>' +
+        '<div class="rl-tablewrap"><table class="rl-table"><thead><tr><th>Assessed</th><th>Barangay / event</th><th>Families / persons</th><th>Dead / inj. / missing</th>' +
+        '<th>Houses total / partial</th><th>Est. damage</th><th>Needs</th><th>Status</th><th class="rp-act">Action</th></tr></thead><tbody>' + body + '</tbody></table></div></section>'
+      : '<div class="rl-card"><div class="rl-empty"><span>' + I('layers', 20) + '</span><b>No damage assessment recorded yet</b>' +
+        '<p>Record one per barangay after a hazard. The figures feed the situation report automatically.</p>' +
+        (UG_CONFIG.DEV ? '<button class="hl-ghost"' + A('rp-dna-sample') + '>Load sample rows (preview only)</button>' : '') + '</div></div>';
 
     return toolbar + stats + table;
   }
@@ -656,12 +671,12 @@ const UG_REPORTING = (function () {
     const allowed = isLgu() || isOfficial();
     if (!allowed) {
       return '<div class="ug-col" style="gap:16px">' + head('Reports and Documentation', 'Situation reports, incident summaries and damage assessments.') +
-        '<div class="ug-empty"><span class="e-ico">' + I('shield', 20) + '</span><div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">Available to LDRRMO staff and barangay officials</div></div></div>';
+        '<div class="ug-empty"><span class="e-ico">' + I('shield', 20) + '</span><div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">Available to LDRRMO staff and barangay officials</div></div></div>';
     }
     const body = state.tab === 'incident' ? vIncident() : state.tab === 'dna' ? vDna() : vSitrep();
-    return '<div class="ug-col" style="gap:16px">' +
-      head('Reports and Documentation', 'Auto-generated situation reports and incident summaries, and the damage and needs assessment. Scope: ' + (isOfficial() ? 'Barangay ' + (me().barangay || '') : UG_GEO.PLACE.scope) + '.',
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('rp-refresh') + '>' + I('wave', 15) + 'Refresh</button>') +
+    return '<div class="ug-col rp" style="gap:20px">' +
+      head('Reports and Documentation', 'Situation reports, incident summaries and damage assessments. Scope: ' + (isOfficial() ? 'Barangay ' + (me().barangay || '') : UG_GEO.PLACE.scope) + '.',
+        '<button class="hl-ghost rp-refresh"' + A('rp-refresh') + ' aria-label="Refresh">' + '<svg class="ug-i" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>' + 'Refresh</button>') +
       tabs() + deviceNote() + body + '</div>';
   }
 

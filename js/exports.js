@@ -281,7 +281,7 @@ const UG_EXPORTS = (function () {
       { label: 'Stock', type: 'int' }, { label: 'Reorder point', type: 'int' }, { label: 'Low stock', type: 'text' }, { label: 'Barangay / store', type: 'text' },
       { label: 'Location', type: 'text' }, { label: 'Supplier', type: 'text' }];
     const rows = v.list.map((r) => [r.id, r.name, r.category, r.unit, r.stock, r.reorder, (Number(r.stock) || 0) <= (Number(r.reorder) || 0) ? 'Yes' : 'No',
-      r.barangay || 'MDRRMO Warehouse', r.location || '', r.supplier || '']);
+      r.barangay || 'LDRRMO Warehouse', r.location || '', r.supplier || '']);
     const filename = X().buildFilename({ type: 'Relief Inventory', scope: roleScope(s, v.brgyFilter).file, suffix: v.cat !== 'all' ? v.cat : '', ext: 'csv' });
     X().saveCsv(filename, cols, rows);
     return { filename: filename, rows: rows.length, note: 'inventory is ' + DEVICE_ONLY };

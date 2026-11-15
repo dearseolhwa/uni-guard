@@ -22,9 +22,9 @@
          --ug-* custom property names, plus the .ug-badge--* and .ug-step.s-*
          rules) once at startup, so there is exactly one place a colour is
          defined and the map, badges, legend and charts can never disagree. */
-      --ug-display: 'Archivo', 'Segoe UI', system-ui, sans-serif;
-      --ug-body: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
-      --ug-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
+      --ug-display: var(--ug-font);
+      --ug-body: var(--ug-font);
+      --ug-mono: var(--ug-font);
       --ug-r-sm: 6px;
       --ug-r-md: 10px;
       --ug-r-lg: 14px;
@@ -53,9 +53,9 @@
          --ug-* custom property names, plus the .ug-badge--* and .ug-step.s-*
          rules) once at startup, so there is exactly one place a colour is
          defined and the map, badges, legend and charts can never disagree. */
-      --ug-display: 'Archivo', 'Segoe UI', system-ui, sans-serif;
-      --ug-body: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
-      --ug-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
+      --ug-display: var(--ug-font);
+      --ug-body: var(--ug-font);
+      --ug-mono: var(--ug-font);
       --ug-r-sm: 6px;
       --ug-r-md: 10px;
       --ug-r-lg: 14px;

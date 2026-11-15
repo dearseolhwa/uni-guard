@@ -217,7 +217,7 @@ const UG_GUIDES = (function () {
     return '<div class="ug-col" style="gap:14px">' +
       '<div class="ug-rowf ug-between ug-wrap" style="gap:10px;align-items:flex-end">' +
         '<div><div class="ug-lab">Disaster Preparedness</div>' +
-        '<h2 style="font-size:19px;margin-top:3px">Preparedness Guides</h2>' +
+        '<h2 style="font-size:18px;margin-top:3px">Preparedness Guides</h2>' +
         '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Step-by-step guidance for the hazards that affect ' + esc(UG_GEO.PLACE.label) + '. Pick a hazard, then read the Before / During / After tab.</p></div>' +
         '<div class="ug-rowf ug-gap8 ug-wrap ug-guide-actions" style="gap:8px">' +
           '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('guide-download', attr({ hazard: tab })) + '>' + I('download', 15) + 'Download ' + esc(tab) + ' PDF</button>' +
@@ -233,7 +233,7 @@ const UG_GUIDES = (function () {
 
       (byPhase(phase).length ? byPhase(phase).map((g) => guideCard(g, phase)).join('') :
         '<div class="ug-card"><div class="ug-empty"><span class="e-ico">' + I('doc', 20) + '</span>' +
-        '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No ' + phaseLabel(phase) + ' guide for ' + esc(tab) + ' yet</div>' +
+        '<div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">No ' + phaseLabel(phase) + ' guide for ' + esc(tab) + ' yet</div>' +
         '<div class="ug-dim" style="font-size:11px">The LGU can add content from the command console.</div></div></div>') +
     '</div>';
   }
@@ -247,35 +247,91 @@ const UG_GUIDES = (function () {
       '<div class="ug-card-h"><h3>' + esc(g.title) + '</h3>' + U.badge('id', phaseLabel(p)) + '</div>' +
       '<div class="ug-card-b ug-guide-b">' +
         (g.summary ? '<p class="ug-guide-sum">' + esc(g.summary) + '</p>' : '') +
-        (body || '<p class="ug-dim" style="font-size:12.5px">No instructions recorded for this phase yet.</p>') +
+        (body || '<p class="ug-dim" style="font-size:13px">No instructions recorded for this phase yet.</p>') +
       '</div>' +
     '</article>';
   }
 
   /* ------------------------------------------------------------- LGU admin */
   function dGuides(st) {
-    const hazards = UG_HAZARDS.LIST.filter((h) => h.key !== 'other').map((h) => h.label).concat(['General']);
-    const tab = st.guideHazard || hazards[0];
+    /* Layout (Nov 2026): hazards on the left with how many of the three
+       phases have content, the chosen hazard on the right with Before /
+       During / After tabs and each guide shown with its numbered steps. */
+    const list = UG_HAZARDS.LIST.filter((h) => h.key !== 'other');
+    const hazards = list.map((h) => h.label).concat(['General']);
+    const iconOf = (label) => { const h = list.find((x) => x.label === label); return h ? h.icon : 'doc'; };
+    const tab = hazards.indexOf(st.guideHazard) !== -1 ? st.guideHazard : hazards[0];
     const phase = st.guidePhase || 'before';
+    const has = (hz, p) => guidesFor(UG.DATA.guides, hz, p).length;
+    const covered = (hz) => PHASES.filter((p) => has(hz, p)).length;
     const guides = guidesFor(UG.DATA.guides, tab, phase);
+    const done = covered(tab);
+    const q = String(st.guideQ || '').trim().toLowerCase();
+    const shownHz = hazards.filter((h) => !q || h.toLowerCase().indexOf(q) >= 0);
 
-    return '<div class="ug-col" style="gap:18px">' +
-      head('Preparedness Guides', 'Add or edit disaster preparedness content. Changes appear in the citizen app immediately — no release required.',
-        '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('guide-add') + '>' + I('plus', 15) + 'Add Guide</button>') +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + hazards.map((h) =>
-        '<button class="ug-chip' + (tab === h ? ' is-on' : '') + '"' + A('guide-hazard', attr({ v: h })) + '>' + esc(h) + '</button>').join('') + '</div>' +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + ['before', 'during', 'after'].map((p) =>
-        '<button class="ug-chip' + (phase === p ? ' is-on' : '') + '"' + A('guide-phase', attr({ v: p })) + '>' + phaseLabel(p) + '</button>').join('') + '</div>' +
-      '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(tab) + ' · ' + phaseLabel(phase) + '</h3>' +
-        '<span class="ug-chip is-on">' + guides.length + ' guides</span></div>' +
-        '<div class="ug-rows">' + (guides.length ? guides.map((g) =>
-          '<div class="ug-row"><span class="r-dot" style="background:var(--ug-signal)"></span>' +
-            '<div class="r-main"><div class="r-t">' + esc(g.title) + '</div>' +
-              '<div class="r-m">' + esc(listPreview(g, phase)) + '</div></div>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="guide-edit" data-id="' + esc(g.id) + '">' + I('settings', 14) + 'Edit</button></div>').join('') :
-          '<div class="ug-empty"><span class="e-ico">' + I('doc', 20) + '</span>' +
-          '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No guides yet for this combination</div>' +
-          '<div class="ug-dim" style="font-size:11px">Add the first one.</div></div>') + '</div></div>' +
+    const side = '<aside class="gd-side">' +
+        '<span class="sos-search gd-find">' + I('search', 14) + '<input data-field="rw.guideQ" value="' + esc(st.guideQ || '') + '" placeholder="Find a hazard" aria-label="Find a hazard"></span>' +
+        '<nav class="gd-list" aria-label="Hazards">' + (shownHz.length ? shownHz.map((h) => {
+          const c = covered(h);
+          return '<button class="gd-hz' + (tab === h ? ' is-on' : '') + '"' + A('guide-hazard', attr({ v: h })) + (tab === h ? ' aria-current="true"' : '') + '>' +
+            '<span class="gd-hz-i">' + I(iconOf(h), 16) + '</span>' +
+            '<span class="gd-hz-t"><b>' + esc(h) + '</b><small>' + (c === 3 ? 'All phases ready' : c ? c + ' of 3 phases' : 'No guides yet') + '</small></span>' +
+            '<span class="gd-dots" aria-hidden="true">' + PHASES.map((p) => '<i class="' + (has(h, p) ? 'is-on' : '') + '"></i>').join('') + '</span></button>';
+        }).join('') : '<p class="gd-none">No hazard matches.</p>') + '</nav></aside>';
+
+    /* phones: the hazard list as a dropdown (the side list hides there) */
+    const statusOf = (c) => c === 3 ? 'All phases ready' : c ? c + ' of 3 phases' : 'No guides yet';
+    const dots = (h) => '<span class="gd-dots" aria-hidden="true">' + PHASES.map((p) => '<i class="' + (has(h, p) ? 'is-on' : '') + '"></i>').join('') + '</span>';
+    const hzDd = '<div class="ug-wmore inc-dd gd-dd"><button class="inc-dd-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Choose a hazard">' +
+        I(iconOf(tab), 18) + '<span><b>' + esc(tab) + '</b><small>' + statusOf(done) + '</small></span>' + dots(tab) + I('chevdn', 16) + '</button>' +
+      '<div class="inc-dd-panel" data-more-panel hidden role="listbox">' + hazards.map((h) =>
+        '<button role="option" class="' + (h === tab ? 'is-on' : '') + '"' + A('guide-hazard', attr({ v: h })) + '>' + I(iconOf(h), 16) +
+          '<span><b>' + esc(h) + '</b><small>' + statusOf(covered(h)) + '</small></span>' + dots(h) + '</button>').join('') + '</div></div>';
+
+    const card = (g) => {
+      const p = PHASES.indexOf(g.phase) !== -1 ? g.phase : phase;
+      const c = parseSteps(phaseText(g, p));
+      const body = contentHtml(phaseText(g, p));
+      /* phones: long guides start folded (first 3 steps, or a few lines of
+         text) with a Show all / Show less toggle remembered per guide */
+      const long = c.steps.length > 3 || (!c.steps.length && String(phaseText(g, p) || '').length > 260);
+      const open = !!(st.gdOpen && st.gdOpen[g.id]);
+      const moreLbl = c.steps.length ? 'Show all ' + c.steps.length + ' steps' : 'Read more';
+      return '<article class="gd-card' + (long ? ' is-clip' : '') + (open ? ' is-open' : '') + '" data-gd="' + esc(g.id) + '">' +
+        '<header class="gd-card-h"><div><h3>' + esc(g.title) + '</h3>' +
+          '<small>' + (c.steps.length ? c.steps.length + ' step' + (c.steps.length === 1 ? '' : 's') : 'Text only') + ' · ' + phaseLabel(p) + '</small></div>' +
+          '<button class="hl-ghost gd-edit" data-act="guide-edit" data-id="' + esc(g.id) + '" aria-label="Edit ' + esc(g.title) + '">' + I('settings', 14) + 'Edit</button></header>' +
+        (g.summary ? '<p class="gd-sum">' + esc(g.summary) + '</p>' : '') +
+        '<div class="gd-body">' + (body || '<p class="gd-none">No instructions recorded for this phase yet.</p>') + '</div>' +
+        (long ? '<button class="gd-more" data-act="gd-more" data-id="' + esc(g.id) + '" aria-expanded="' + open + '" data-more="' + esc(moreLbl) + '" data-less="Show less">' +
+          '<span>' + esc(open ? 'Show less' : moreLbl) + '</span>' + I('chevdn', 14) + '</button>' : '') +
+      '</article>';
+    };
+
+    const main = '<section class="gd-main">' +
+        '<div class="gd-top">' +
+          '<div class="gd-top-t"><span class="gd-top-i">' + I(iconOf(tab), 20) + '</span>' +
+            '<div><h2>' + esc(tab) + '</h2><p>' + (done === 3 ? 'Before, During and After are all written.' : done + ' of 3 phases written' + (done ? '. Add the missing ones so residents get the full picture.' : '.')) + '</p></div></div>' +
+          '<button class="hl-ghost gd-pdf1"' + A('guide-download', attr({ hazard: tab })) + ' aria-label="Download the ' + esc(tab) + ' guide as PDF">' + I('download', 14) + 'PDF</button>' +
+        '</div>' +
+        '<div class="gd-phases" role="tablist" aria-label="Phase">' + PHASES.map((p) => {
+          const n = has(tab, p);
+          return '<button role="tab" aria-selected="' + (phase === p) + '" class="' + (phase === p ? 'is-on' : '') + '"' + A('guide-phase', attr({ v: p })) + '>' +
+            '<b>' + phaseLabel(p) + '</b><small>' + (p === 'before' ? 'Get ready' : p === 'during' ? 'Stay safe' : 'Recover') + '</small>' +
+            '<i class="' + (n ? 'is-on' : '') + '">' + (n ? I('check', 11) : '') + '</i></button>';
+        }).join('') + '</div>' +
+        (guides.length ? guides.map(card).join('')
+          : '<div class="rl-card"><div class="rl-empty"><span>' + I('doc', 20) + '</span><b>No ' + phaseLabel(phase).toLowerCase() + ' guide for ' + esc(tab) + ' yet</b>' +
+              '<p>Residents see "nothing yet" for this phase. Write the steps they should follow.</p>' +
+              '<button class="hl-ghost hl-primary"' + A('guide-add') + '>' + I('plus', 14) + 'Add a guide</button></div></div>') +
+      '</section>';
+
+    return '<div class="ug-col gd" style="gap:20px">' +
+      head('Preparedness Guides', 'Disaster preparedness steps residents read in the app. Changes appear right away.',
+        '<button class="hl-ghost gd-pdfall"' + A('guide-download', attr({ hazard: 'all' })) + ' aria-label="All guides PDF">' + I('doc', 14) + 'All guides PDF</button>' +
+        '<button class="hl-ghost hl-primary gd-add"' + A('guide-add') + ' aria-label="Add guide">' + I('plus', 14) + 'Add guide</button>') +
+      hzDd +
+      '<div class="gd-layout">' + side + main + '</div>' +
     '</div>';
   }
 
@@ -288,7 +344,7 @@ const UG_GUIDES = (function () {
   }
 
   function head(title, sub, actions) {
-    return '<div class="ug-rowf ug-between ug-wrap" style="gap:14px;align-items:flex-end">' +
+    return '<div class="ug-rowf ug-between ug-wrap ug-phead" style="gap:14px;align-items:flex-end">' +
       '<div><h2 style="font-size:20px">' + esc(title) + '</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:4px">' + esc(sub) + '</p></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';

@@ -45,6 +45,13 @@ Deno.serve(async (req: Request) => {
   const service = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!service) return json({ error: 'Service role key is not configured on this function' }, 500);
 
+  // Only push-dispatch may call this function: it has already checked who is
+  // sending and to whom, and it calls with the service role key. Anyone else
+  // (including a browser holding the public anon key) is refused.
+  if ((req.headers.get('Authorization') || '') !== `Bearer ${service}`) {
+    return json({ error: 'Not allowed' }, 401);
+  }
+
   const gatewayUrl = Deno.env.get('SMS_GATEWAY_URL') || '';
   const gatewayKey = Deno.env.get('SMS_GATEWAY_KEY') || '';
   const sender = Deno.env.get('SMS_SENDER') || 'UniGuard';
@@ -59,12 +66,20 @@ Deno.serve(async (req: Request) => {
   const severity = String(body.severity || 'advisory');
   const area = String(body.area || 'Municipality-wide');
   const barangayId = (body.barangayId as string) || null;
+  const barangayIds: string[] = Array.isArray(body.barangayIds)
+    ? (body.barangayIds as unknown[]).map(String).filter(Boolean)
+    : (barangayId ? [barangayId] : []);
   const unitId = (body.unitId as string) || null;
+
+  // Text messages cost money: only urgent alerts (emergency, warning) go by SMS.
+  if (severity !== 'emergency' && severity !== 'warning') {
+    return json({ ok: true, queued: 0, skipped: 'SMS is only sent for emergency and warning alerts' });
+  }
 
   // Only accounts with a mobile number, and only for anything above an advisory,
   // so we never burn gateway credit on routine posts.
-  let q = admin.from('profiles').select('id, full_name, phone, barangay').not('phone', 'is', null);
-  if (barangayId) q = q.eq('barangay_id', barangayId);
+  let q = admin.from('profiles').select('id, full_name, phone, barangay').not('phone', 'is', null).eq('disabled', false);
+  if (barangayIds.length) q = q.in('barangay_id', barangayIds);
   else if (unitId) q = q.eq('dispatch_unit_id', unitId).eq('role', 'dispatch_team');
 
   const { data: people, error } = await q;
@@ -72,12 +87,15 @@ Deno.serve(async (req: Request) => {
   if (error) return json({ error: error.message }, 500);
 
   const text = `${title}${area ? ' (' + area + ')' : ''}: ${message}`.slice(0, 480);
-  const recipients = (people ?? []).filter((p) => p.phone && p.phone.length >= 10);
+  // only people with no push-capable device: the rest already got the push
+  const { data: subs } = await admin.from('push_subscriptions').select('user_id');
+  const hasPush = new Set((subs ?? []).map((x: { user_id: string }) => x.user_id));
+  const recipients = (people ?? []).filter((p) => p.phone && p.phone.length >= 10 && !hasPush.has(p.id));
 
   if (!gatewayUrl || !gatewayKey) {
     await admin.from('audit_log').insert({
       action: 'sms.skipped_no_gateway', entity: 'advisories', entity_id: (body.advisoryId as string) || null,
-      meta: { wouldSend: recipients.length, severity, text, barangayId, unitId }
+      meta: { wouldSend: recipients.length, severity, text, barangayIds, unitId }
     });
     return json({ ok: true, queued: 0, wouldSend: recipients.length, note: 'No SMS gateway configured' });
   }
@@ -94,7 +112,7 @@ Deno.serve(async (req: Request) => {
 
   await admin.from('audit_log').insert({
     action: 'sms.dispatched', entity: 'advisories', entity_id: (body.advisoryId as string) || null,
-    meta: { queued, failed, severity, area, barangayId, unitId }
+    meta: { queued, failed, severity, area, barangayIds, unitId }
   });
 
   return json({ ok: true, queued, failed });

@@ -38,9 +38,46 @@ const UG_URGENT = (function () {
   /* ----------------------------------------------------------- audio */
   /* the hazard's own alarm (js/alarm.js), read from the advisory text; the
      overlay is forced audible even right after another alarm */
+  let toneAt = 0;
   function playTone(advisory) {
+    if (Date.now() - toneAt < 1500) return;   /* never two alarms on top of each other */
+    toneAt = Date.now();
     try { UG_ALARM.play((advisory.title || '') + ' ' + (advisory.body || ''), { force: true }); } catch (e) { }
   }
+
+  /* the alarm keeps sounding while the alert is on screen (every 6 s, for up
+     to two minutes) until it is acknowledged, closed or muted. A browser that
+     blocked sound until the first tap starts the alarm on that tap. */
+  let loop = null, loopAd = null, loopLeft = 0, mutedNow = false;
+  function startLoop(advisory) {
+    stopLoop();
+    loopAd = advisory; loopLeft = 20; mutedNow = false;
+    playTone(advisory);
+    loop = setInterval(() => {
+      if (mutedNow || --loopLeft <= 0) { stopLoop(); return; }
+      playTone(loopAd);
+    }, 6000);
+    syncSound();
+  }
+  function stopLoop() { if (loop) clearInterval(loop); loop = null; syncSound(); }
+  function syncSound() {
+    if (!host) return;
+    const blocked = (typeof UG_ALARM !== 'undefined' && UG_ALARM.needsUnlock && UG_ALARM.needsUnlock());
+    host.querySelectorAll('[data-ux-sound]').forEach((el) => {
+      const on = !!loop && !mutedNow;
+      el.classList.toggle('is-on', on && !blocked);
+      el.classList.toggle('is-blocked', on && blocked);
+      el.querySelector('span').textContent = mutedNow ? 'Alarm muted' : !loop ? 'Alarm stopped' : blocked ? 'Tap anywhere to sound the alarm' : 'Alarm sounding';
+      const b = el.querySelector('button');
+      if (b) { b.textContent = mutedNow || !loop ? 'Play again' : 'Mute'; b.dataset.act = mutedNow || !loop ? 'urgent-sound' : 'urgent-mute'; }
+    });
+  }
+  document.addEventListener('ug:alarm-unlocked', () => { if (loop && loopAd && !mutedNow) { playTone(loopAd); syncSound(); } });
+  /* belt and braces for browsers that resume audio a beat after the tap */
+  ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => document.addEventListener(ev, () => {
+    if (!loop || !loopAd || mutedNow) return;
+    setTimeout(() => { try { if (!UG_ALARM.needsUnlock()) { playTone(loopAd); syncSound(); } } catch (e) { } }, 120);
+  }, { passive: true, capture: true }));
 
   /* ----------------------------------------------------------- rendering */
   function ensureHost() {
@@ -56,6 +93,9 @@ const UG_URGENT = (function () {
       if (!btn) return;
       const act = btn.dataset.act;
       const id = btn.dataset.id || '';
+      if (act === 'urgent-mute') { mutedNow = true; stopLoop(); return; }
+      if (act === 'urgent-sound-help') { try { UG_ALARM.soundHelp(); } catch (err) { } return; }
+      if (act === 'urgent-sound') { if (loopAd) startLoop(loopAd); return; }
       if (act === 'urgent-dismiss') {
         dismiss(id);
       } else if (act === 'urgent-view') {
@@ -77,34 +117,42 @@ const UG_URGENT = (function () {
     const h = ensureHost();
     h.style.display = '';   /* dismiss() hides the host once it empties */
     const tone = 'emergency';
+    const hz = (typeof UG_HAZARDS !== 'undefined') ? UG_HAZARDS.classify((advisory.title || '') + ' ' + (advisory.body || '')) : null;
+    const hzIcon = hz && hz.key !== 'other' ? hz.icon : 'alert';
     const card = document.createElement('div');
-    card.className = 'ug-urgent ug-urgent--' + tone;
+    card.className = 'ug-urgent ug-urgent--' + tone + ' ux';
     card.dataset.id = advisory.id;
+    card.setAttribute('role', 'alertdialog');
+    card.setAttribute('aria-label', 'Emergency alert: ' + (advisory.title || ''));
     card.innerHTML =
-      '<div class="ug-urgent-strip"></div>' +
-      '<div class="ug-urgent-body">' +
-        '<div class="ug-urgent-head">' +
-          '<span class="ug-urgent-icon">' + I('alert', 28) + '</span>' +
-          '<div><div class="ug-urgent-kicker">EMERGENCY ALERT</div>' +
-          '<h3 class="ug-urgent-title">' + esc(advisory.title || 'Active emergency') + '</h3></div>' +
-          '<button class="ug-urgent-close" data-act="urgent-dismiss" aria-label="Dismiss"></button>' +
+      '<header class="ux-top">' +
+        '<span class="ux-ico"><i></i><i></i>' + I(hzIcon, 26) + '</span>' +
+        '<div class="ux-ht"><div class="ux-kick">' + I('alert', 12) + 'Emergency alert</div>' +
+          '<h3 class="ux-title">' + esc(advisory.title || 'Active emergency') + '</h3></div>' +
+        '<button class="ux-x" data-act="urgent-dismiss" aria-label="Close without acknowledging" title="Close">' + I('x', 16) + '</button>' +
+      '</header>' +
+      '<div class="ux-body">' +
+        (advisory.body ? '<p class="ux-text">' + esc(advisory.body) + '</p>' : '') +
+        '<div class="ux-meta">' +
+          '<span>' + I('pin', 13) + esc(advisory.area || UG_GEO.PLACE.areaAll) + '</span>' +
+          '<span>' + I('clock', 13) + esc(advisory.time || 'just now') + '</span>' +
+          '<span>' + I('shield', 13) + 'Official advisory' + (advisory.code ? ' · ' + esc(advisory.code) : '') + '</span>' +
         '</div>' +
-        '<p class="ug-urgent-text">' + esc(advisory.body || '') + '</p>' +
-        '<div class="ug-urgent-meta">' + I('pin', 14) + ' ' + esc(advisory.area || UG_GEO.PLACE.areaAll) +
-          ' &middot; ' + I('clock', 14) + ' ' + esc(advisory.time || 'just now') + '</div>' +
-        '<div class="ug-urgent-actions">' +
-          '<button class="ug-btn ug-btn--signal" data-act="urgent-dismiss" data-id="' + esc(advisory.id) + '">Acknowledge</button>' +
-          '<button class="ug-btn ug-btn--ghost" data-act="urgent-view" data-id="' + esc(advisory.id) + '">View advisory</button>' +
+        '<div class="ux-acts">' +
+          '<button class="ux-ack" data-act="urgent-dismiss" data-id="' + esc(advisory.id) + '"><span class="ux-ack-i">' + I('check', 14) + '</span>Acknowledge</button>' +
+          '<button class="ux-view" data-act="urgent-view" data-id="' + esc(advisory.id) + '">View advisory' + I('chevron', 14) + '</button>' +
         '</div>' +
       '</div>';
     h.appendChild(card);
     /* animate in */
     requestAnimationFrame(() => card.classList.add('is-on'));
-    /* fire sound + vibration only here, not for routine advisories */
-    playTone(advisory);
+    /* fire sound + vibration only here, not for routine advisories; it
+       repeats until the alert is acknowledged, closed or muted */
+    startLoop(advisory);
   }
 
   function dismiss(id) {
+    stopLoop(); loopAd = null;
     if (id) markAcked(id);
     shown.forEach((s) => closed.add(s));
     shown.clear();

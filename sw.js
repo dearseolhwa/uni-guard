@@ -4,7 +4,7 @@
  * map tiles and the last synced data available, and serves a push notification
  * payload sent by the push-dispatch Edge Function.
  */
-const VERSION = 'uniguard-v35';
+const VERSION = 'uniguard-v543';
 const SHELL = 'uniguard-shell-' + VERSION;
 const TILES = 'uniguard-tiles-' + VERSION;
 const IMAGES = 'uniguard-images-' + VERSION;
@@ -21,12 +21,6 @@ const PRECACHE = [
   './css/fonts.css',
   './css/app.css',
   './css/screens.css',
-
-  './fonts/archivo-500.woff2',
-  './fonts/ibmplexsans-400.woff2',
-  './fonts/ibmplexmono-400.woff2',
-  './fonts/ibmplexmono-500.woff2',
-  './fonts/ibmplexmono-600.woff2',
 
   './vendor/leaflet.css',
   './vendor/leaflet.js',
@@ -63,6 +57,15 @@ const PRECACHE = [
   './css/dispatch.css',
   './css/design.css',
   './css/superadmin.css',
+  './css/resident.css',
+  './css/barangay.css',
+  './css/dispatch-portal.css',
+  './css/auth.css',
+  './css/staff-pages.css',
+  './css/soft-accents.css',
+  './css/type.css',
+  './img/baha.jpg',
+  './img/ldrrmo-lingayen.png',
   './js/geo.js',
   './js/theme.js',
   './js/hazard-types.js',
@@ -73,6 +76,8 @@ const PRECACHE = [
   './js/faqs.js',
   './js/roadwork.js',
   './js/sos.js',
+  './js/resident.js',
+  './js/barangay.js',
   './js/notifications-store.js',
   './js/urgent-alerts.js',
   './js/dispatch.js',
@@ -111,7 +116,10 @@ async function trimCache(name, maxEntries) {
 async function networkFirst(req, cacheName) {
   const cache = await caches.open(cacheName);
   try {
-    const res = await fetch(req);
+    /* 'no-cache' makes the browser re-check every file with the server, so a
+       code or style change shows on the next refresh (the plain fetch could
+       return a stale copy from the browser's own HTTP cache) */
+    const res = await fetch(req.mode === 'navigate' ? req : new Request(req, { cache: 'no-cache' }));
     if (res && res.status === 200 && res.type === 'basic') cache.put(req, res.clone());
     return res;
   } catch (e) {
@@ -188,6 +196,10 @@ self.addEventListener('push', (event) => {
     : payload.severity === 'warning' ? '#FFB020'
     : payload.severity === 'prepared' ? '#2FD08A' : '#4D9BFF';
 
+  /* open UniGuard windows ring their alarm at the same moment */
+  self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    list.forEach((c) => { try { c.postMessage({ type: 'UG_PUSH', payload: payload }); } catch (e) { } });
+  });
   event.waitUntil(self.registration.showNotification(payload.title, {
     body: payload.body,
     icon: './icons-192.png',

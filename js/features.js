@@ -197,12 +197,33 @@ const UG_FEATURES = (function () {
   }
 
   /* ----------------------------------------------------------------- modals */
+  /* page-by-page forms: .rf-page sections, an .rf-stepper, and Back / Next
+     buttons ([data-rp-back], [data-rp-next]); the save button shows on the
+     last page. Switches in place, so what was typed stays. */
+  function formPages(wrap, close, saveSel, canLeave) {
+    const pages = Array.prototype.slice.call(wrap.querySelectorAll('.rf-page'));
+    const back = wrap.querySelector('[data-rp-back]'), next = wrap.querySelector('[data-rp-next]'), save = wrap.querySelector(saveSel);
+    if (!pages.length || !back || !next || !save) return;
+    let page = 1;
+    const last = pages.length;
+    const show = (n) => {
+      page = Math.max(1, Math.min(last, n));
+      pages.forEach((p) => { p.hidden = Number(p.getAttribute('data-p')) !== page; });
+      wrap.querySelectorAll('.rf-stepper li').forEach((li) => { const k = Number(li.getAttribute('data-s')); li.classList.toggle('is-on', k <= page); li.classList.toggle('is-cur', k === page); });
+      back.textContent = page === 1 ? 'Cancel' : 'Back';
+      next.hidden = page === last; save.hidden = page !== last;
+      const body = wrap.querySelector('.ug-modal-body'); if (body) body.scrollTop = 0;
+    };
+    back.addEventListener('click', () => { if (page === 1) close(); else show(page - 1); });
+    next.addEventListener('click', () => { if (canLeave && canLeave(page) === false) return; show(page + 1); });
+    show(1);
+  }
   function modal(opts) {
     const wrap = document.createElement('div');
-    wrap.className = 'ug-modal';
+    wrap.className = 'ug-modal' + (opts.cls ? ' ' + opts.cls : '');
     wrap.innerHTML =
       '<div class="ug-modal-card" role="dialog" aria-modal="true" aria-label="' + esc(opts.title || 'Dialog') + '">' +
-        '<div class="ug-modal-head"><h3 style="font-size:14.5px">' + esc(opts.title || '') + '</h3>' +
+        '<div class="ug-modal-head"><h3 style="font-size:14px">' + esc(opts.title || '') + '</h3>' +
           '<button class="ug-ico-btn" data-modal-close aria-label="Close">' + UG.icon('x', 16) + '</button></div>' +
         '<div class="ug-modal-body">' + (opts.body || '') + '</div>' +
         (opts.footer ? '<div class="ug-modal-foot">' + opts.footer + '</div>' : '') +
@@ -231,12 +252,15 @@ const UG_FEATURES = (function () {
       let done = false;
       const close = modal({
         title: opts.title,
-        body: '<div class="ug-note">' + esc(opts.message || '') + '</div>' +
-              (opts.detail ? '<div class="ug-note" style="margin-top:10px">' + opts.detail + '</div>' : ''),
+        /* opts.body replaces the default note layout; opts.cls adds a class
+           to the overlay so a dialog can carry its own look */
+        body: opts.body || ('<div class="ug-note">' + esc(opts.message || '') + '</div>' +
+              (opts.detail ? '<div class="ug-note" style="margin-top:10px">' + opts.detail + '</div>' : '')),
         footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
                 '<button class="ug-btn ' + (opts.danger ? 'ug-btn--danger' : 'ug-btn--signal') + '" data-confirm>' +
                 esc(opts.confirmLabel || 'Confirm') + '</button>',
         onMount: (wrap, closeFn) => {
+          if (opts.cls) wrap.classList.add(opts.cls);
           wrap.querySelector('[data-confirm]').addEventListener('click', () => {
             done = true; closeFn(); resolve(true);
           });
@@ -304,7 +328,7 @@ const UG_FEATURES = (function () {
     const w = window.open('', '_blank');
     if (!w) return false;
     w.document.write('<!DOCTYPE html><html><head><title>' + esc(title || 'UniGuard') + '</title>' +
-      '<style>body{font-family:system-ui,sans-serif;padding:28px;color:#111}h1{font-size:20px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border-bottom:1px solid #ddd;padding:8px;text-align:left}</style>' +
+      '<style>body{font-family: var(--ug-font);padding:28px;color:#111}h1{font-size:20px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border-bottom:1px solid #ddd;padding:8px;text-align:left}</style>' +
       '</head><body>' + html + '</body></html>');
     w.document.close();
     w.focus();
@@ -312,5 +336,5 @@ const UG_FEATURES = (function () {
     return true;
   }
 
-  return { pickPhoto, compressImage, locate, parseCoords, reverseGeocode, vibrate, modal, confirm, prompt, shareOrCopy, printNode };
+  return { pickPhoto, compressImage, locate, parseCoords, reverseGeocode, vibrate, modal, formPages, confirm, prompt, shareOrCopy, printNode };
 })();

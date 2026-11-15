@@ -147,7 +147,7 @@ const UG_SETTINGS = (function () {
     org: {
       municipality: 'Lingayen',
       province: 'Pangasinan',
-      office: 'Municipal Disaster Risk Reduction and Management Office',
+      office: 'Lingayen Local Disaster Risk Reduction and Management Office',
       contact: '(075) 632-2222',
       email: 'mdrrmo@lingayen.gov.ph'
     },
@@ -308,7 +308,7 @@ const UG_SETTINGS = (function () {
 
   /* ----------------------------------------------------------------- render */
   function head(title, sub, actions) {
-    return '<div class="ug-rowf ug-between ug-wrap" style="gap:14px;align-items:flex-end">' +
+    return '<div class="ug-rowf ug-between ug-wrap ug-phead" style="gap:14px;align-items:flex-end">' +
       '<div><h2 style="font-size:20px">' + esc(title) + '</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:4px">' + esc(sub) + '</p></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';
@@ -350,18 +350,20 @@ const UG_SETTINGS = (function () {
     let tab = st.settingsTab || firstTabForRole(role, superAdmin);
     if (!visibleTabs.some((t) => t[0] === tab)) tab = firstTabForRole(role, superAdmin);
     const T = (k) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : k);
+    /* phones show a short label under each icon */
+    const SHORT = { general: 'General', notifications: 'Alerts', offline: 'Offline', language: 'Language', templates: 'Templates' };
     const tabs = visibleTabs.map((t) =>
-      '<button class="ug-chip' + (tab === t[0] ? ' is-on' : '') + '"' + A('settings-tab', attr({ v: t[0] })) + '>' +
-      I(t[2], 14) + T(t[1]) + '</button>').join('');
+      '<button class="ug-chip' + (tab === t[0] ? ' is-on' : '') + '"' + A('settings-tab', attr({ v: t[0] })) + (tab === t[0] ? ' aria-current="true"' : '') + '>' +
+      I(t[2], 14) + '<span class="stg-l">' + T(t[1]) + '</span><span class="stg-s">' + (SHORT[t[0]] || T(t[1])) + '</span></button>').join('');
     /* The citizen web shell (cwWrap) already renders a page-level header with
        the title + subtitle. The LGU console sidebar layout does NOT — it needs
        the in-body head(). Detect which shell we're in so we don't render the
        title twice on the citizen web view. */
     const isCitizenWeb = (role === 'citizen' && st.view === 'desktop');
     const header = isCitizenWeb ? '' : head(T('settings.title'), T('settings.subtitle'));
-    return '<div class="ug-col" style="gap:18px">' +
+    return '<div class="ug-col' + (role === 'citizen' ? '' : ' stg') + '" style="gap:18px">' +
       header +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + tabs + '</div>' +
+      '<div class="ug-rowf ug-gap8 ug-wrap stg-tabs" style="gap:7px">' + tabs + '</div>' +
       (tab === 'general' ? tabGeneral(st) :
        tab === 'notifications' ? tabNotifications(st) :
        tab === 'offline' ? tabOffline(st) :
@@ -377,7 +379,7 @@ const UG_SETTINGS = (function () {
     const T = (k) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : k);
     return '<div class="ug-col" style="gap:18px">' +
       '<div class="ug-card"><div class="ug-card-h"><h3>' + T('settings.orgProfile') + '</h3>' +
-        '<span class="ug-dimmer" style="font-size:10.5px">' + T('settings.orgProfileHint') + '</span></div>' +
+        '<span class="ug-dimmer" style="font-size:11px">' + T('settings.orgProfileHint') + '</span></div>' +
         '<div class="ug-card-b ug-col" style="gap:12px">' +
           settingField('org.municipality', 'Municipality', config.org.municipality, 'e.g. Lingayen') +
           settingField('org.province', 'Province', config.org.province, 'e.g. Pangasinan') +
@@ -404,7 +406,7 @@ const UG_SETTINGS = (function () {
             prefs.display.compactTables) +
         '</div></div>' +
       '<div class="ug-card"><div class="ug-card-h"><h3>' + T('settings.smsFallback') + '</h3>' +
-        '<span class="ug-dimmer" style="font-size:10.5px">' + T('settings.smsFallbackHint') + '</span></div>' +
+        '<span class="ug-dimmer" style="font-size:11px">' + T('settings.smsFallbackHint') + '</span></div>' +
         '<div class="ug-card-b ug-col" style="gap:12px">' +
           settingField('sms.provider', 'SMS provider', config.sms.provider, 'none | twilio | itexmo') +
           settingField('sms.senderId', 'Sender ID', config.sms.senderId, 'UNIGUARD') +
@@ -443,11 +445,11 @@ const UG_SETTINGS = (function () {
       '<div class="ug-card-b ug-col" style="gap:12px">' +
         '<div class="ug-dim" style="font-size:12px;line-height:1.5">' + esc(T('settings.alertsHelp')) + '</div>' +
         (status === 'off'
-          ? '<button class="ug-btn ug-btn--signal ug-btn--sm" style="align-self:flex-start"' + A('enable-push') + '>' + I('bell', 14) + esc(T('settings.turnOnAlerts')) + '</button>'
+          ? '<div class="ug-help">Alerts turn on by themselves: tap <b>Allow</b> when the browser asks.</div>'
           : status === 'blocked'
             ? '<div class="ug-help">' + esc(T('settings.alertsBlockedHelp')) + '</div>'
             : '') +
-        '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:flex-start;font-size:11.5px">' +
+        '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:flex-start;font-size:12px">' +
           '<span style="color:var(--ug-signal);display:flex">' + I('info', 14) + '</span>' +
           '<span class="ug-dim" style="line-height:1.5">' + esc(T('settings.alertsSmsInfo')) + '</span></div>' +
       '</div></div>';
@@ -460,18 +462,17 @@ const UG_SETTINGS = (function () {
     const sess = (st && st.session) || {};
     const ra = (typeof UG_ALARM !== 'undefined') ? UG_ALARM.roleAlarms(sess.role, sess.superAdmin) : { events: [] };
     return '<div class="ug-card"><div class="ug-card-h"><h3>Alarm sound</h3>' +
-        '<span class="ug-badge ug-badge--' + (on ? 'resolved' : 'id') + '">' + (on ? 'On' : 'Off') + '</span></div>' +
+        '<span class="ug-badge ug-badge--resolved">Always on</span></div>' +
       '<div class="ug-card-b ug-col" style="gap:12px">' +
         '<div class="ug-rowf ug-gap10 ug-setting-toggle" style="gap:10px;align-items:flex-start">' +
           '<span class="ug-col" style="gap:3px;min-width:0;flex:1">' +
-            '<span style="font-size:12.5px;font-weight:600">Sound the alarm on this device</span>' +
+            '<span style="font-size:13px;font-weight:600">The alarm always sounds on this device</span>' +
             '<span class="ug-dim" style="font-size:11px;line-height:1.5">Each hazard has its own alarm: a fast siren for fire, a slow wail for floods, pulses for typhoons and earthquakes, rapid beeps for SOS. Keep the volume up.</span>' +
           '</span>' +
-          '<button class="ug-toggle' + (on ? ' is-on' : '') + '" role="switch" aria-checked="' + on + '"' + A('alarm-toggle') + '>' +
-            '<span class="ug-toggle-knob"></span></button>' +
+'' +
         '</div>' +
         '<div class="ug-col" style="gap:4px"><span style="font-size:12px;font-weight:600">This portal rings for</span>' +
-          ra.events.map((e) => '<span class="ug-dim" style="font-size:11.5px;line-height:1.5">• ' + esc(e) + '</span>').join('') + '</div>' +
+          ra.events.map((e) => '<span class="ug-dim" style="font-size:12px;line-height:1.5">• ' + esc(e) + '</span>').join('') + '</div>' +
         '<button class="ug-btn ug-btn--sm" style="align-self:flex-start"' + A('alarm-test') + '>' + I('bell', 14) + 'Test alarm</button>' +
       '</div></div>';
   }
@@ -501,7 +502,7 @@ const UG_SETTINGS = (function () {
             prefs.notifications.emailAlerts) +
         '</div></div>' +
       '<div class="ug-card"><div class="ug-card-h"><h3>' + T('settings.quietHours') + '</h3>' +
-        '<span class="ug-dimmer" style="font-size:10.5px">' + T('settings.quietHoursHint') + '</span></div>' +
+        '<span class="ug-dimmer" style="font-size:11px">' + T('settings.quietHoursHint') + '</span></div>' +
         '<div class="ug-card-b ug-col" style="gap:12px">' +
           toggleRow('notifications.quietHours', T('settings.enableQuietHours'),
             T('settings.enableQuietHoursHelp'),
@@ -597,8 +598,8 @@ const UG_SETTINGS = (function () {
     return '<div class="ug-col" style="gap:18px">' +
       '<div class="ug-rowf ug-between ug-wrap" style="gap:14px;align-items:flex-end">' +
         '<div><div class="ug-lab">Message Templates</div>' +
-          '<h3 style="font-size:15px;margin-top:3px">Reusable broadcast templates · English & Filipino</h3>' +
-          '<p class="ug-dim" style="font-size:11.5px;margin-top:4px;line-height:1.5">Pre-written advisories the duty officer applies to the composer during a response. Placeholders like {barangay} are filled in at publish time.</p></div>' +
+          '<h3 style="font-size:14px;margin-top:3px">Reusable broadcast templates · English & Filipino</h3>' +
+          '<p class="ug-dim" style="font-size:12px;margin-top:4px;line-height:1.5">Pre-written advisories the duty officer applies to the composer during a response. Placeholders like {barangay} are filled in at publish time.</p></div>' +
         '<div class="ug-rowf ug-gap8" style="gap:8px">' +
           '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('tpl-export') + '>' + I('download', 14) + 'Export JSON</button>' +
           '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('tpl-add') + '>' + I('plus', 14) + 'New Template</button>' +
@@ -608,14 +609,14 @@ const UG_SETTINGS = (function () {
         cats.map((c) => '<button class="ug-chip' + (cat === c[0] ? ' is-on' : '') + '"' + A('tpl-cat', attr({ v: c[0] })) + '>' + I(c[2], 13) + c[1] + '</button>').join('') +
         '<span style="flex:1"></span>' +
         '<div class="ug-rowf ug-gap6" style="gap:6px">' +
-          '<span class="ug-dimmer" style="font-size:10.5px;align-self:center">Preview language</span>' +
+          '<span class="ug-dimmer" style="font-size:11px;align-self:center">Preview language</span>' +
           [['en','EN'],['fil','FIL']].map((l) => '<button class="ug-chip' + (lang === l[0] ? ' is-on' : '') + '"' + A('tpl-lang', attr({ v: l[0] })) + '>' + l[1] + '</button>').join('') +
         '</div>' +
       '</div>' +
       (filtered.length
         ? '<div class="ug-tpl-grid">' + filtered.map((t) => templateCard(t, lang)).join('') + '</div>'
         : '<div class="ug-card"><div class="ug-empty"><span class="e-ico">' + I('megaphone', 20) + '</span>' +
-          '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No templates in this category</div>' +
+          '<div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">No templates in this category</div>' +
           '<div class="ug-dim" style="font-size:11px">Create one so the duty officer can publish a ready-made advisory in seconds.</div></div></div>') +
     '</div>';
   }
@@ -628,15 +629,15 @@ const UG_SETTINGS = (function () {
     return '<div class="ug-card ug-tpl-card">' +
       '<div class="ug-card-h"><div class="ug-rowf ug-gap8" style="gap:8px;align-items:center;min-width:0">' +
         '<span class="ug-tpl-cat" style="background:' + cat.color + '">' + I(cat.icon, 12) + esc(cat.label) + '</span>' +
-        '<span class="ug-dimmer ug-mono" style="font-size:10px">' + esc(t.id) + '</span></div>' +
+        '<span class="ug-dimmer ug-mono" style="font-size:11px">' + esc(t.id) + '</span></div>' +
         '<div class="ug-rowf ug-gap6" style="gap:6px">' +
           '<button class="ug-ico-btn" aria-label="Edit template" data-act="tpl-edit" data-id="' + esc(t.id) + '">' + I('settings', 14) + '</button>' +
           '<button class="ug-ico-btn" aria-label="Delete template" data-act="tpl-delete" data-id="' + esc(t.id) + '">' + I('x', 14) + '</button>' +
         '</div></div>' +
       '<div class="ug-card-b ug-col" style="gap:10px">' +
-        '<div><div class="ug-lab" style="font-size:10px">' + esc(t.label) + '</div>' +
+        '<div><div class="ug-lab" style="font-size:11px">' + esc(t.label) + '</div>' +
           '<div style="font-size:13px;font-weight:600;margin-top:2px">' + esc(title) + '</div></div>' +
-        '<div class="ug-dim ug-clamp3" style="font-size:11.5px;line-height:1.5">' + esc(body) + '</div>' +
+        '<div class="ug-dim ug-clamp3" style="font-size:12px;line-height:1.5">' + esc(body) + '</div>' +
         (ph ? '<div class="ug-tpl-ph">' + ph + '</div>' : '') +
         '<div class="ug-rowf ug-gap6 ug-tpl-langs" style="gap:6px">' +
           '<span class="ug-badge ug-badge--id' + (t.title_en ? '' : ' is-off') + '">EN</span>' +
@@ -658,7 +659,7 @@ const UG_SETTINGS = (function () {
     const isOn = onValue ? on === onValue : !!on;
     return '<div class="ug-rowf ug-gap10 ug-setting-toggle" style="gap:10px;align-items:flex-start">' +
       '<span class="ug-col" style="gap:3px;min-width:0;flex:1">' +
-        '<span style="font-size:12.5px;font-weight:600">' + esc(label) + '</span>' +
+        '<span style="font-size:13px;font-weight:600">' + esc(label) + '</span>' +
         '<span class="ug-dim" style="font-size:11px;line-height:1.5">' + esc(help) + '</span>' +
       '</span>' +
       '<button class="ug-toggle' + (isOn ? ' is-on' : '') + '" role="switch" aria-checked="' + isOn + '"' +
@@ -760,6 +761,9 @@ const UG_SETTINGS = (function () {
 
   return {
     alarmCard,
+    /* the "Alerts on this phone" card and its state, for portals without a Settings page (dispatch) */
+    alertsCard: () => deviceAlertsCard((k) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : k)),
+    alertsStatus: () => alertsStatus(),
     dSettings, tabTemplates, openEditor, deleteTemplate, exportTemplates,
     getSettings, patchSettings, saveSettings,
     /* per-user prefs + system config */
@@ -767,7 +771,7 @@ const UG_SETTINGS = (function () {
     getSystemConfig, patchSystemConfig, saveSystemConfig,
     DEFAULT_USER_PREFS, DEFAULT_SYSTEM_CONFIG,
     /* role-aware tabs */
-    tabsForRole, firstTabForRole, refreshPushState,
+    tabsForRole, firstTabForRole, refreshPushState, alertsStatus,
     loadTemplates, saveTemplates, ensureTemplates, templatesByCategory, templateById, fillTemplate,
     DEFAULT_TEMPLATES, CATEGORY, categoryList,
     SETTINGS_TABS, ALL_TABS

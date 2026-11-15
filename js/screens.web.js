@@ -32,56 +32,106 @@ const UG_WEB = (() => {
   /* ------------------------------------------------------------------ */
   /* CITIZEN DESKTOP (WEB) SHELL                                         */
   /* ------------------------------------------------------------------ */
-  const CNAV = [
+  /* the resident shell, after the React build (uniguard/src/components:
+     DashboardSidebar, DashboardHeader). Sidebar sections; the rest of the
+     pages sit behind the grid menu in the header. css/resident.css */
+  const RNAV = [
     ['home', 'Home', 'home'],
-    ['report', 'Report a Hazard', 'plus'],
     ['relief', 'Relief', 'relief'],
     ['advisories', 'Advisories', 'megaphone'],
     ['map', 'Hazard Map', 'map'],
-    ['guides', 'Guides', 'guide'],
-    ['faqs', 'FAQs', 'faq'],
     ['centers', 'Shelters', 'shelter'],
     ['hotlines', 'Hotlines', 'phone'],
     ['notifications', 'Notifications', 'bell'],
+  ];
+  const RMENU = [
+    ['reports', 'My Reports', 'doc'],
+    ['guides', 'Preparedness Guides', 'guide'],
+    ['faqs', 'FAQs', 'faq'],
+    ['offline', 'Offline Readiness', 'download'],
     ['settings', 'Settings', 'settings'],
   ];
+  const RTITLE = {
+    home: 'Home', report: 'Report a Hazard', relief: 'Relief', 'relief-verify': 'Relief',
+    advisories: 'Advisories', 'advisory-detail': 'Advisories', map: 'Hazard Map', centers: 'Shelters',
+    hotlines: 'Hotlines', notifications: 'Notifications', reports: 'My Reports', 'report-detail': 'My Reports',
+    'report-done': 'Report a Hazard', guides: 'Preparedness Guides', faqs: 'FAQs', offline: 'Offline Readiness',
+    settings: 'Settings', sos: 'Emergency SOS', roadwork: 'Road Work', more: 'More'
+  };
+  const FOLD_KEY = 'uniguard_resident_sidebar_minimized';
+  function folded() { try { return localStorage.getItem(FOLD_KEY) === 'true'; } catch (e) { return false; } }
 
-  function cwTop(st) {
+  function rwActive(route) {
+    return route === 'advisory-detail' ? 'advisories'
+      : route === 'relief-verify' ? 'relief'
+      : route === 'report-detail' ? 'reports' : route;
+  }
+
+  /* layered waves along the bottom of the sidebar */
+  const WAVES = '<div class="rw-waves" aria-hidden="true"><svg viewBox="0 0 360 140" preserveAspectRatio="none">' +
+    '<defs>' + [['#7F1D1D', '.45', '#5F0E1E', '.6'], ['#881337', '.5', '#4C0519', '.65'], ['#991B1B', '.55', '#450A0A', '.7'],
+      ['#831843', '.6', '#3B0715', '.8'], ['#4C0519', '.75', '#240209', '.9']].map((g, n) =>
+      '<linearGradient id="rwWave' + n + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + g[0] + '" stop-opacity="' + g[1] +
+      '"/><stop offset="1" stop-color="' + g[2] + '" stop-opacity="' + g[3] + '"/></linearGradient>').join('') + '</defs>' +
+    ['M0 38C70 20 140 54 220 30C275 14 320 28 360 22L360 140L0 140Z', 'M0 58C85 40 160 70 245 48C295 34 335 46 360 40L360 140L0 140Z',
+     'M0 76C65 60 135 88 210 66C265 50 310 62 360 56L360 140L0 140Z', 'M0 96C90 82 175 106 260 84C305 72 335 80 360 76L360 140L0 140Z',
+     'M0 114C75 102 150 122 230 106C285 94 325 102 360 98L360 140L0 140Z'].map((d, n) =>
+      '<path d="' + d + '" fill="url(#rwWave' + n + ')"/>').join('') + '</svg></div>';
+
+  function rwSide(st) {
     const s = st.session;
-    /* the badge on the bell now reads the actual unread count from UG.DATA
-       instead of the old fixed "2". */
-    const unread = (U.DATA.notifications || []).filter(n => n.unread).length;
-    const active = st.route === 'advisory-detail' ? 'advisories'
-      : (st.route === 'report-detail' ? 'notifications' : st.route);
-    /* Sign Out is the LAST item after the nav, SOS, name and avatar, so extra
-       items can never push it off-screen. Secondary destinations (FAQs,
-       Guides, Hotlines, Offline) collapse into a "More" dropdown so the SOS
-       button, user menu and Sign Out stay visible at 1280 / 1366 / 1440 px
-       and on mobile at 100% zoom with no horizontal scroll. */
-    const primary = [['home', 'Home', 'home'], ['report', 'Report a Hazard', 'plus'], ['relief', 'Relief', 'relief'], ['advisories', 'Advisories', 'megaphone'], ['map', 'Hazard Map', 'map'], ['centers', 'Shelters', 'shelter'], ['notifications', 'Notifications', 'bell']];
-    const secondary = [['guides', 'Guides', 'guide'], ['faqs', 'FAQs', 'faq'], ['hotlines', 'Hotlines', 'phone'], ['offline', 'Offline', 'download'], ['settings', 'Settings', 'settings']];
-    const navBtn = (n) =>
-      '<button class="ug-wnav-i' + (active === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '>' +
-      I(n[2], 16) + n[1] + (n[0] === 'notifications' && unread ? '<span class="ug-wdot' + (unread > 9 ? ' is-many' : '') + '">' + (unread > 9 ? '9+' : unread) + '</span>' : '') + '</button>';
-    return '<header class="ug-wtop">' +
-      '<button class="ug-brand ug-brand-btn"' + A('nav', attr({ route: 'home' })) + ' aria-label="Go to the home screen">' + U.brandMark(32) +
-        '<span class="ug-col" style="gap:0"><span class="ug-wordmark" style="font-size:16px">Uni<em>Guard</em></span>' +
-        '<span class="ug-dimmer" style="font-size:9px;letter-spacing:.11em;text-transform:uppercase">Resident portal</span></span></button>' +
-      '<nav class="ug-wnav">' + primary.map(navBtn).join('') +
-        '<span class="ug-wmore">' +
-          '<button class="ug-wnav-i" aria-haspopup="true"' + A('toggle-more') + '>' + I('grid', 16) + 'More' + I('chevron', 12) + '</button>' +
-          '<span class="ug-wmore-panel" data-more-panel hidden>' + secondary.map((n) =>
-            '<button class="ug-wmore-item' + (active === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '>' + I(n[2], 15) + n[1] + '</button>').join('') + '</span>' +
+    const active = rwActive(st.route);
+    const unread = (U.DATA.notifications || []).filter((n) => n.unread).length;
+    return '<aside class="ug-rw-side" id="ug-resident-nav">' +
+      '<div class="rw-brand">' +
+        '<button class="rw-brand-btn"' + A('nav', attr({ route: 'home' })) + ' aria-label="Go to the home screen">' + U.brandMark(52) +
+          '<span class="rw-word">Uni<em>Guard</em></span>' +
+          (s.barangay ? '<span class="rw-tag">Brgy. ' + esc(s.barangay) + '</span>' : '') + '</button>' +
+        '<div class="rw-fold"><button class="rw-fold-btn"' + A('rw-fold') + ' aria-label="Minimize sidebar" title="Minimize sidebar">' +
+          '<span style="display:flex;transform:rotate(180deg)">' + I('chevron', 14) + '</span></button></div>' +
+      '</div>' +
+      '<nav class="rw-nav">' + RNAV.map((n) =>
+        '<button class="rw-nav-i' + (active === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + ' title="' + esc(n[1]) + '">' +
+          I(n[2], 16) + '<span class="rw-lab">' + esc(n[1]) + '</span>' +
+          (n[0] === 'notifications' && unread ? '<span class="rw-count">' + (unread > 9 ? '9+' : unread) + '</span>' : '') +
+        '</button>').join('') + '</nav>' +
+      WAVES +
+    '</aside>';
+  }
+
+  function rwHead(st) {
+    const s = st.session;
+    const unread = (U.DATA.notifications || []).filter((n) => n.unread).length;
+    const active = rwActive(st.route);
+    const tip = (label) => ' data-tip="' + esc(label) + '"';
+    return '<header class="ug-rw-head">' +
+      '<div class="rw-head-l">' +
+        '<button class="rw-ibtn rw-menu-btn"' + A('rw-drawer') + ' aria-label="Open the menu" aria-controls="ug-resident-nav">' + I('menu', 18) + '</button>' +
+        '<span class="rw-pmark">' + U.brandMark(28) + '</span>' +
+        '<h2>' + esc(RTITLE[st.route] || 'Home') + '</h2>' +
+      '</div>' +
+      UG_RW.phoneTabs(st) +
+      '<div class="rw-head-r">' +
+        '<span class="rw-tip"' + tip('Emergency SOS') + '><button class="rw-sos"' + A('sos-trigger') + ' aria-label="Emergency SOS">' + I('alert', 14) + 'SOS</button></span>' +
+        '<span class="rw-tip"' + tip('Report Hazard') + '><button class="rw-ibtn' + (st.route === 'report' ? ' is-on' : '') + '"' + A('nav', attr({ route: 'report' })) + ' aria-label="Report Hazard">' + I('plus', 16) + '</button></span>' +
+        '<span class="rw-tip"' + tip('Notifications') + '><button class="rw-ibtn' + (active === 'notifications' ? ' is-on' : '') + '"' + A('nav', attr({ route: 'notifications' })) + ' aria-label="Notifications">' + I('bell', 16) +
+          (unread ? '<span class="rw-dot">' + (unread > 9 ? '9+' : unread) + '</span>' : '') + '</button></span>' +
+        /* .ug-wmore + [data-more-panel]: opened by toggle-more, closed by a tap outside (js/app.js) */
+        '<span class="rw-tip ug-wmore"' + tip('Menu') + '>' +
+          '<button class="rw-ibtn" aria-haspopup="true" aria-label="Quick Menu"' + A('toggle-more') + '>' + I('grid', 16) + '</button>' +
+          '<div class="rw-qmenu" data-more-panel hidden>' +
+            '<div class="rw-profile"><span class="rw-wm">' + I('shield', 96) + '</span>' +
+              '<span class="rw-av">' + esc((s.name || 'U').trim().charAt(0).toUpperCase()) + '</span>' +
+              '<span class="rw-pn">' + esc(s.name || '') + '</span>' +
+              '<span class="rw-ps">' + (s.barangay ? 'Barangay ' + esc(s.barangay) + ', ' : '') + 'Lingayen</span>' +
+              '<span class="rw-pr">CITIZEN • RESIDENT</span></div>' +
+            RMENU.map((n) =>
+              '<button class="rw-qi"' + A('nav', attr({ route: n[0] })) + '><span class="rw-qi-l"><span class="rw-qi-ico">' + I(n[2], 16) + '</span>' +
+                '<span>' + esc(n[1]) + '</span></span>' + I('chevron', 14) + '</button>').join('') +
+            '<button class="rw-qi rw-qi--out"' + A('logout') + '><span class="rw-qi-l"><span class="rw-qi-ico">' + I('logout', 16) + '</span>' +
+              '<span>Sign Out</span></span></button>' +
+          '</div>' +
         '</span>' +
-      '</nav>' +
-      '<div class="ug-rowf ug-gap8" style="gap:8px;margin-left:auto">' +
-        '<button class="ug-btn ug-btn--danger ug-btn--sm" aria-label="Send SOS"' + A('sos-trigger') + '>' + I('alert', 16) + 'SOS</button>' +
-        '<div class="ug-rowf ug-gap10" style="gap:9px;padding-left:8px;border-left:1px solid var(--ug-line);margin-left:2px">' +
-          '<span class="ug-col" style="gap:0;align-items:flex-end"><span style="font-size:12px;font-weight:600">' + esc(s.name) + '</span>' +
-          '<span class="ug-dimmer" style="font-size:10px">' + esc(s.scope) + '</span></span>' +
-          '<span class="ug-av">' + esc(s.initials) + '</span>' +
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost" aria-label="Sign out"' + A('logout') + '>' + I('logout', 16) + '<span class="ug-signout-lab">Sign Out</span></button>' +
-        '</div>' +
       '</div>' +
     '</header>';
   }
@@ -112,89 +162,121 @@ const UG_WEB = (() => {
 
   const readout = (v, l, tone) =>
     '<div class="ug-col" style="gap:3px;padding:14px 16px;background:var(--ug-surface);border:1px solid var(--ug-line);border-radius:14px">' +
-      '<span class="ug-mono" style="font-size:22px;font-weight:600;color:' + tone + '">' + v + '</span>' +
-      '<span class="ug-dimmer" style="font-size:10px;letter-spacing:.05em;text-transform:uppercase">' + l + '</span></div>';
+      '<span class="ug-mono" style="font-size:20px;font-weight:600;color:' + tone + '">' + v + '</span>' +
+      '<span class="ug-dimmer" style="font-size:11px;letter-spacing:.05em;text-transform:uppercase">' + l + '</span></div>';
 
+  /* advisory severity as the resident portal words it */
+  const RSEV = { emergency: 'critical', warning: 'high', advisory: 'moderate', prepared: 'preparedness' };
+  const RSEV_LABEL = { critical: 'CRITICAL', high: 'HIGH', moderate: 'MODERATE', preparedness: 'PREPAREDNESS' };
+
+  /* the resident home, after uniguard/src/components/ResidentHomeDraftView.tsx:
+     figures, the newest advisory, your reports, reports near you to confirm,
+     advisories, open shelters, hotlines and the offline copy */
   function cwHome(st) {
-    const top = U.DATA.advisories[0];
-    const mine = U.DATA.incidents.filter(i => i.mine);
-    const openCenters = U.DATA.centers.filter(c => c.status === 'open');
-    /* live figures: open reports in the citizen's barangay come from the store
-       the repository keeps hydrated — no static placeholder values */
-    const myBrgy = (st.session && st.session.barangay) || UG_GEO.BARANGAYS[0];
-    const inMyBrgy = U.DATA.incidents.filter(i => i.brgy === myBrgy && i.status !== 'resolved' && i.status !== 'rejected').length;
-    return '<div class="ug-col" style="gap:18px">' +
-      cwHead('Home', 'Live situation for Barangay ' + esc(myBrgy) + ', ' + esc(UG_GEO.PLACE.label) + '.',
-        '<button class="ug-btn ug-btn--signal"' + A('nav', attr({ route: 'report' })) + '>' + I('plus', 16) + 'Report a Hazard</button>') +
-      '<div class="ug-wgrid-3">' +
-        readout(String(inMyBrgy), 'Open in your barangay', 'var(--ug-warning)') +
-        readout(String(U.DATA.advisories.filter(a => a.severity !== 'prepared').length), 'Active advisories', 'var(--ug-advisory)') +
-        readout(String(openCenters.length), 'Shelters open', 'var(--ug-prepared)') +
-      '</div>' +
-      '<div class="ug-wgrid-main">' +
-        '<div class="ug-col" style="gap:18px;min-width:0">' +
-          '<div class="ug-banner" style="height:120px;background:linear-gradient(135deg,' + U.SEV[top.severity].color + '40,var(--ug-surface, #0C1524))">' + U.thumb('surge', 'bn-img') +
-            '<div class="bn-in">' +
-              '<div class="ug-rowf ug-gap8" style="gap:6px">' + U.sevBadge(top.severity) + U.badge('id', 'Push alert') + '</div>' +
-              '<h3 style="font-size:17px;line-height:1.3">' + esc(top.title) + '</h3>' +
-              '<div class="ug-dimmer ug-rowf" style="font-size:11px;gap:8px">' + I('pin', 13) + esc(top.area) + ' &middot; ' + esc(top.time) + '</div>' +
-            '</div></div>' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Your Reports</h3>' +
-  '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('nav', attr({ route: 'reports' })) + '>View All</button></div>' +
-  '<div class="ug-rows">' + (mine.length ? mine.slice(0, 3).map(i =>
-    '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-report', attr({ id: i.id })) + '>' + U.photo(i) +
-      '<div class="r-main"><div class="r-t">' + U.ladder(i.sev) + esc(i.hazard) + '</div>' +
-        '<div class="r-m"><span class="ug-mono">' + esc(i.id) + '</span><span>' + I('clock', 12) + esc(i.time) + '</span>' +
-        '<span>' + I('pin', 12) + esc(i.brgy) + '</span></div></div>' +
-      U.stageBadge(i.status) + '</button>').join('')
-    : '<div class="ug-empty"><span class="e-ico">' + I('inbox', 20) + '</span>' +
-      '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">You have not filed a report yet</div></div>') +
-  '</div></div>' +
+    const s = st.session || {};
+    const incidents = U.DATA.incidents || [];
+    const advisories = U.DATA.advisories || [];
+    const myBrgy = s.barangay || UG_GEO.BARANGAYS[0];
+    const inBrgy = (i) => s.barangay_id && i.brgy_id ? i.brgy_id === s.barangay_id : i.brgy === myBrgy;
+    const open = (i) => i.status !== 'resolved' && i.status !== 'rejected';
+    const inMyBrgy = incidents.filter((i) => inBrgy(i) && open(i)).length;
+    const openCenters = (U.DATA.centers || []).filter((c) => c.status === 'open');
+    const live = advisories.filter((a) => a.severity !== 'prepared');
+    const mine = incidents.filter((i) => i.mine);
+    const near = incidents.filter((i) => !i.mine && inBrgy(i) && open(i))
+      .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0)).slice(0, 3);
+    const top = advisories[0];
+    const done = st.corrDone || {};
+    const cache = U.DATA.offlineCache || {};
+    const ready = synced();
+    const hotlines = U.DATA.hotlines || [];
+    const sev = (a) => RSEV[a.severity] || 'moderate';
+    const go = (route) => A('nav', attr({ route: route }));
 
-'<div class="ug-card"><div class="ug-card-h"><h3>Reported Near You</h3>' +
-  '<span class="ug-dimmer" style="font-size:10.5px">Confirm a hazard if you can see it too</span></div>' +
-  '<div class="ug-rows">' + (U.DATA.incidents.filter(i => !i.mine && i.status !== 'resolved' && i.status !== 'rejected').slice(0, 3).map(i =>
-    '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-report', attr({ id: i.id })) + '>' + U.photo(i) +
-      '<div class="r-main"><div class="r-t">' + U.ladder(i.sev) + esc(i.hazard) + '</div>' +
-        '<div class="r-m"><span>' + I('clock', 12) + esc(i.time) + '</span><span>' + I('pin', 12) + esc(i.brgy) + '</span>' +
-        '<span>' + I('shield', 12) + i.corr + '/3</span></div></div>' +
-      U.stageBadge(i.status) + '</button>').join('') ||
-    '<div class="ug-empty"><div style="font-size:12px" class="ug-dim">No other open reports in your barangay.</div></div>') +
-  '</div></div>' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Advisories and Alerts</h3>' +
-  '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('nav', attr({ route: 'advisories' })) + '>View All</button></div>' +
-  '<div class="ug-rows">' + U.DATA.advisories.slice(0, 3).map(a =>
-              '<button class="ug-row" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;cursor:pointer"' + A('open-advisory', attr({ id: a.id })) + '>' +
-                '<span class="r-dot" style="background:' + U.SEV[a.severity].color + '"></span>' +
-                '<div class="r-main"><div class="r-t" style="font-size:12.5px">' + esc(a.title) + '</div>' +
-                '<div class="r-m"><span>' + I('pin', 12) + esc(a.area) + '</span><span>' + esc(a.type) + '</span><span>' + esc(a.time) + '</span></div></div>' +
-                U.sevBadge(a.severity) + '</button>').join('') + '</div></div>' +
-        '</div>' +
-        '<div class="ug-col" style="gap:18px;min-width:0">' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Nearest Open Shelters</h3>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('nav', attr({ route: 'centers' })) + '>All Shelters</button></div>' +
-            '<div class="ug-rows">' + openCenters.slice(0, 3).map(c =>
-              '<div class="ug-row"><span class="r-dot" style="background:var(--ug-prepared)"></span>' +
-                '<div class="r-main"><div class="r-t" style="font-size:12.5px">' + esc(c.name) + '</div>' +
-                  '<div class="r-m"><span>' + I('pin', 12) + esc(c.brgy) + '</span><span>' + I('users', 12) + c.occ + ' / ' + c.cap + '</span></div></div>' +
-                U.badge('open', 'Open') + '</div>').join('') + '</div></div>' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Emergency Hotlines</h3>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('nav', attr({ route: 'hotlines' })) + '>View All</button></div>' +
-            '<div class="ug-rows">' + U.DATA.hotlines.slice(0, 4).map(h =>
-              '<div class="ug-row" style="padding:10px 16px"><div class="r-main">' +
-                '<div class="r-t" style="font-size:12px">' + esc(h.agency) + '</div>' +
-                '<div class="ug-mono" style="font-size:12.5px;color:var(--ug-signal);margin-top:2px">' + esc(h.number) + '</div></div>' +
-                '<button class="ug-btn ug-btn--sm"' + A('call', attr({ num: h.number, agency: h.agency })) + '>' + I('phone', 13) + '</button></div>').join('') + '</div></div>' +
-          '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:9px">' +
-            '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Offline copy</span>' +
-            '<span class="ug-mono" style="color:var(--ug-prepared)">Ready</span></div>' +
-            '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Last sync</span>' +
-            '<span class="ug-mono">' + esc(U.DATA.offlineCache.synced) + '</span></div>' +
-            '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Hotlines cached</span>' +
-            '<span class="ug-mono">' + U.DATA.offlineCache.hotlines + '</span></div>' +
-          '</div></div>' +
-        '</div>' +
+    const stat = (label, value, note, icon, route) =>
+      '<button class="rw-stat"' + go(route) + '>' +
+        '<div class="rw-stat-top"><div style="min-width:0"><div class="rw-stat-l">' + esc(label) + '</div>' +
+          '<div class="rw-stat-v">' + esc(String(value)) + '</div></div>' +
+          '<span class="rw-stat-ico">' + I(icon, 24) + '</span></div>' +
+        '<div class="rw-stat-f"><span class="rw-n">' + esc(note) + '</span>' + I('chevron', 16) + '</div>' +
+      '</button>';
+
+    const card = (title, acts, body) =>
+      '<section class="rw-card"><div class="rw-card-h"><h3>' + esc(title) + '</h3><div class="rw-acts">' + acts + '</div></div>' + body + '</section>';
+
+    const statusPill = (v) => '<span class="rw-pill ' + (v === 'verified' ? 'rw-pill--soft' : v === 'resolved' ? 'rw-pill--dark' : v === 'reported' ? 'rw-pill--light' : 'rw-pill--solid') + '">' + esc(v) + '</span>';
+
+    return '<div class="ug-col rw-home" style="gap:32px">' +
+      '<div class="rw-intro"><p>Live situation for <b>Barangay ' + esc(myBrgy) + ', ' + esc(UG_GEO.PLACE.label) + '</b>.</p>' +
+        '<button class="rw-cta"' + go('report') + '><span>+</span>Report a Hazard</button></div>' +
+
+      '<div class="rw-stats">' +
+        stat('In Your Barangay', inMyBrgy, 'Active ground hazard reports', 'alert', 'map') +
+        stat('Shelters Open', openCenters.length, 'Available for intake', 'shelter', 'centers') +
+        stat('Active Advisories', live.length, 'Official bulletins', 'bell', 'advisories') +
       '</div>' +
+
+      (top ? '<button class="rw-hero"' + A('open-advisory', attr({ id: top.id })) + '><div class="rw-hero-in">' +
+          '<h3>' + esc(top.title) + '</h3>' +
+          '<div class="rw-hero-m">' + I('pin', 16) + '<span>' + esc(top.area) + ' • ' + esc(top.time) + '</span></div>' +
+        '</div><img class="rw-hero-logo" src="img/ldrrmo-lingayen.png" alt="" aria-hidden="true"></button>' : '') +
+
+      card('Your Reports',
+        (mine.length ? '<button class="rw-btn rw-btn--dark"' + go('reports') + '>View All</button>' : '') +
+        '<button class="rw-btn rw-btn--red rw-newrep-home"' + go('report') + '>+ New Report</button>',
+        '<div class="rw-card-b">' + (mine.length
+          ? '<div class="rw-mine">' + mine.slice(0, 3).map((i) =>
+              '<button class="rw-tile"' + A('open-report', attr({ id: i.id })) + '><div class="rw-main" style="gap:4px">' +
+                '<div class="rw-t"><b>' + esc(i.hazard) + '</b><span class="rw-sub">• Brgy. ' + esc(i.brgy) + '</span></div>' +
+                '<p class="rw-desc">' + esc(i.desc) + '</p></div>' + statusPill(i.status) + '</button>').join('') + '</div>'
+          : '<div class="rw-empty"><p>You haven\'t submitted any incident reports yet.</p>' +
+              '<button' + go('report') + '>+ Submit a ground hazard report</button></div>') + '</div>') +
+
+      card('Reported Near You', '',
+        (st.nearNotice ? '<p class="rw-notice">' + esc(st.nearNotice) + '</p>' : '') +
+        '<div class="rw-rows' + (near.length > 3 ? ' rw-rows--scroll' : '') + '">' + (near.length ? near.map((i) => {
+          const key = i.uuid || i.id;
+          const ok = !!done[key];
+          const busy = st.corrBusy === key;
+          return '<div class="rw-row" role="button" tabindex="0"' + A('open-report', attr({ id: i.id })) + '><div class="rw-main">' +
+              '<div class="rw-t"><b>' + esc(i.hazard) + '</b><span class="rw-pill rw-pill--mini">' + esc(i.status === 'reported' ? 'Reported' : i.status) + '</span></div>' +
+              '<div class="rw-meta"><span>' + I('clock', 14) + esc(i.time) + '</span><span>' + I('pin', 14) + esc(i.brgy) + '</span>' +
+                '<span title="Confirmations needed to verify">' + I('shield', 14) + Math.min(i.corr || 0, 3) + '/3</span></div></div>' +
+            '<button class="rw-btn ' + (ok ? 'rw-btn--done' : 'rw-btn--red') + '"' +
+              (ok || st.corrBusy ? ' disabled' : A('confirm-corr', attr({ id: key, from: 'home' }))) + '>' +
+              (ok ? I('check', 14) + 'Confirmed' : busy ? 'Confirming…' : 'Confirm') + '</button>' +
+          '</div>';
+        }).join('') : '<p class="rw-empty rw-empty--row" style="margin:0;font-size:14px">No other open reports in your barangay.</p>') + '</div>') +
+
+      card('Advisories and Alerts',
+        '<button class="rw-btn rw-btn--dark"' + go('advisories') + '>View All</button>',
+        '<div class="rw-rows">' + advisories.slice(0, 3).map((a) =>
+          '<button class="rw-row"' + A('open-advisory', attr({ id: a.id })) + '><div class="rw-main">' +
+              '<div class="rw-t"><span class="rw-dotc rw-dot--' + sev(a) + '"></span><h4>' + esc(a.title) + '</h4></div>' +
+              '<div class="rw-meta rw-in"><span>' + I('pin', 14) + esc(a.area) + ' ' + (a.severity === 'prepared' ? 'Preparedness' : 'Emergency') + ' • ' + esc(a.time) + '</span></div></div>' +
+            '</button>').join('') + '</div>') +
+
+      card('Nearest Open Shelters', '<button class="rw-btn rw-btn--dark"' + go('centers') + '>All Shelters</button>',
+        '<div class="rw-rows">' + (openCenters.length ? openCenters.slice(0, 3).map((c) =>
+          '<button class="rw-row"' + A('open-center-detail', attr({ id: c.uuid || c.id })) + '><div class="rw-main">' +
+              '<div class="rw-t"><h4>' + esc(c.name) + '</h4></div>' +
+              '<div class="rw-meta rw-in"><span>' + I('pin', 14) + 'Brgy. ' + esc(c.brgy) + '</span>' +
+                '<span class="rw-mono" style="color:#404040">' + I('users', 14) + c.occ + ' / ' + c.cap + ' evacuees</span></div></div>' +
+            '</button>').join('')
+          : '<p class="rw-empty rw-empty--row" style="margin:0;font-size:14px">No shelter is open right now.</p>') + '</div>') +
+
+      card('Emergency Hotlines', '<button class="rw-btn rw-btn--dark"' + go('hotlines') + '>View All</button>',
+        '<div class="rw-rows">' + hotlines.slice(0, 4).map((h) =>
+          '<div class="rw-row" role="button" tabindex="0"' + go('hotlines') + '><div class="rw-main" style="gap:4px">' +
+              '<div class="rw-t"><h4>' + esc(h.agency) + '</h4></div><p class="rw-num">' + esc(h.number) + '</p></div>' +
+            '<a class="rw-call" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '" onclick="event.stopPropagation()" title="Call ' + esc(h.agency) + '" aria-label="Call ' + esc(h.agency) + '">' + I('phone', 16) + '</a>' +
+          '</div>').join('') + '</div>') +
+
+      '<button class="rw-offline"' + go('offline') + '>' +
+        '<span class="rw-col"><span class="rw-kv"><span class="rw-k">Offline copy:</span><span class="rw-ok">' + (ready ? 'Ready' : 'Not yet synced') + '</span></span>' +
+          '<span class="rw-kv"><span class="rw-k">Last sync:</span><span class="rw-v">' + esc(cache.synced || '—') + '</span></span></span>' +
+        '<span class="rw-kv"><span class="rw-k">Hotlines cached:</span><span class="rw-cnt">' + hotlines.length + '</span></span>' +
+      '</button>' +
     '</div>';
   }
 
@@ -207,7 +289,7 @@ const UG_WEB = (() => {
           ? '<button class="ug-btn ug-btn--ghost"' + A('cancel-edit') + '>Cancel edit</button>'
           : '<button class="ug-btn ug-btn--ghost"' + A('nav', attr({ route: 'home' })) + '>Cancel</button>') +
       '<div class="ug-wgrid-form">' +
-        '<div class="ug-card"><div class="ug-card-h"><h3>Hazard Details</h3><span class="ug-dimmer" style="font-size:10.5px">Step 1 of 2</span></div>' +
+        '<div class="ug-card"><div class="ug-card-h"><h3>Hazard Details</h3><span class="ug-dimmer" style="font-size:11px">Step 1 of 2</span></div>' +
           '<div class="ug-card-b">' +
             '<div class="ug-wgrid-2">' +
               selectField('hazard', 'Hazard Type', U.DATA.hazards.map(h => [h, h]), r.hazard) +
@@ -227,18 +309,18 @@ const UG_WEB = (() => {
               '<div class="ug-help">Landmark references help responders find the exact spot.</div></div>' +
           '</div></div>' +
         '<div class="ug-col" style="gap:18px">' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Photo Evidence</h3><span class="ug-dimmer" style="font-size:10.5px">Optional</span></div>' +
+          '<div class="ug-card"><div class="ug-card-h"><h3>Photo Evidence</h3><span class="ug-dimmer" style="font-size:11px">Optional</span></div>' +
             '<div class="ug-card-b">' +
               (r.photo
                 ? '<div class="ug-rowf ug-gap12" style="gap:10px;align-items:center;border:1px solid var(--ug-line);border-radius:10px;padding:9px">' + (r.photoPreview ? '<img src="' + esc(r.photoPreview) + '" alt="Selected photo preview" style="width:62px;height:46px;border-radius:8px;object-fit:cover;flex:none;border:1px solid var(--ug-line)">' : '') +
                   '<div style="min-width:0"><div style="font-size:12px;font-weight:600">' + esc(r.photoName || 'hazard-photo.jpg') + '</div>' +
-                  '<div class="ug-dimmer" style="font-size:10.5px">' + esc(UG_UTIL.bytes(r.photoBytes || 0)) + ' after compression</div></div>' +
+                  '<div class="ug-dimmer" style="font-size:11px">' + esc(UG_UTIL.bytes(r.photoBytes || 0)) + ' after compression</div></div>' +
                   '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto"' + A('rm-photo') + '>Replace</button></div>'
                 : '<button class="ug-upload" style="width:100%"' + A('add-photo') + '><span class="up-ico">' + I('camera', 22) + '</span>' +
                   '<span style="font-size:13px;font-weight:600">Tap to Attach a Hazard Photo</span>' +
-                  '<span class="ug-dimmer" style="font-size:10.5px">JPG or PNG up to 10 MB</span></button>') +
+                  '<span class="ug-dimmer" style="font-size:11px">JPG or PNG up to 10 MB</span></button>') +
             '</div></div>' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Incident Location</h3>' + (r.gpsDenied && !r.gps ? '<span class="ug-dimmer" style="font-size:10.5px;color:var(--ug-warning)">GPS unavailable</span>' : '') + '</div>' +
+          '<div class="ug-card"><div class="ug-card-h"><h3>Incident Location</h3>' + (r.gpsDenied && !r.gps ? '<span class="ug-dimmer" style="font-size:11px;color:var(--ug-warning)">GPS unavailable</span>' : '') + '</div>' +
             '<div class="ug-card-b">' +
               (r.gpsDenied && !r.gps
                 ? '<div class="ug-note" style="margin-bottom:10px">We could not read your GPS. The location is needed to route the report to the right barangay and to verify it with nearby reports — drop the pin on the map below at the hazard spot.</div>' : '') +
@@ -254,152 +336,261 @@ const UG_WEB = (() => {
             '</div></div>' +
           '<button class="ug-btn ug-btn--signal ug-btn--block' + (r.desc.trim() ? '' : ' is-disabled') + '"' + A('submit-report') + '>' +
             I('check', 16) + (st.editing ? 'Save changes' : 'Submit Report') + '</button>' +
-          '<div class="ug-dimmer" style="font-size:10.5px;text-align:center;margin-top:-8px">' + (st.editing ? 'Editing ' + esc(st.editing.code || '') + ' — audit-logged.' : 'Reports stay editable for 15 minutes after submission.') + '</div>' +
+          '<div class="ug-dimmer" style="font-size:11px;text-align:center;margin-top:-8px">' + (st.editing ? 'Editing ' + esc(st.editing.code || '') + ' — audit-logged.' : 'Reports stay editable for 15 minutes after submission.') + '</div>' +
         '</div>' +
       '</div>' +
     '</div>';
   }
 
+  /* the line under the header on resident pages: the header already names
+     the page, so only the subtitle and the page's own buttons show here */
+  function rwLead(sub, actions) {
+    return '<div class="rw-lead"><p>' + esc(sub) + '</p>' + (actions ? '<div class="rw-acts">' + actions + '</div>' : '') + '</div>';
+  }
+  const RTAG = { emergency: 'Emergency', warning: 'Warning', advisory: 'Advisory', prepared: 'Preparedness' };
+  const RTAG_COLOR = { Emergency: '#B91C1C', Warning: '#C2410C', Advisory: '#A16207', Preparedness: '#15803D' };
+  const tagLabel = (tag) => '<span class="rw-tag2"><i style="background:' + RTAG_COLOR[tag] + '"></i>' + esc(tag) + '</span>';
+  const isNew = (iso) => iso && Date.now() - Date.parse(iso) < 24 * 3600000;
+  /* whether an offline copy exists on this device */
+  const synced = () => !!((typeof UG_PWA !== 'undefined' && UG_PWA.state && UG_PWA.state.lastSync) ||
+    (typeof Repo !== 'undefined' && Repo.state && Repo.state.hasSynced));
+  const telOf = (n) => 'tel:' + esc(String(n || '').replace(/[^\d+]/g, ''));
+
+  /* Advisories, after uniguard/src/components/AdvisoryCenter.tsx (resident feed) */
   function cwAdvisories(st) {
-    const f = st.sevFilter;
+    const f = st.sevFilter || 'all';
+    const all = U.DATA.advisories || [];
     const chips = [['all', 'All'], ['emergency', 'Emergency'], ['warning', 'Warning'], ['advisory', 'Advisory'], ['prepared', 'Preparedness']];
-    const list = U.DATA.advisories.filter(a => f === 'all' || a.severity === f);
-    return '<div class="ug-col" style="gap:18px">' +
-      cwHead('Advisories and Alerts', 'Official broadcasts from the City Disaster Risk Reduction and Management Office.') +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + chips.map(c =>
-        '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('sev-filter', attr({ v: c[0] })) + '>' + c[1] +
-        '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? U.DATA.advisories.length : U.DATA.advisories.filter(x => x.severity === c[0]).length) + '</span></button>').join('') + '</div>' +
-      '<div class="ug-wgrid-cards">' + list.map((a, k) =>
-        '<button class="ug-card" style="text-align:left;cursor:pointer"' + A('open-advisory', attr({ id: a.id })) + '>' +
-          '<div class="ug-card-b ug-col" style="gap:9px">' +
-            '<div class="ug-rowf ug-between" style="gap:8px">' + U.sevBadge(a.severity) +
-            '<span class="ug-dimmer ug-mono" style="font-size:10px">' + esc(a.time) + '</span></div>' +
-            '<h3 style="font-size:14px;line-height:1.35">' + esc(a.title) + '</h3>' +
-            '<p class="ug-dim" style="font-size:11.5px;line-height:1.5">' + esc(a.body.slice(0, 104)) + (a.body.length > 104 ? '...' : '') + '</p>' +
-            '<div class="ug-dimmer ug-rowf" style="font-size:10.5px;gap:10px">' +
-              '<span class="ug-rowf" style="gap:4px">' + I('pin', 12) + esc(a.area) + '</span>' +
-              '<span class="ug-rowf" style="gap:4px">' + I('flag', 12) + esc(a.type) + '</span></div>' +
-          '</div></button>').join('') + '</div>' +
+    const list = all.filter((a) => f === 'all' || a.severity === f);
+    /* phone: the filter is a plain dropdown (as on Shelters / Hotlines) */
+    const cnt = (v) => v === 'all' ? all.length : all.filter((x) => x.severity === v).length;
+    const curC = chips.find((c) => c[0] === f) || chips[0];
+    const lbl = (c) => c[0] === 'all' ? 'All advisories' : c[1];
+    const dd = '<div class="rw-adv-bar"><div class="ug-wmore rw-shdd rw-adv-dd">' +
+      '<button class="rw-shdd-btn"' + A('toggle-more') + ' aria-haspopup="listbox">' +
+        (f !== 'all' ? '<i style="background:' + RTAG_COLOR[RTAG[f]] + '"></i>' : '') + '<span>' + lbl(curC) + '</span><b>' + cnt(curC[0]) + '</b>' + I('chevdn', 14) + '</button>' +
+      '<div class="rw-shdd-panel" data-more-panel hidden role="listbox">' + chips.map((c) =>
+        '<button role="option" class="' + (c[0] === f ? 'is-on' : '') + '"' + A('sev-filter', attr({ v: c[0] })) + '>' +
+          '<i style="background:' + (c[0] === 'all' ? '#991B1B' : RTAG_COLOR[RTAG[c[0]]]) + '"></i><span>' + lbl(c) + '</span><b>' + cnt(c[0]) + '</b>' +
+          (c[0] === f ? I('check', 14) : '') + '</button>').join('') +
+      '</div></div></div>';
+    return '<div class="ug-col rw-advp" style="gap:20px">' +
+      rwLead('Official warnings and updates from the Lingayen LDRRMO.') + dd +
+      '<div class="rw-seg" role="tablist" aria-label="Filter advisories">' + chips.map((c) =>
+        '<button class="rw-seg-i' + (f === c[0] ? ' is-on' : '') + '" role="tab" aria-selected="' + (f === c[0]) + '"' + A('sev-filter', attr({ v: c[0] })) + '>' +
+          (c[0] !== 'all' ? '<i style="background:' + RTAG_COLOR[RTAG[c[0]]] + '"></i>' : '') + '<span>' + c[1] + '</span>' +
+          '<b>' + (c[0] === 'all' ? all.length : all.filter((x) => x.severity === c[0]).length) + '</b></button>').join('') + '</div>' +
+      (list.length
+        ? '<div class="rw-grid rw-grid--adv">' + list.map((a) =>
+          '<button class="rw-acard"' + A('open-advisory', attr({ id: a.id })) + '>' +
+            '<div class="ug-col" style="gap:10px">' +
+              '<div class="rw-acard-top">' + tagLabel(RTAG[a.severity] || 'Advisory') +
+                '<span class="rw-date">' + (isNew(a.created_at) ? '<span class="rw-new">New</span>' : '') + esc(a.time) + '</span></div>' +
+              '<h3>' + esc(a.title) + '</h3>' +
+              '<p class="rw-clamp3">' + esc(a.body) + '</p>' +
+            '</div>' +
+            '<div class="rw-acard-f"><span class="rw-loc">' + I('pin', 14) + '<span>' + esc(a.area) + '</span></span>' +
+              '<span class="rw-read">Read' + I('chevron', 14) + '</span></div>' +
+          '</button>').join('') + '</div>'
+        : '<div class="rw-blank">' + I('megaphone', 40) + '<h3>No advisories here right now</h3><p>Try another filter, or check back later.</p></div>') +
     '</div>';
   }
 
+  /* one advisory, read in full: the advisory, what to do, save and share */
   function cwAdvisory(st) {
-    const a = U.DATA.advisories.find(x => x.id === st.openId) || U.DATA.advisories[0];
-    const steps = a.severity === 'prepared'
+    const a = (U.DATA.advisories || []).find((x) => x.id === st.openId) || (U.DATA.advisories || [])[0];
+    if (!a) return cwAdvisories(st);
+    const preparing = a.severity === 'prepared';
+    const steps = preparing
       ? ['Agree on a family meeting point and an out-of-town contact.', 'Prepare a go-bag with water, food, documents and a power bank.', 'Join the municipality-wide drill and practise duck, cover and hold.']
       : ['Move to the nearest open evacuation centre if advised.', 'Avoid the affected roads and never cross moving flood water.', 'Bring water, medication, identification and a phone charger.', 'Keep monitoring official advisories for updates.'];
-    return '<div class="ug-col" style="gap:18px">' +
-      '<button class="ug-btn ug-btn--ghost ug-btn--sm" style="align-self:flex-start"' + A('nav', attr({ route: 'advisories' })) + '>' +
-        '<span style="transform:rotate(180deg);display:flex">' + I('chevron', 14) + '</span>Back to Advisories</button>' +
-      '<div class="ug-wgrid-article">' +
-        '<div class="ug-col" style="gap:18px;min-width:0">' +
-          '<div class="ug-banner" style="height:230px">' + U.thumb('surge', 'bn-img') +
-            '<div class="bn-in"><div class="ug-rowf ug-gap8" style="gap:6px">' + U.sevBadge(a.severity) + U.badge('id', a.type) + '</div>' +
-            '<h2 style="font-size:21px;line-height:1.28">' + esc(a.title) + '</h2></div></div>' +
-          '<div class="ug-rowf ug-gap12 ug-wrap" style="gap:12px;font-size:11px;color:var(--ug-ink-3)">' +
-            '<span class="ug-rowf" style="gap:5px">' + I('pin', 13) + esc(a.area) + '</span>' +
-            '<span class="ug-rowf" style="gap:5px">' + I('clock', 13) + 'Published ' + esc(a.time) + '</span>' +
-            '<span class="ug-rowf" style="gap:5px">' + I('shield', 13) + esc(UG_GEO.PLACE.office) + '</span></div>' +
-          '<div class="ug-card"><div class="ug-card-sheet ug-dim">' + esc(a.body) + '</div></div>' +
-        '</div>' +
-        '<div class="ug-col" style="gap:18px;min-width:0">' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>' + (a.severity === 'prepared' ? 'How to Prepare' : 'What to Do Now') + '</h3></div>' +
-            '<div class="ug-card-b ug-col" style="gap:11px">' + steps.map((s, n) =>
-              '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
-                '<span class="ug-mono" style="font-size:10.5px;color:var(--ug-signal);width:16px;flex:none;padding-top:2px">0' + (n + 1) + '</span>' +
-                '<span class="ug-dim" style="font-size:12.5px;line-height:1.5">' + esc(s) + '</span></div>').join('') + '</div></div>' +
-          '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:9px">' +
-            '<button class="ug-btn ug-btn--sm ug-btn--block"' + A('save-advisory') + '>' + I('download', 15) + 'Save Offline</button>' +
-            '<button class="ug-btn ug-btn--sm ug-btn--block ug-btn--ghost"' + A('share-advisory') + '>Share</button>' +
-          '</div></div>' +
-        '</div>' +
+    const tag = RTAG[a.severity] || 'Advisory';
+    return '<div class="ug-col" style="gap:20px">' +
+      '<button class="rw-back"' + A('nav', attr({ route: 'advisories' })) + '><span style="display:flex;transform:rotate(180deg)">' + I('chevron', 16) + '</span>Back to Advisories</button>' +
+      '<div class="rw-reader">' +
+        '<article class="ug-col" style="gap:16px;min-width:0">' +
+          '<header class="rw-rhero"><div class="rw-hero-tags"><span class="t1">' + esc(tag) + '</span>' +
+              (a.type !== tag ? '<span class="t3">' + esc(a.type) + '</span>' : '') + '</div>' +
+            '<h2>' + esc(a.title) + '</h2>' +
+            '<div class="rw-rmeta"><span>' + I('pin', 14) + esc(a.area) + '</span><span>' + I('clock', 14) + 'Published ' + esc(UG_UTIL.absTime(a.created_at) || a.time) + '</span>' +
+              (a.expires_at ? '<span>' + I('clock', 14) + 'Valid until ' + esc(UG_UTIL.absTime(a.expires_at)) + '</span>' : '') + '</div></header>' +
+          '<div class="rw-panel rw-prose">' + esc(a.body) + '</div>' +
+        '</article>' +
+        '<aside class="ug-col" style="gap:16px;min-width:0">' +
+          '<div class="rw-panel" style="padding:0;overflow:hidden"><div class="rw-panel-h">' + (preparing ? 'How to Prepare' : 'What to Do Now') + '</div>' +
+            '<ol class="rw-steps">' + steps.map((x, n) => '<li><b>' + String(n + 1).padStart(2, '0') + '</b><span>' + esc(x) + '</span></li>').join('') + '</ol></div>' +
+          '<div class="rw-panel ug-col" style="gap:10px;padding:16px">' +
+            '<button class="rw-pbtn rw-pbtn--red"' + A('save-advisory') + '>' + I('download', 16) + 'Save Offline</button>' +
+            '<button class="rw-pbtn rw-pbtn--line"' + A('share-advisory') + '>' + I('route', 16) + 'Share</button>' +
+          '</div>' +
+        '</aside>' +
       '</div>' +
     '</div>';
   }
 
+  /* Shelters, after uniguard/src/components/EvacuationDirectory.tsx (resident) */
   function cwCenters(st) {
-    const f = st.centerFilter;
+    const f = st.centerFilter || 'all';
     const scope = st.shelterScope || 'all';
     const myBrgy = (st.session && st.session.barangay) || UG_GEO.BARANGAYS[0];
-    const chips = [['all', 'All'], ['open', 'Open'], ['full', 'Full'], ['closed', 'Closed']];
-    /* citizens see all municipality shelters by default; "My Barangay" narrows */
-    const scoped = scope === 'mine'
-      ? U.DATA.centers.filter(c => c.brgy === myBrgy)
-      : U.DATA.centers;
-    const list = scoped.filter(c => f === 'all' || c.status === f);
-    const occBar = (occ, cap) => {
-      const pct = Math.min(100, Math.round(occ / cap * 100));
-      const col = pct >= 100 ? 'var(--ug-warning)' : 'var(--ug-prepared)';
-      return '<div style="height:6px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.08);overflow:hidden">' +
-        '<div style="height:100%;width:' + pct + '%;background:' + col + '"></div></div>';
-    };
-    return '<div class="ug-col" style="gap:18px">' +
-      cwHead('Shelters', 'Evacuation Center Directory with live availability for ' + U.DATA.city + '.') +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' +
-        '<button class="ug-chip' + (scope === 'all' ? ' is-on' : '') + '"' + A('shelter-scope', attr({ v: 'all' })) + '>All Shelters</button>' +
-        '<button class="ug-chip' + (scope === 'mine' ? ' is-on' : '') + '"' + A('shelter-scope', attr({ v: 'mine' })) + '>My Barangay (' + esc(myBrgy) + ')</button>' +
-        '<span style="width:1px;height:22px;background:var(--ug-line);margin:0 4px"></span>' +
-        chips.map(c =>
-        '<button class="ug-chip' + (f === c[0] ? ' is-on' : '') + '"' + A('center-filter', attr({ v: c[0] })) + '>' + c[1] +
-        '<span class="ug-mono" style="opacity:.7">' + (c[0] === 'all' ? scoped.length : scoped.filter(x => x.status === c[0]).length) + '</span></button>').join('') +
-        '<span class="ug-dimmer" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px">' + I('wifioff', 13) + 'This list works without a connection</span></div>' +
-      (list.length ? '<div class="ug-wgrid-cards">' + list.map(c =>
-        '<button class="ug-card" style="text-align:left;cursor:pointer"' + A('open-center-detail', attr({ id: c.uuid || c.id })) + '><div class="ug-card-b ug-col" style="gap:11px">' +
-          '<div class="ug-rowf ug-between" style="gap:8px"><h3 style="font-size:13.5px">' + esc(c.name) + '</h3>' +
-          U.badge(c.status, c.status.charAt(0).toUpperCase() + c.status.slice(1)) + '</div>' +
-          '<div class="ug-dimmer ug-rowf ug-wrap" style="font-size:11px;gap:10px">' +
-            '<span class="ug-rowf" style="gap:4px">' + I('pin', 12) + esc(c.brgy) + '</span>' +
-            '<span class="ug-rowf" style="gap:4px">' + I('users', 12) + c.occ + ' of ' + c.cap + ' slots</span></div>' +
-          occBar(c.occ, c.cap) +
-          '<div class="ug-dim" style="font-size:11.5px">' + esc(c.note || 'Tap for the full record, capacity and directions.') + '</div>' +
-          '<div class="ug-rowf ug-gap8" style="gap:8px">' +
-            '<span class="ug-btn ug-btn--sm ug-btn--signal" style="flex:1;background:var(--ug-waze);color:var(--ug-waze-ink);border-color:transparent">' + I('route', 14) + 'Navigate with Waze</span>' +
-            '<span class="ug-btn ug-btn--sm ug-btn--ghost">Details</span></div>' +
-        '</div></button>').join('') + '</div>'
-      : '<div class="ug-card"><div class="ug-empty"><span class="e-ico">' + I('shelter', 20) + '</span>' +
-        '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No shelters match this filter</div>' +
-        '<div class="ug-dim" style="font-size:11px">Try “All Shelters”, or a different status.</div></div></div>') +
-    '</div>';
-  }
-
-  function cwHotlines(st) {
-    return '<div class="ug-col" style="gap:18px">' +
-      cwHead('Hotlines', 'Emergency Hotline Directory for barangay and municipal offices.',
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('save-center-offline', attr({ id: 'hotlines' })) + '>' + I('download', 15) + 'Save Offline</button>') +
-      '<div class="ug-wgrid-hotlines">' + U.DATA.hotlines.map(h =>
-        '<div class="ug-card"><div class="ug-card-b ug-col" style="gap:10px">' +
-          '<div class="ug-rowf ug-between" style="gap:8px"><span class="ug-lab">' + esc(h.scope) + '</span>' + I('phone', 16) + '</div>' +
-          '<h3 style="font-size:13.5px">' + esc(h.agency) + '</h3>' +
-          '<a class="ug-mono" style="font-size:17px;color:var(--ug-signal);text-decoration:none" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '">' + esc(h.number) + '</a>' +
-          '<a class="ug-btn ug-btn--sm ug-btn--signal" style="text-decoration:none;justify-content:center" href="tel:' + esc(String(h.number).replace(/[^\d+]/g, '')) + '">' + I('phone', 14) + 'Call now</a>' +
-        '</div></div>').join('') + '</div>' +
-      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
-        '<span style="color:var(--ug-signal);display:flex">' + I('info', 17) + '</span>' +
-        '<div class="ug-dim" style="font-size:11.5px;line-height:1.5">If a line is busy, keep the call short and state your barangay, landmark and number of people needing help.</div></div></div>' +
-    '</div>';
-  }
-
-  function cwNotifications(st) {
-    const unread = (U.DATA.notifications || []).filter(n => n.unread).length;
-    return '<div class="ug-col" style="gap:18px">' +
-      cwHead('Notifications', 'Push Notifications delivered to this device, including alerts received while the app was closed.',
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('read-all') + '>' + I('check', 15) + 'Mark All Read</button>') +
-      '<div class="ug-wgrid-side">' +
-        /* tappable rows, shared with the mobile inbox (UG_SCREENS.notifRow) */
-        '<div class="ug-card"><div class="ug-rows">' + ((U.DATA.notifications || []).length
-          ? (U.DATA.notifications || []).map((n) => UG_SCREENS.notifRow(n)).join('')
-          : '<div class="ug-empty"><span class="e-ico">' + I('bell', 20) + '</span>' +
-            '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No notifications yet</div></div>') + '</div></div>' +
-        '<div class="ug-col" style="gap:18px">' +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Delivery</h3></div><div class="ug-card-b ug-col" style="gap:10px">' +
-            [['Unread', String(st.readNotifs ? 0 : unread), 'warning'], ['Delivered today', '5', 'advisory'], ['Delivery channel', 'Push + offline inbox', 'prepared']]
-              .map(x => '<div class="ug-rowf ug-between" style="gap:10px;font-size:12px"><span class="ug-dim">' + x[0] + '</span>' +
-                '<span class="ug-mono" style="color:var(--ug-' + x[2] + ')">' + x[1] + '</span></div>').join('') +
-          '</div></div>' +
-          '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-dim" style="font-size:11.5px;line-height:1.55">' +
-            'Alerts are delivered even when the app is closed, and are queued for the offline inbox when there is no signal.</div></div>' +
+    const all = U.DATA.centers || [];
+    const scoped = scope === 'mine' ? all.filter((c) => c.brgy === myBrgy) : all;
+    const list = scoped.filter((c) => f === 'all' || c.status === f);
+    return '<div class="ug-col" style="gap:24px">' +
+      '<section class="rw-card rw-shelters">' +
+        '<div class="rw-toolbar">' +
+          (() => {
+            /* status filter as a dropdown (toggle-more opens, a tap outside closes) */
+            const opts = [['all', 'All shelters'], ['open', 'Open'], ['full', 'Full'], ['closed', 'Closed']];
+            const cnt = (v) => v === 'all' ? scoped.length : scoped.filter((x) => x.status === v).length;
+            const cur = opts.find((o) => o[0] === f) || opts[0];
+            return '<div class="ug-wmore rw-shdd">' +
+              '<button class="rw-shdd-btn"' + A('toggle-more') + ' aria-haspopup="listbox">' +
+                (f !== 'all' ? '<i class="is-' + f + '"></i>' : '') + '<span>' + cur[1] + '</span><b>' + cnt(cur[0]) + '</b>' + I('chevdn', 14) + '</button>' +
+              '<div class="rw-shdd-panel" data-more-panel hidden role="listbox">' + opts.map((o) =>
+                '<button role="option" class="' + (o[0] === f ? 'is-on' : '') + '"' + A('center-filter', attr({ v: o[0] })) + '>' +
+                  (o[0] !== 'all' ? '<i class="is-' + o[0] + '"></i>' : '<i class="is-all"></i>') + '<span>' + o[1] + '</span><b>' + cnt(o[0]) + '</b>' +
+                  (o[0] === f ? I('check', 14) : '') + '</button>').join('') +
+              '</div></div>';
+          })() +
+          '<div class="rw-shseg" role="group" aria-label="Barangay">' +
+            '<button class="' + (scope === 'all' ? 'is-on' : '') + '"' + A('shelter-scope', attr({ v: 'all' })) + '>All</button>' +
+            '<button class="' + (scope === 'mine' ? 'is-on' : '') + '"' + A('shelter-scope', attr({ v: 'mine' })) + '>' + I('pin', 13) + esc(myBrgy) + '</button>' +
+          '</div>' +
         '</div>' +
+        '<div class="rw-card-b">' + (list.length
+          ? '<div class="rw-grid rw-grid--3 rw-scgrid">' + list.slice().sort((a, b) => {
+              /* open shelters with space first, then full, then closed */
+              const rank = (c) => c.status === 'closed' ? 2 : (c.status === 'full' || (c.cap && c.occ >= c.cap)) ? 1 : 0;
+              return rank(a) - rank(b);
+            }).map((c) => {
+            const cap = c.cap || 0, occ = c.occ || 0, left = Math.max(0, cap - occ);
+            const pct = cap ? Math.min(100, Math.round(occ / cap * 100)) : 0;
+            const id = c.uuid || c.id;
+            const hasPos = c.lat != null && c.lng != null;
+            const st = c.status === 'closed' ? 'closed' : (c.status === 'full' || (cap && left === 0)) ? 'full' : 'open';
+            const ST = { open: 'Open', full: 'Full', closed: 'Closed' };
+            const fac = c.facilities || [];
+            return '<div class="rw-scard rw-sc2 is-' + st + '" role="button" tabindex="0"' + A('open-center-detail', attr({ id: id })) + '>' +
+              '<div class="rw-sc2-top"><h4>' + esc(c.name) + '</h4><span class="rw-sc2-st is-' + st + '"><i></i>' + ST[st] + '</span></div>' +
+              '<p class="rw-sc2-loc">' + I('pin', 14) + '<span>Brgy. ' + esc(c.brgy) + '</span></p>' +
+              '<div class="rw-sc2-occ">' +
+                '<div class="rw-sc2-occ-h"><div><b>' + (st === 'closed' ? '—' : left.toLocaleString()) + '</b><span>' + (st === 'closed' ? 'not taking evacuees' : 'space' + (left === 1 ? '' : 's') + ' left') + '</span></div>' +
+                  '<small>' + occ.toLocaleString() + ' / ' + cap.toLocaleString() + '</small></div>' +
+                '<div class="rw-sc2-bar"><i class="is-' + st + '" style="width:' + pct + '%"></i></div>' +
+              '</div>' +
+              /* the least-used details fold into "More" (as on the barangay
+                 console): notes, facilities and the contact. Kept open across
+                 re-renders; closes when the pointer leaves the card. */
+              ((c.note || fac.length || c.contact_phone)
+                ? '<details class="sc-more rw-sc2-more" data-sc-more="rw-' + esc(id) + '"' + (window.UG_SC_OPEN && window.UG_SC_OPEN['rw-' + id] ? ' open' : '') + ' onclick="event.stopPropagation()">' +
+                    '<summary>' + I('chevdn', 14) + 'More<em>' + [c.note ? 'notes' : '', fac.length ? fac.length + ' facilit' + (fac.length === 1 ? 'y' : 'ies') : '', c.contact_phone ? 'contact' : ''].filter(Boolean).join(' · ') + '</em></summary>' +
+                    '<div class="sc-more-b">' +
+                      (c.note ? '<p class="rw-sc2-note">' + esc(c.note) + '</p>' : '') +
+                      (fac.length ? '<div class="rw-sc2-fac">' + fac.map((x) => '<span>' + I('check', 13) + esc(x) + '</span>').join('') + '</div>' : '') +
+                      (c.contact_phone ? '<a class="rw-sc2-tel" href="' + telOf(c.contact_phone) + '" onclick="event.stopPropagation()">' + I('phone', 14) +
+                        '<span>' + (c.contact_person ? esc(c.contact_person) + ' · ' : '') + esc(c.contact_phone) + '</span></a>' : '') +
+                    '</div></details>'
+                : '') +
+              '<div class="rw-sc2-acts">' +
+                (hasPos ? '<a class="rw-sbtn rw-sbtn--red" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(c.lat, c.lng) + '" onclick="event.stopPropagation()">' + I('route', 14) + 'Navigate</a>'
+                  : '<span class="rw-sc2-nopos">No map location yet</span>') +
+                '<button class="rw-sc2-ico"' + A('open-center-detail', attr({ id: id })) + ' title="Details" aria-label="Details">' + I('doc', 15) + '</button>' +
+                '<button class="rw-sc2-ico"' + A('save-center-offline', attr({ id: id })) + ' title="Save for offline use" aria-label="Save for offline use">' + I('download', 15) + '</button>' +
+              '</div>' +
+            '</div>';
+          }).join('') + '</div>'
+          : '<div class="rw-blank" style="box-shadow:none;border:0">' + I('shelter', 40) + '<h3>No evacuation centers match your search</h3><p>Try adjusting your filter.</p>' +
+              '<button class="rw-linkbtn"' + A('center-filter', attr({ v: 'all' })) + '>Clear filter</button></div>') + '</div>' +
+      '</section>' +
+    '</div>';
+  }
+
+  /* Hotlines, after uniguard/src/components/HotlineDirectory.tsx */
+  function hotlineTag(h) {
+    const name = String(h.agency || '').toLowerCase();
+    if (/bfp|fire/.test(name)) return 'FIRE AND RESCUE';
+    if (/pnp|police/.test(name)) return 'POLICE ASSISTANCE';
+    if (/medical|health|red cross|relief/.test(String(h.scope || '').toLowerCase() + ' ' + name)) return 'MEDICAL AND RELIEF';
+    if (/coast guard/.test(name)) return 'COASTAL RESCUE';
+    return String(h.scope || '').toUpperCase();
+  }
+  function cwHotlines(st) {
+    const all = U.DATA.hotlines || [];
+    /* filter by category (the tag shown on each row); dropdown as on Shelters */
+    const tags = [];
+    all.forEach((h) => { const t = hotlineTag(h); if (t && tags.indexOf(t) === -1) tags.push(t); });
+    const f = tags.indexOf(st.hotlineFilter) !== -1 ? st.hotlineFilter : 'all';
+    const list = f === 'all' ? all : all.filter((h) => hotlineTag(h) === f);
+    const nice = (t) => t.charAt(0) + t.slice(1).toLowerCase();
+    const opts = [['all', 'All hotlines', all.length]].concat(tags.map((t) => [t, nice(t), all.filter((h) => hotlineTag(h) === t).length]));
+    const cur = opts.find((o) => o[0] === f) || opts[0];
+    const dd = '<div class="ug-wmore rw-shdd rw-hotl-dd">' +
+      '<button class="rw-shdd-btn"' + A('toggle-more') + ' aria-haspopup="listbox"><span>' + esc(cur[1]) + '</span><b>' + cur[2] + '</b>' + I('chevdn', 14) + '</button>' +
+      '<div class="rw-shdd-panel" data-more-panel hidden role="listbox">' + opts.map((o) =>
+        '<button role="option" class="' + (o[0] === f ? 'is-on' : '') + '"' + A('hotline-filter', attr({ v: o[0] })) + '><span>' + esc(o[1]) + '</span><b>' + o[2] + '</b>' +
+          (o[0] === f ? I('check', 14) : '') + '</button>').join('') +
+      '</div></div>';
+    return '<div class="ug-col" style="gap:24px">' +
+      '<section class="rw-card rw-hotl"><div class="rw-hotl-h">' + dd +
+        '<button class="rw-hotl-save"' + A('save-center-offline', attr({ id: 'hotlines' })) + '>' + I('download', 14) + 'Save offline</button></div>' +
+        '<div class="rw-rows">' + (list.length ? list.map((h) =>
+        '<div class="rw-row" style="cursor:default"><div class="rw-main">' +
+            '<div class="rw-t"><h4 style="font-size:14px">' + esc(h.agency) + '</h4></div>' +
+            '<p class="rw-num" style="font-size:13px;margin:0">' + esc(h.number) + '</p></div>' +
+          '<a class="rw-callbtn" href="' + telOf(h.number) + '" title="Call ' + esc(h.agency) + '">' + I('phone', 14) + '<span>Call</span></a>' +
+        '</div>').join('')
+        : '<p class="rw-empty rw-empty--row" style="margin:0;font-size:14px">No hotlines saved yet.</p>') + '</div></section>' +
+      '<p class="rw-hotl-tip">' + I('info', 15) + '<span>If a line is busy, keep the call short and state your barangay, landmark and number of people needing help.</span></p>' +
+    '</div>';
+  }
+
+  /* Notifications, after uniguard/src/components/ResidentNotificationsView.tsx */
+  const NLEVEL = { emergency: ['Urgent', '#B91C1C'], warning: ['Warning', '#C2410C'], advisory: ['Advisory', '#A16207'] };
+  function cwNotifications(st) {
+    const list = U.DATA.notifications || [];
+    const unread = list.filter((n) => n.unread).length;
+    const today = new Date().toDateString();
+    const sentToday = list.filter((n) => n.created_at && new Date(n.created_at).toDateString() === today).length;
+    const lv = (n) => NLEVEL[n.tone] || ['Notice', '#737373'];
+    const openAttr = (n) => A('open-notification', attr({ id: n.id || '', advisory: n.advisory_id || '', report: n.report_id || '',
+      roadWork: n.road_work_id || '', sos: n.sos_id || '', relief: n.relief_id || '' }));
+    const fig = (label, value, note, icon, dot) =>
+      '<div class="rw-stat" style="cursor:default"><div class="rw-stat-top"><div style="min-width:0"><div class="rw-stat-l">' + esc(label) + '</div>' +
+        '<div class="rw-stat-v">' + value + '</div></div><span class="rw-stat-ico">' + I(icon, 24) + '</span></div>' +
+        '<div class="rw-stat-f"><span class="rw-n' + (dot ? ' rw-n--ok' : '') + '">' + esc(note) + '</span></div></div>';
+    const cache = U.DATA.offlineCache || {};
+    /* when it was sent: "Sent 9:42 AM" today, "Sent Nov 12, 9:42 AM" before */
+    const sentAt = (n) => {
+      let t = n.created_at ? new Date(n.created_at) : null;
+      if (!t || isNaN(t)) {
+        /* no timestamp on file: work it out from "12m ago" / "3h ago" / "2d ago" */
+        const m = String(n.time || '').match(/(\d+)\s*(s|m|h|d)/i);
+        if (!m) return '';
+        t = new Date(Date.now() - Number(m[1]) * ({ s: 1e3, m: 6e4, h: 36e5, d: 864e5 })[m[2].toLowerCase()]);
+      }
+      const clock = t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      return 'Sent ' + (t.toDateString() === today ? clock : t.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + clock);
+    };
+    return '<div class="ug-col" style="gap:28px">' +
+
+      '<div class="rw-stats rw-stats--2">' +
+        fig('Today', sentToday, 'Alerts sent to you today', 'bell') +
+        fig('Unread', unread, unread ? 'Waiting for you to read' : 'You\'re all caught up', 'alert', !unread) +
       '</div>' +
+      '<section class="rw-card"><div class="rw-card-h rw-nhead"><div><h3>All notifications</h3><span class="rw-hint">' + list.length + ' total' + (unread ? ' · ' + unread + ' unread' : '') + '</span></div>' +
+        (unread ? '<button class="rw-markall"' + A('read-all') + '>' + I('check', 14) + 'Mark all as read</button>' : '') + '</div>' +
+        '<ul class="rw-nlist">' + (list.length ? list.map((n) =>
+          '<li class="' + (n.unread ? 'is-unread' : '') + '"><button' + openAttr(n) + '>' +
+            '<i class="rw-ndot"></i>' +
+            '<span class="rw-nmain"><span class="rw-ntop"><span class="rw-ntitle">' + esc(n.title) + '</span>' +
+              '<span class="rw-tag2"><i style="background:' + lv(n)[1] + '"></i>' + esc(lv(n)[0]) + '</span></span>' +
+              (n.body ? '<span class="rw-nbody">' + esc(n.body) + '</span>' : '') +
+              '<span class="rw-nmeta">' + esc(n.time || '') + (sentAt(n) ? '<span class="rw-nsent"> · ' + esc(sentAt(n)) + '</span>' : '') + '</span></span>' +
+            I('chevron', 16) + '</button></li>').join('')
+          : '<li class="rw-blank" style="box-shadow:none;border:0;border-radius:0">' + I('bell', 40) + '<h3>No notifications yet</h3><p>Alerts sent to you will show here.</p></li>') + '</ul>' +
+      '</section>' +
+      '<p class="rw-quiet">' + I('wave', 14) + (synced() ? 'Saved for offline reading. Last updated ' + esc(cache.synced) + '.' : 'Not saved for offline reading yet.') + '</p>' +
     '</div>';
   }
 
@@ -409,18 +600,18 @@ const UG_WEB = (() => {
       '<div class="ug-wgrid-side">' +
         '<div class="ug-col" style="gap:18px">' +
           '<div class="ug-card ug-tick"><div class="ug-card-b ug-col" style="gap:12px;align-items:center;text-align:center;padding:26px 20px">' +
-            '<span style="width:54px;height:54px;border-radius:17px;display:grid;place-items:center;background:rgba(255,176,32,.14);color:var(--ug-warning);border:1px solid rgba(255,176,32,.3)">' + I('wifioff', 26) + '</span>' +
-            '<h3 style="font-size:17px">' + (st.offline ? 'You Are Offline' : 'Offline Copy Ready') + '</h3>' +
-            '<p class="ug-dim" style="font-size:12.5px;line-height:1.55;max-width:420px">Cellular networks often fail during a disaster. UniGuard keeps hotlines, shelters and critical advisories on this device so they still open without a signal.</p>' +
+            '<span class="off-ico" style="width:54px;height:54px;border-radius:17px;display:grid;place-items:center;background:rgba(255,176,32,.14);color:var(--ug-warning);border:1px solid rgba(255,176,32,.3)">' + I('wifioff', 26) + '</span>' +
+            '<h3 style="font-size:16px">' + (st.offline ? 'You Are Offline' : 'Offline Copy Ready') + '</h3>' +
+            '<p class="ug-dim" style="font-size:13px;line-height:1.55;max-width:420px">Cellular networks often fail during a disaster. UniGuard keeps hotlines, shelters and critical advisories on this device so they still open without a signal.</p>' +
             '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('reconnect') + '>' + I('wave', 15) + (st.offline ? 'Back Online' : 'Check Connection') + '</button>' +
           '</div></div>' +
           '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(T('offline.availableNoSignal')) + '</h3>' +
-            '<span class="ug-dimmer ug-mono" style="font-size:10px">' + esc(T('offline.lastSaved')) + ' ' + esc(U.DATA.offlineCache.synced) + '</span></div>' +
+            '<span class="ug-dimmer ug-mono" style="font-size:11px">' + esc(T('offline.lastSaved')) + ' ' + esc(U.DATA.offlineCache.synced) + '</span></div>' +
             '<div class="ug-card-b ug-col" style="gap:11px">' +
               [['Emergency Hotlines', U.DATA.offlineCache.hotlines, 'phone'], ['Evacuation Centers', U.DATA.offlineCache.centers, 'shelter'], ['Critical Advisories', U.DATA.offlineCache.advisories, 'megaphone']]
                 .map(x => '<div class="ug-rowf ug-between" style="gap:10px"><span class="ug-rowf" style="gap:9px">' +
                   '<span style="color:var(--ug-signal);display:flex">' + I(x[2], 16) + '</span>' +
-                  '<span style="font-size:12.5px">' + x[0] + '</span></span>' +
+                  '<span style="font-size:13px">' + x[0] + '</span></span>' +
                   '<span class="ug-badge ug-badge--resolved">' + x[1] + ' ' + esc(T('offline.ready')) + '</span></div>').join('') +
             '</div></div>' +
         '</div>' +
@@ -433,7 +624,7 @@ const UG_WEB = (() => {
               .map(x => '<div class="ug-rowf ug-between" style="gap:10px;font-size:12px"><span class="ug-dim">' + x[0] + '</span>' +
                 '<span class="ug-mono">' + x[1] + '</span></div>').join('') +
             '<button class="ug-btn ug-btn--sm ug-btn--block"' + A('force-refresh') + '>' + I('wave', 15) + esc(T('offline.reloadApp')) + '</button>' +
-            '<div class="ug-dimmer" style="font-size:10.5px;line-height:1.5;text-align:center">' + esc(T('offline.reloadHelp')) + '</div>' +
+            '<div class="ug-dimmer" style="font-size:11px;line-height:1.5;text-align:center">' + esc(T('offline.reloadHelp')) + '</div>' +
           '</div></div>' +
         '</div>' +
       '</div>' +
@@ -443,49 +634,29 @@ const UG_WEB = (() => {
     function cwBody(st) {
     switch (st.route) {
       case 'home': return cwHome(st);
-      case 'report': return cwReport(st);
+      case 'report': return UG_RW.report(st);
+      case 'report-done': return UG_RW.reportDone(st);
       case 'advisories': return cwAdvisories(st);
       case 'advisory-detail': return cwAdvisory(st);
       case 'centers': return cwCenters(st);
       case 'hotlines': return cwHotlines(st);
       case 'notifications': return cwNotifications(st);
-      case 'offline': return cwOffline(st);
+      case 'offline': return UG_RW.offline(st);
       case 'more': return cwMore(st);
       /* the new citizen web routes reuse the mobile render functions inside a
          centered page column with the standard desktop header */
-      case 'relief':
-        return cwWrap(st, 'Relief Assistance', 'Per-barangay relief distribution information.',
-          UG_RELIEF.mRelief(st));
-      case 'relief-verify': return UG_RELIEF.mReliefVerify(st);
-      case 'guides':
-        return cwWrap(st, 'Disaster Preparedness Guides',
-          'Step-by-step guidance for the hazards that affect ' + UG_GEO.PLACE.label + '.',
-          UG_GUIDES.mGuides(st));
-      case 'faqs':
-        return cwWrap(st, 'Help Center', 'Frequently asked questions answered by the LGU.',
-          UG_FAQS.mFaqs(st));
+      case 'relief': return UG_RW.relief(st);
+      case 'relief-verify': return '<div class="rw-legacy">' + UG_RELIEF.mReliefVerify(st) + '</div>';
+      case 'guides': return UG_RW.guides(st);
+      case 'faqs': return UG_RW.faqs(st);
       case 'roadwork':
         return cwWrap(st, 'Road Work & Road Status', 'Active road work posts and the road-status overlay.',
           UG_ROADWORK.mRoadwork(st));
-      case 'reports':
-        return cwWrap(st, 'My Reports', 'Every report you have filed, with its current status.',
-          (typeof UG_SCREENS !== 'undefined' && UG_SCREENS.mobileBody)
-            ? UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'reports' })) : '');
-      case 'report-detail':
-        return (typeof UG_SCREENS !== 'undefined' && UG_SCREENS.mobileBody)
-          ? UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'report-detail' })) : cwHome(st);
-      case 'sos':
-        return cwWrap(st, 'SOS', 'One-tap emergency signal to the LGU / LDRRMO duty officer.', UG_SOS.mSos(st));
-      case 'map':
-        return cwWrap(st, 'Hazard Map', 'Hazards, relief, shelters and road status around you.',
-          UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'map' })));
-      case 'settings':
-        /* citizens get the same Settings screen as everyone else; the tabs
-           inside adapt to the citizen role (language + notifications + offline,
-           no org profile or templates). */
-        return (typeof UG_SETTINGS !== 'undefined')
-          ? cwWrap(st, UG_I18N.t('title.settings'), UG_I18N.t('settings.subtitle'), UG_SETTINGS.dSettings(st))
-          : cwHome(st);
+      case 'reports': return UG_RW.myReports(st);
+      case 'report-detail': return UG_RW.reportDetail(st);
+      case 'sos': return UG_RW.sos(st);
+      case 'map': return UG_RW.map(st);
+      case 'settings': return UG_RW.settings(st);
       default: return cwHome(st);
     }
   }
@@ -505,25 +676,30 @@ const UG_WEB = (() => {
       header.remove();
     }
 
-    return '<div class="ug-col ug-cw-page" style="gap:18px">' +
-      cwHead(title, sub, actions) +
+    return '<div class="ug-col ug-cw-page rw-legacy" style="gap:18px">' +
+      rwLead(sub, actions) +
       '<div>' + tmp.innerHTML + '</div>' +
     '</div>';
   }
 
   function frameCitizenWeb(st) {
-    return '<div class="ug ug-frame ug-w' + (st.fixed ? ' ug-fixed' : '') + '"' +
+    return '<div class="ug ug-frame ug-w ug-rw' + (folded() ? ' is-folded' : '') + (st.fixed ? ' ug-fixed' : '') + '"' +
       (st.fixed ? ' style="width:' + st.w + 'px;height:' + st.h + 'px"' : '') + '>' +
-      cwTop(st) +
-      /* the real connectivity banner is #ug-conn (index.html); this in-frame
-         strip is only a preview control in DEV builds */
-      (st.offline && UG_CONFIG.DEV ? '<div class="ug-offline">' + I('wifioff', 14) +
-        '<span>Offline mode. Showing hotlines, shelters and critical advisories saved ' + esc(U.DATA.offlineCache.synced) + '.</span>' +
-        '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto"' + A('toggle-offline') + '>Preview: simulate offline</button></div>' : '') +
-      '<main class="ug-wbody ug-scroll">' + cwBody(st) + '</main>' +
-      '<footer class="ug-wfoot">' + I('shield', 13) + '<span>UniGuard Resident Portal</span>' +
-        '<span class="ug-dimmer">&middot;</span><span class="ug-dimmer">' + esc(U.DATA.city) + '</span>' +
-        '<span class="ug-dimmer" style="margin-left:auto">Offline copy synced ' + esc(U.DATA.offlineCache.synced) + '</span></footer>' +
+      '<div class="ug-rw-shell">' +
+        rwSide(st) +
+        '<div class="rw-scrim"' + A('rw-drawer') + ' aria-hidden="true"></div>' +
+        '<div class="ug-rw-main">' +
+          rwHead(st) +
+          /* the real connectivity banner is #ug-conn (index.html); this in-frame
+             strip is only a preview control in DEV builds */
+          (st.offline && UG_CONFIG.DEV ? '<div class="ug-offline">' + I('wifioff', 14) +
+            '<span>Offline mode. Showing hotlines, shelters and critical advisories saved ' + esc(U.DATA.offlineCache.synced) + '.</span>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto"' + A('toggle-offline') + '>Preview: simulate offline</button></div>' : '') +
+          '<main class="ug-rw-body ug-scroll"><div class="ug-rw-page">' + cwBody(st) + '</div></main>' +
+          UG_RW.phoneBar(st) +
+        '</div>' +
+        UG_RW.phoneMenu(st) +
+      '</div>' +
     '</div>';
   }
 

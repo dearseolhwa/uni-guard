@@ -27,7 +27,7 @@ const UG_ADMIN = (function () {
     statePanel('empty', 'Super Admin only', 'Accounts, roles and the activity log are managed by the Super Admin. Ask them if you need a change made.') + '</div>';
 
   function head(title, sub, actions) {
-    return '<div class="ug-rowf ug-between ug-wrap" style="gap:14px;align-items:flex-end">' +
+    return '<div class="ug-rowf ug-between ug-wrap ug-phead" style="gap:14px;align-items:flex-end">' +
       '<div><h2 style="font-size:20px">' + esc(title) + '</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:4px">' + esc(sub) + '</p></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';
@@ -44,12 +44,12 @@ const UG_ADMIN = (function () {
     if (kind === 'error') {
       return '<div class="ug-card"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
         '<span style="color:var(--ug-emergency);display:flex">' + I('alert', 18) + '</span>' +
-        '<div><div style="font-size:12.5px;font-weight:700;color:var(--ug-emergency)">' + esc(title) + '</div>' +
+        '<div><div style="font-size:13px;font-weight:700;color:var(--ug-emergency)">' + esc(title) + '</div>' +
         '<div class="ug-note" style="margin-top:4px">' + esc(sub) + '</div>' +
         (action || '') + '</div></div></div>';
     }
     return '<div class="ug-card"><div class="ug-empty"><span class="e-ico">' + I('inbox', 20) + '</span>' +
-      '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">' + esc(title) + '</div>' +
+      '<div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">' + esc(title) + '</div>' +
       '<div style="font-size:11px">' + esc(sub) + '</div></div></div>';
   }
 
@@ -73,11 +73,11 @@ const UG_ADMIN = (function () {
         '<option value="' + esc(b.id) + '"' + (u.barangay_id === b.id ? ' selected' : '') + '>' + esc(b.name) + '</option>').join('');
       return '<tr data-user="' + esc(u.id) + '">' +
         '<td><div style="font-weight:600">' + esc(u.full_name || '(no name)') + '</div>' +
-          '<div class="ug-dimmer" style="font-size:10.5px">' + esc(u.email || '') + (u.unit_role ? ' · ' + u.unit_role : '') + '</div></td>' +
+          '<div class="ug-dimmer" style="font-size:11px">' + esc(u.email || '') + (u.unit_role ? ' · ' + u.unit_role : '') + '</div></td>' +
         '<td><select class="ug-sel-inline" data-act="admin-role" data-id="' + esc(u.id) + '" aria-label="Role">' + roleOpts + '</select></td>' +
         '<td><select class="ug-sel-inline" data-act="admin-barangay" data-id="' + esc(u.id) + '" aria-label="Barangay">' + brgyOpts + '</select></td>' +
         '<td>' + (u.disabled ? U.badge('closed', 'Disabled') : U.badge('open', 'Active')) + '</td>' +
-        '<td><div class="ug-mono" style="font-size:10.5px;color:var(--ug-ink-3)">' + esc(UG_UTIL.relTime(u.created_at)) + '</div></td>' +
+        '<td><div class="ug-mono" style="font-size:11px;color:var(--ug-ink-3)">' + esc(UG_UTIL.relTime(u.created_at)) + '</div></td>' +
         '<td class="t-right"><button class="ug-btn ug-btn--sm' + (u.disabled ? '' : ' ug-btn--ghost') + '" data-act="admin-disable" data-id="' + esc(u.id) + '" data-next="' + (u.disabled ? 'false' : 'true') + '">' +
           (u.disabled ? 'Enable' : 'Disable') + '</button></td>' +
         '</tr>';
@@ -272,10 +272,10 @@ const UG_ADMIN = (function () {
     const body = rows.map((a) => '<tr data-act="open-audit" data-id="' + esc(a.id) + '" style="cursor:pointer" title="' + esc(T('admin.auditOpenRecord')) + '">' +
       '<td class="t-num" style="white-space:nowrap">' + esc(UG_UTIL.absTime(a.created_at) || UG_UTIL.relTime(a.created_at)) + '</td>' +
       '<td><div style="font-weight:600">' + esc(actorOf(a)) + '</div>' +
-        '<div class="ug-dimmer" style="font-size:10.5px">' + esc(roleLabelAudit(a.actor_role === 'super_admin' ? 'super_admin' : a.actor_role)) + (a.actor_barangay ? ' · ' + esc(a.actor_barangay) : '') + '</div></td>' +
+        '<div class="ug-dimmer" style="font-size:11px">' + esc(roleLabelAudit(a.actor_role === 'super_admin' ? 'super_admin' : a.actor_role)) + (a.actor_barangay ? ' · ' + esc(a.actor_barangay) : '') + '</div></td>' +
       '<td>' + esc(entityLabel(a.entity)) + '</td>' +
       '<td><span class="ug-badge ug-badge--id">' + esc(a.action) + '</span></td>' +
-      '<td style="font-size:11.5px;max-width:420px">' + esc(describe(a) || '—') + '</td>' +
+      '<td style="font-size:12px;max-width:420px">' + esc(describe(a) || '—') + '</td>' +
       '</tr>').join('');
 
     /* pagination row */
@@ -404,7 +404,7 @@ const UG_ADMIN = (function () {
 
     const responderRow = (r) => '<tr>' +
       '<td><div style="font-weight:600">' + esc(r.name || '') + '</div>' +
-        '<div class="ug-dimmer" style="font-size:10.5px">' + esc(r.unit || '') + '</div></td>' +
+        '<div class="ug-dimmer" style="font-size:11px">' + esc(r.unit || '') + '</div></td>' +
       '<td>' + esc(r.contact || '') + '</td>' +
       '<td>' + esc(r.status || 'available') + '</td>' +
       '<td class="t-right"><button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-responders-toggle" data-id="' + esc(r.id) + '" data-next="' + (r.status === 'off_duty' ? 'available' : 'off_duty') + '">' + (r.status === 'off_duty' ? 'Set available' : 'Set off duty') + '</button></td>' +
@@ -414,7 +414,7 @@ const UG_ADMIN = (function () {
       '<td>' + esc(u.unit_type) + '</td>' +
       '<td>' + esc(u.contact_number || '') + '</td>' +
       '<td>' + esc(u.status) + '</td>' +
-      '<td class="t-right"><a class="ug-btn ug-btn--sm ug-btn--signal" href="tel:' + esc(String(u.contact_number).replace(/[^+\d]/g, '')) + '">' + I('phone', 13) + 'Call</a></td>' +
+      '<td class="t-right"><a class="rt-call" href="tel:' + esc(String(u.contact_number).replace(/[^+\d]/g, '')) + '">' + I('phone', 13) + 'Call</a></td>' +
     '</tr>').join('');
 
     /* D2: shelters needing patrol (LGU + the barangay's officials can
@@ -425,7 +425,7 @@ const UG_ADMIN = (function () {
       .filter((c) => c.needs_patrol === true);
     const patrolRow = (c) => '<tr>' +
       '<td><div style="font-weight:600">' + esc(c.name || '') + '</div>' +
-        '<div class="ug-dimmer" style="font-size:10.5px">' + esc(c.brgy || c.barangay || '') + '</div></td>' +
+        '<div class="ug-dimmer" style="font-size:11px">' + esc(c.brgy || c.barangay || '') + '</div></td>' +
       '<td class="t-num">' + (c.needs_patrol_at ? esc(UG_UTIL.absTime(c.needs_patrol_at) || '') : '—') + '</td>' +
       '<td class="t-right"><button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="center-detail" data-id="' + esc(c.uuid || c.id) + '">Open</button></td>' +
     '</tr>';
@@ -453,7 +453,7 @@ const UG_ADMIN = (function () {
         : '';
       return '<tr>' +
         '<td><div style="font-weight:600">' + esc(r.identifier || label) + '</div>' +
-          '<div class="ug-dimmer" style="font-size:10.5px">' + esc(r.notes || '') + '</div></td>' +
+          '<div class="ug-dimmer" style="font-size:11px">' + esc(r.notes || '') + '</div></td>' +
         '<td>' + esc(label) + '</td>' +
         '<td>' + U.badge(r.status, (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.statusLabel) ? UG_DISPATCH.statusLabel(r.status) : r.status) + '</td>' +
         '<td>' + U.badge(r.condition, (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.conditionLabel) ? UG_DISPATCH.conditionLabel(r.condition) : r.condition) + '</td>' +
@@ -462,16 +462,19 @@ const UG_ADMIN = (function () {
       '</tr>';
     };
 
-    return '<div class="ug-col" style="gap:18px">' +
+    return '<div class="ug-col rt-page" style="gap:18px">' +
       head(T('admin.responseTeamTitle'), 'Incoming dispatches, roster and equipment for ' + (isLgu ? 'every barangay' : 'Barangay ' + brgyName) + '.') +
+      '<p class="rt-sec">Dispatches</p>' +
       (disp.length ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>When</th><th>Team</th><th>Instructions</th><th>By</th><th>Status</th><th>Action</th></tr></thead><tbody>' + disp.map(dispatchRow).join('') + '</tbody></table></div>'
         : statePanel('empty', 'No Response Team dispatches yet', 'When your barangay\'s Response Team is dispatched, the alert lands here.')) +
+      '<p class="rt-sec">Roster' + (responders.length ? '<span>' + responders.length + '</span>' : '') + '</p>' +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Name / unit</th><th>Contact</th><th>Status</th><th class="t-right">Action</th></tr></thead><tbody>' +
         (responders.length ? responders.map(responderRow).join('') : '<tr><td colspan="4" style="text-align:center;padding:20px">No responders yet</td></tr>') + '</tbody></table></div>' +
       /* 050: barangay equipment table (with Add for the official / LGU) */
-      head('Equipment', 'Boats, life vests, ropes, radios and other barangay-owned equipment.') +
-        ((me.role === 'barangay_official' || isLgu)
-          ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="equipment-add" data-owner-brgy="' + esc(myBrgyId || '') + '" data-unit-type="Barangay" style="margin-bottom:10px">' + I('plus', 14) + 'Add equipment</button>'
+      /* Add equipment sits beside the section title as a compact button */
+      head('Equipment', 'Boats, life vests, ropes, radios and other barangay-owned equipment.',
+        (me.role === 'barangay_official' || isLgu)
+          ? '<button class="hl-ghost hl-primary rt-add" data-act="equipment-add" data-owner-brgy="' + esc(myBrgyId || '') + '" data-unit-type="Barangay">' + I('plus', 14) + 'Add equipment</button>'
           : '') +
       (barangayEquipment.length
         ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Equipment</th><th>Type</th><th>Status</th><th>Condition</th><th>Last check</th><th class="t-right">Action</th></tr></thead><tbody>' + barangayEquipment.map(eqRow).join('') + '</tbody></table></div>'
@@ -513,80 +516,113 @@ const UG_ADMIN = (function () {
      *    authorised Super Admin users with a confirmation step. */
     const superAdmin = isSuper(st);
     const canDelete = superAdmin;
-    const unitRow = (u) => '<tr data-act="open-unit" data-id="' + esc(u.id) + '" style="cursor:pointer">' +
-      '<td><div style="font-weight:600">' + esc(u.name) + '</div>' +
-        '<div class="ug-dimmer" style="font-size:10.5px">' + esc(u.address || '') + '</div></td>' +
-      '<td>' + esc(u.unit_type) + '</td>' +
-      '<td>' + esc(u.contact_number || '') + '</td>' +
-      '<td>' + esc(u.status || '—') + '</td>' +
-      '<td>' + (u.active ? U.badge('open', T('admin.unitDetailActive')) : U.badge('closed', T('admin.unitDetailInactive'))) + '</td>' +
-      '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
-        '<button class="ug-btn ug-btn--sm" data-act="admin-edit-unit" data-id="' + esc(u.id) + '" title="' + esc(T('action.edit')) + '">' + I('settings', 14) + esc(T('action.edit')) + '</button>' +
-        '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-unit-accounts" data-id="' + esc(u.id) + '" title="' + esc(T('admin.unitAccountHint')) + '">' + I('users', 14) + esc(T('admin.unitAccount')) + '</button>' +
-        /* 050 (Oct 25 2026): the LGU can manage any unit's equipment.
-           The button opens a modal listing this unit's equipment, with
-           Add / Edit / Retire / Remove buttons. */
-        '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-unit-equipment" data-id="' + esc(u.id) + '" data-unit-type="' + esc(u.unit_type) + '" data-unit-name="' + esc(u.name) + '" title="Equipment">' + I('shield', 14) + 'Equipment</button>' +
-        (canDelete ? '<button class="ug-btn ug-btn--sm" data-act="admin-delete-unit" data-id="' + esc(u.id) + '" title="' + esc(T('action.delete')) + '" style="background:linear-gradient(180deg,#EF4444 0%,#B91C1C 100%);color:#fff;border:1px solid rgba(var(--ug-tint, 255,255,255),.15)">' + I('x', 14) + esc(T('action.delete')) + '</button>' : '') +
+    /* Layout (Nov 2026, uniguard staff look): four quiet figures, the units
+       card (search + type pills + table), then the three inboxes as cards.
+       Every action and data source is the same as before. */
+    const typeF = st.unitType || 'All';
+    const TYPES = ['All', 'BFP', 'PNP', 'Rescue', 'Hospital'];
+    const shown = typeF === 'All' ? units : units.filter((u) => u.unit_type === typeF);
+    const typeCount = (t) => t === 'All' ? units.length : units.filter((u) => u.unit_type === t).length;
+    const TYPE_ICON = { BFP: 'flame', PNP: 'shield', Rescue: 'wave', Hospital: 'shelter' };
+    const unitName = (id) => { const u = allUnits.find((x) => String(x.id) === String(id)); return u ? u.name : (id || '—'); };
+    const cap = (v) => { v = String(v || '').replace(/_/g, ' '); return v ? v.charAt(0).toUpperCase() + v.slice(1) : '—'; };
+    const dot = (v, on) => '<span class="du-dot' + (on ? ' is-on' : '') + '"><i></i>' + esc(cap(v)) + '</span>';
+    const cardHead = (icon, title, right) => '<div class="rl-ch"><h2>' + I(icon, 15) + esc(title) + '</h2><div class="rl-ch-r">' + (right || '') + '</div></div>';
+    const count = (n, word) => '<span class="rl-count">' + n + ' ' + word + (n === 1 ? '' : 's') + '</span>';
+    const none = (cols, icon, text) => '<tr><td colspan="' + cols + '" class="du-none"><span>' + I(icon, 15) + '</span>' + esc(text) + '</td></tr>';
+    const btn = (act, label, icon, extra, cls) => '<button class="rl-ghost du-b' + (cls ? ' ' + cls : '') + '" data-act="' + act + '"' + extra + '>' + (icon ? I(icon, 13) : '') + esc(label) + '</button>';
+
+    const unitRow = (u) => '<tr class="du-row" data-act="open-unit" data-id="' + esc(u.id) + '">' +
+      '<td><div class="du-who"><span class="du-av">' + I(TYPE_ICON[u.unit_type] || 'truck', 15) + '</span>' +
+        '<div><b>' + esc(u.name) + '</b><small>' + esc(u.address || 'No address on file') + '</small></div></div></td>' +
+      '<td class="c"><span class="du-pill">' + esc(u.unit_type || '—') + '</span></td>' +
+      '<td class="rl-mono du-num">' + esc(u.contact_number || '—') + '</td>' +
+      '<td>' + dot(u.status || 'no status', /avail|stand|ready|on/i.test(u.status || '')) + '</td>' +
+      '<td class="c"><span class="du-act' + (u.active ? ' is-on' : '') + '">' + esc(u.active ? T('admin.unitDetailActive') : T('admin.unitDetailInactive')) + '</span></td>' +
+      '<td class="r"><div class="du-acts">' +
+        btn('admin-edit-unit', T('action.edit'), 'settings', ' data-id="' + esc(u.id) + '" title="' + esc(T('action.edit')) + '"') +
+        btn('admin-unit-accounts', T('admin.unitAccount'), 'users', ' data-id="' + esc(u.id) + '" title="' + esc(T('admin.unitAccountHint')) + '"') +
+        /* 050 (Oct 25 2026): the LGU can manage any unit's equipment */
+        btn('admin-unit-equipment', 'Equipment', 'shield', ' data-id="' + esc(u.id) + '" data-unit-type="' + esc(u.unit_type) + '" data-unit-name="' + esc(u.name) + '" title="Equipment"') +
+        (canDelete ? btn('admin-delete-unit', T('action.delete'), 'x', ' data-id="' + esc(u.id) + '" title="' + esc(T('action.delete')) + '"', 'du-del') : '') +
       '</div></td>' +
     '</tr>';
     const requestRow = (r) => '<tr>' +
-      '<td class="t-num">' + esc(UG_UTIL.absTime(r.created_at) || '') + '</td>' +
-      '<td>' + esc(r.unit_id) + '</td>' +
-      '<td><span class="ug-badge ug-badge--id">' + esc(r.kind) + '</span></td>' +
-      '<td class="ug-dimmer" style="font-size:11px">' + esc(r.details) + '</td>' +
-      '<td>' + esc(r.status) + '</td>' +
-      '<td class="t-right">' + (r.status === 'pending' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="admin-decide-request" data-id="' + esc(r.id) + '" data-decision="approved">' + esc(T('action.approve')) + '</button> <button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-decide-request" data-id="' + esc(r.id) + '" data-decision="declined">' + esc(T('action.decline')) + '</button>' : '') + '</td>' +
+      '<td class="du-num">' + esc(UG_UTIL.absTime(r.created_at) || '—') + '</td>' +
+      '<td><b>' + esc(unitName(r.unit_id)) + '</b></td>' +
+      '<td class="c"><span class="du-pill">' + esc(cap(r.kind)) + '</span></td>' +
+      '<td class="du-txt">' + esc(r.details || '—') + '</td>' +
+      '<td>' + dot(r.status, r.status === 'pending') + '</td>' +
+      '<td class="r">' + (r.status === 'pending' ? '<div class="du-acts">' +
+        btn('admin-decide-request', T('action.approve'), 'check', ' data-id="' + esc(r.id) + '" data-decision="approved"', 'du-go') +
+        btn('admin-decide-request', T('action.decline'), '', ' data-id="' + esc(r.id) + '" data-decision="declined"') + '</div>' : '<span class="du-done">Decided</span>') + '</td>' +
     '</tr>';
     /* A2 row: a dispatch help request */
     const helpRow = (h) => '<tr>' +
-      '<td class="t-num">' + esc(UG_UTIL.absTime(h.created_at) || '') + '</td>' +
-      '<td><span class="ug-badge ug-badge--id">' + esc(h.kind) + '</span></td>' +
-      '<td class="ug-dimmer" style="font-size:11px">' + esc(h.message || '') + '</td>' +
-      '<td>' + esc(h.status || 'sent') + '</td>' +
-      '<td class="t-right">' +
-        (h.status === 'sent' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="help-request-update" data-id="' + esc(h.id) + '" data-next="acknowledged">Acknowledge</button>' : '') +
-        (h.status === 'acknowledged' ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="help-request-update" data-id="' + esc(h.id) + '" data-next="resolved">Resolve</button>' : '') +
+      '<td class="du-num">' + esc(UG_UTIL.absTime(h.created_at) || '—') + '</td>' +
+      '<td class="c"><span class="du-pill">' + esc(cap(h.kind)) + '</span></td>' +
+      '<td class="du-txt">' + esc(h.message || '—') + '</td>' +
+      '<td>' + dot(h.status || 'sent', (h.status || 'sent') === 'sent') + '</td>' +
+      '<td class="r">' +
+        (h.status === 'sent' || !h.status ? btn('help-request-update', 'Acknowledge', 'check', ' data-id="' + esc(h.id) + '" data-next="acknowledged"', 'du-go') : '') +
+        (h.status === 'acknowledged' ? btn('help-request-update', 'Resolve', 'check', ' data-id="' + esc(h.id) + '" data-next="resolved"', 'du-go') : '') +
+        (h.status === 'resolved' ? '<span class="du-done">Resolved</span>' : '') +
       '</td>' +
     '</tr>';
     /* D3 row: a relief distribution with escort requested/confirmed */
     const escortRow = (r) => '<tr>' +
-      '<td><div style="font-weight:600">' + esc(r.title || '') + '</div>' +
-        '<div class="ug-dimmer" style="font-size:10.5px">' + esc(r.barangay || '') + '</div></td>' +
-      '<td>' + U.badge(r.escort_status === 'confirmed' ? 'prepared' : 'warning', r.escort_status) + '</td>' +
-      '<td class="ug-dimmer" style="font-size:11px">' + esc(r.escort_note || '') + '</td>' +
-      '<td>' + esc(r.escort_unit_id || '—') + '</td>' +
-      '<td class="t-right">' + (r.escort_status === 'requested'
-        ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="relief-escort-confirm" data-id="' + esc(r.id) + '">Confirm escort</button>'
-        : '') + '</td>' +
+      '<td><b>' + esc(r.title || '') + '</b><small>' + esc(r.barangay ? 'Brgy. ' + r.barangay : '') + '</small></td>' +
+      '<td>' + dot(r.escort_status, r.escort_status === 'requested') + '</td>' +
+      '<td class="du-txt">' + esc(r.escort_note || '—') + '</td>' +
+      '<td>' + esc(r.escort_unit_id ? unitName(r.escort_unit_id) : '—') + '</td>' +
+      '<td class="r">' + (r.escort_status === 'requested'
+        ? btn('relief-escort-confirm', 'Confirm escort', 'check', ' data-id="' + esc(r.id) + '"', 'du-go')
+        : '<span class="du-done">Confirmed</span>') + '</td>' +
     '</tr>';
-    return '<div class="ug-col" style="gap:18px">' +
+
+    const pending = requests.filter((r) => r.status === 'pending').length;
+    const openHelp = helpReqs.filter((h) => h.status !== 'resolved').length;
+    const activeN = allUnits.filter((u) => u.active).length;
+    const table = (headCells, rows) => '<div class="rl-tablewrap"><table class="rl-table du-table"><thead><tr>' + headCells + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+
+    return '<div class="ug-col du" style="gap:20px">' +
       head(T('admin.dispatchUnitsTitle'), T('admin.dispatchUnitsSub'),
         /* a new unit invites its first admin account, so it is a Super Admin action */
         superAdmin ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="admin-create-unit">' + I('plus', 14) + esc(T('action.newUnit')) + '</button>' : '') +
-      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap8" style="gap:8px;align-items:flex-end">' +
-        '<div class="ug-field" style="margin:0;flex:1;min-width:240px"><label class="ug-lab">' + esc(T('action.search')) + '</label>' +
-          '<input class="ug-in" data-field="unitSearch" value="' + esc(st.unitSearch || '') + '" placeholder="' + esc(T('label.name')) + ', ' + esc(T('label.type')) + ', ' + esc(T('label.address')) + '"></div>' +
-        (st.unitSearch ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="unit-clear-search">' + esc(T('action.clear')) + '</button>' : '') +
-      '</div></div>' +
-      '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>' + esc(T('label.name')) + ' / ' + esc(T('label.address')) + '</th><th>' + esc(T('label.type')) + '</th><th>' + esc(T('label.contact')) + '</th><th>' + esc(T('label.status')) + '</th><th>' + esc(T('label.active')) + '</th><th class="t-right">' + esc(T('label.actions')) + '</th></tr></thead>' +
-      '<tbody>' + (units.length ? units.map(unitRow).join('') : '<tr><td colspan="6" style="text-align:center;padding:20px">' + (st.unitSearch ? esc(T('action.search')) + ' — ' + esc(q) : esc(T('admin.noUnits'))) + '</td></tr>') + '</tbody></table></div>' +
-      head(T('admin.supportRequestInbox'), T('admin.supportRequestInboxSub')) +
-      '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>' + esc(T('label.when')) + '</th><th>' + esc(T('label.unit')) + '</th><th>' + esc(T('label.kind')) + '</th><th>' + esc(T('label.details')) + '</th><th>' + esc(T('label.status')) + '</th><th class="t-right">' + esc(T('label.action')) + '</th></tr></thead>' +
-      '<tbody>' + (requests.length ? requests.map(requestRow).join('') : '<tr><td colspan="6" style="text-align:center;padding:20px">' + esc(T('admin.noSupportRequests')) + '</td></tr>') + '</tbody></table></div>' +
-      /* A2 inbox */
-      head('Dispatch help requests', 'Need Help messages from a unit or a barangay official.') +
-      '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>When</th><th>Kind</th><th>Message</th><th>Status</th><th class="t-right">Action</th></tr></thead>' +
-      '<tbody>' + (helpReqs.length ? helpReqs.map(helpRow).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px">No help requests</td></tr>') + '</tbody></table></div>' +
-      /* D3 escort list */
-      head('Relief escorts', 'Distributions with a PNP escort requested or confirmed.') +
-      '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>Distribution</th><th>Escort</th><th>Note</th><th>Unit</th><th class="t-right">Action</th></tr></thead>' +
-      '<tbody>' + (escortRows.length ? escortRows.map(escortRow).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px">No active escorts</td></tr>') + '</tbody></table></div>' +
-      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-note">' + T('admin.dispatchUnitsHint') + '</div></div>' +
+      UG.note('du-hint', 1, 'info', 'How this page works', esc(T('admin.dispatchUnitsHint'))) +
+      /* units */
+      '<section class="rl-card">' +
+        cardHead('truck', 'Response units', count(shown.length, 'unit')) +
+        '<div class="du-tool">' +
+          '<div class="du-types" role="tablist" aria-label="Unit type">' + TYPES.map((t) =>
+            '<button role="tab" aria-selected="' + (typeF === t) + '" class="' + (typeF === t ? 'is-on' : '') + '" data-act="du-type" data-v="' + t + '">' + esc(t === 'All' ? 'All units' : t) + '<i>' + typeCount(t) + '</i></button>').join('') + '</div>' +
+          '<span class="rl-search rl-search--sm">' + I('search', 14) +
+            '<input class="rl-in" data-field="unitSearch" value="' + esc(st.unitSearch || '') + '" placeholder="Search name, type or address" aria-label="' + esc(T('action.search')) + '">' +
+            (st.unitSearch ? '<button data-act="unit-clear-search" aria-label="' + esc(T('action.clear')) + '">' + I('x', 11) + '</button>' : '') + '</span>' +
+        '</div>' +
+        table('<th>' + esc(T('label.name')) + ' / ' + esc(T('label.address')) + '</th><th class="c">' + esc(T('label.type')) + '</th><th>' + esc(T('label.contact')) + '</th><th>' + esc(T('label.status')) + '</th><th class="c">' + esc(T('label.active')) + '</th><th class="r">' + esc(T('label.actions')) + '</th>',
+          shown.length ? shown.map(unitRow).join('') : none(6, st.unitSearch ? 'search' : 'truck', st.unitSearch || typeF !== 'All' ? 'No units match this search' : T('admin.noUnits'))) +
+      '</section>' +
+      /* A1 support requests */
+      '<section class="rl-card">' +
+        cardHead('inbox', T('admin.supportRequestInbox'), (pending ? '<span class="rl-count">' + pending + ' pending</span>' : '') + count(requests.length, 'request')) +
+        table('<th>' + esc(T('label.when')) + '</th><th>' + esc(T('label.unit')) + '</th><th class="c">' + esc(T('label.kind')) + '</th><th>' + esc(T('label.details')) + '</th><th>' + esc(T('label.status')) + '</th><th class="r">' + esc(T('label.action')) + '</th>',
+          requests.length ? requests.map(requestRow).join('') : none(6, 'inbox', T('admin.noSupportRequests'))) +
+      '</section>' +
+      '<div class="du-pair">' +
+        /* A2 inbox */
+        '<section class="rl-card">' +
+          cardHead('alert', 'Dispatch help requests', count(helpReqs.length, 'request')) +
+          table('<th>When</th><th class="c">Kind</th><th>Message</th><th>Status</th><th class="r">Action</th>',
+            helpReqs.length ? helpReqs.map(helpRow).join('') : none(5, 'check', 'No help requests')) +
+        '</section>' +
+        /* D3 escort list */
+        '<section class="rl-card">' +
+          cardHead('shield', 'Relief escorts', count(escortRows.length, 'escort')) +
+          table('<th>Distribution</th><th>Escort</th><th>Note</th><th>Unit</th><th class="r">Action</th>',
+            escortRows.length ? escortRows.map(escortRow).join('') : none(5, 'shield', 'No active escorts')) +
+        '</section>' +
+      '</div>' +
     '</div>';
   }
 

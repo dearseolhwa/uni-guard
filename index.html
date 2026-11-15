@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="description" content="UniGuard · Unified Disaster Risk Reduction and Management System for the Municipality of Lingayen, Pangasinan LGU and MDRRMO coordination.">
+<meta name="description" content="UniGuard · Unified Disaster Risk Reduction and Management System for the Municipality of Lingayen, Pangasinan LGU and LDRRMO coordination.">
 <meta name="theme-color" content="#0E2243">
 <meta name="color-scheme" content="light">
 <title>UniGuard · Unified DRRM System · Lingayen</title>
@@ -17,23 +17,30 @@
 <meta name="apple-mobile-web-app-title" content="UniGuard">
 
 <!-- Base reset first, then tokens, fonts, the approved stylesheet, screen additions -->
-<link rel="stylesheet" href="css/base.css">
-<link rel="stylesheet" href="css/tokens.css">
-<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/base.css?v=543">
+<link rel="stylesheet" href="css/tokens.css?v=543">
+<link rel="stylesheet" href="css/fonts.css?v=543">
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="css/app.css">
-<link rel="stylesheet" href="css/screens.css">
-<link rel="stylesheet" href="css/screens-additions.css">
-<link rel="stylesheet" href="css/dispatch.css">
+<link rel="stylesheet" href="css/app.css?v=543">
+<link rel="stylesheet" href="css/screens.css?v=543">
+<link rel="stylesheet" href="css/screens-additions.css?v=543">
+<link rel="stylesheet" href="css/dispatch.css?v=543">
 <!-- Oct 2026 design: light, one palette per role. Remove these three lines to
-     return to the previous dark design. Plus Jakarta Sans comes from Google
+     return to the previous dark design. Inter (the one typeface) comes from Google
      Fonts like the React app; offline, phones use their own system font.
      To make it work offline too, see docs/DESIGN_2026.md. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="css/design.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="css/design.css?v=543">
 <!-- Super Admin home screen (copied from the React app); every rule is scoped under .ug-sa -->
-<link rel="stylesheet" href="css/superadmin.css">
+<link rel="stylesheet" href="css/superadmin.css?v=543">
+<link rel="stylesheet" href="css/resident.css?v=543">
+<link rel="stylesheet" href="css/barangay.css?v=543">
+<link rel="stylesheet" href="css/dispatch-portal.css?v=543">
+<link rel="stylesheet" href="css/auth.css?v=543">
+<link rel="stylesheet" href="css/staff-pages.css?v=543">
+<link rel="stylesheet" href="css/soft-accents.css?v=543">
+<link rel="stylesheet" href="css/type.css?v=543">
 </head>
 <body>
 
@@ -58,11 +65,11 @@
 </div>
 
 <noscript>
-  <div style="padding:28px;font-family:system-ui;color:#E8EFFA;background:#050910;min-height:100vh">
+  <div style="padding:28px;font-family: var(--ug-font);color:#E8EFFA;background:#050910;min-height:100vh">
     <h1 style="font-size:20px;margin:0 0 8px">UniGuard needs JavaScript</h1>
     <p style="color:#A3B6D0;font-size:13px;line-height:1.6;max-width:52ch">
       This is the disaster reporting and coordination application. Enable JavaScript
-      to sign in. In an emergency, call your barangay desk or the Municipal DRRMO directly.
+      to sign in. In an emergency, call your barangay desk or the Lingayen LDRRMO directly.
     </p>
   </div>
 </noscript>
@@ -78,51 +85,53 @@
 <script src="vendor/jspdf.plugin.autotable.min.js"></script>
 <script src="env.js"></script>
 
-<script src="js/config.js"></script>
-<script src="js/util.js"></script>
-<script src="js/i18n.js"></script>
+<script src="js/config.js?v=543"></script>
+<script src="js/util.js?v=543"></script>
+<script src="js/i18n.js?v=543"></script>
 <!-- Shared export layer: metadata, filenames, dates, CSV, scope checks (export-core),
      the formal PDF template (pdf) and the formatted Excel writer (xlsx-lite) -->
-<script src="js/export-core.js"></script>
-<script src="js/pdf.js"></script>
-<script src="js/xlsx-lite.js"></script>
+<script src="js/export-core.js?v=543"></script>
+<script src="js/pdf.js?v=543"></script>
+<script src="js/xlsx-lite.js?v=543"></script>
 
 <!-- Where UniGuard is deployed (Lingayen, Pangasinan) and its one colour scheme.
      Both are read by the render layer, the map and the data repository below. -->
-<script src="js/geo.js"></script>
-<script src="js/theme.js"></script>
-<script src="js/hazard-types.js"></script>
+<script src="js/geo.js?v=543"></script>
+<script src="js/theme.js?v=543"></script>
+<script src="js/hazard-types.js?v=543"></script>
 <!-- per-hazard alarm sounds, used by the alert overlay, the queues and the dispatch portal -->
-<script src="js/alarm.js"></script>
+<script src="js/alarm.js?v=543"></script>
 
-<script src="js/screens.js"></script>
-<script src="js/screens.web.js"></script>
-<script src="js/screens.auth.js"></script>
-<script src="js/screens.admin.js"></script>
+<script src="js/screens.js?v=543"></script>
+<script src="js/screens.web.js?v=543"></script>
+<script src="js/resident.js?v=543"></script>
+<script src="js/barangay.js?v=543"></script>
+<script src="js/screens.auth.js?v=543"></script>
+<script src="js/screens.admin.js?v=543"></script>
 <!-- Super Admin home screen: Overview, Accounts, Activity (route admin-home) -->
-<script src="js/screens.superadmin.js"></script>
+<script src="js/screens.superadmin.js?v=543"></script>
 
 <!-- feature modules: render functions + data shape, loaded before repo so they
      can seed UG.DATA defaults that the repo overwrites when Supabase is reachable. -->
-<script src="js/relief.js"></script>
-<script src="js/settings.js"></script>
-<script src="js/guides.js"></script>
-<script src="js/faqs.js"></script>
-<script src="js/roadwork.js"></script>
-<script src="js/sos.js"></script>
-<script src="js/notifications-store.js"></script>
-<script src="js/urgent-alerts.js"></script>
-<script src="js/dispatch.js"></script>
+<script src="js/relief.js?v=543"></script>
+<script src="js/settings.js?v=543"></script>
+<script src="js/guides.js?v=543"></script>
+<script src="js/faqs.js?v=543"></script>
+<script src="js/roadwork.js?v=543"></script>
+<script src="js/sos.js?v=543"></script>
+<script src="js/notifications-store.js?v=543"></script>
+<script src="js/urgent-alerts.js?v=543"></script>
+<script src="js/dispatch.js?v=543"></script>
 <!-- Module G: situation report, incident summary, damage and needs assessment -->
-<script src="js/reporting.js"></script>
+<script src="js/reporting.js?v=543"></script>
 <!-- Module export definitions (hotlines, analytics, admin, relief, guides, dispatch) -->
-<script src="js/exports.js"></script>
+<script src="js/exports.js?v=543"></script>
 
-<script src="js/repo.js"></script>
-<script src="js/auth.js"></script>
-<script src="js/map.js"></script>
-<script src="js/features.js"></script>
-<script src="js/pwa.js"></script>
-<script src="js/app.js"></script>
+<script src="js/repo.js?v=543"></script>
+<script src="js/auth.js?v=543"></script>
+<script src="js/map.js?v=543"></script>
+<script src="js/features.js?v=543"></script>
+<script src="js/pwa.js?v=543"></script>
+<script src="js/app.js?v=543"></script>
 </body>
 </html>

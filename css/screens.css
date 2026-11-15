@@ -16,21 +16,21 @@
 .ug-auth-strength .bars{display:flex;gap:4px;flex:1}
 .ug-auth-strength .bars i{height:5px;flex:1;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.1)}
 .ug-auth-strength .bars i.on{background:var(--ug-prepared)}
-.ug-auth-strength span{font-size:10.5px;color:var(--ug-ink-3);min-width:66px;text-align:right}
+.ug-auth-strength span{font-size:11px;color:var(--ug-ink-3);min-width:66px;text-align:right}
 .ug-auth-consent{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;margin:4px 0 16px;
   border:1px solid var(--ug-line);border-radius:10px;background:rgba(0,0,0,.22);cursor:pointer;
-  font-size:11.5px;line-height:1.5;color:var(--ug-ink-2)}
+  font-size:12px;line-height:1.5;color:var(--ug-ink-2)}
 .ug-auth-consent.is-error{border-color:rgba(255,90,95,.5);background:rgba(255,90,95,.08)}
 .ug-auth-consent input{width:16px;height:16px;flex:none;margin-top:2px;accent-color:var(--ug-signal, #34D6F0)}
 .ug-auth-consent a{color:var(--ug-signal)}
-.ug-auth-note{display:flex;gap:8px;align-items:flex-start;font-size:11.5px;line-height:1.5;color:var(--ug-ink-2)}
+.ug-auth-note{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.5;color:var(--ug-ink-2)}
 .ug-auth-fielderror{color:var(--ug-tx-red, #FFB0B2)}
 
 /* ================= live map ================= */
 .ug-leaflet{position:relative;background:var(--ug-map-bg, #061020)}
-.ug-leaflet .leaflet-container{background:var(--ug-map-bg, #061020);font-family:var(--ug-body);
+.ug-leaflet .leaflet-container{background:var(--ug-map-bg, #061020);font-family:var(--ug-font);
   filter:saturate(.55) brightness(.78) contrast(1.05)}
-.ug-leaflet .leaflet-control-attribution{background:rgba(var(--ug-bg-rgb, 6,14,26),.8);color:var(--ug-ink-3);font-size:9.5px}
+.ug-leaflet .leaflet-control-attribution{background:rgba(var(--ug-bg-rgb, 6,14,26),.8);color:var(--ug-ink-3);font-size:11px}
 /* Leaflet ships a default layers-control button we don't use (our own
    layerToggleHtml() chip control replaces it) — hide it outright so a
    missing/broken vendor image can never render as a giant colour block. */
@@ -52,9 +52,9 @@
   width: 100% !important;
   height: 100% !important;
 }
-.ug-map-pop{min-width:190px;font-family:var(--ug-body)}
-.ug-map-pop .p-t{font-size:12.5px;font-weight:700;margin-bottom:2px}
-.ug-map-pop .p-m{font-size:10.5px;color:var(--ug-ink-3)}
+.ug-map-pop{min-width:190px;font-family:var(--ug-font)}
+.ug-map-pop .p-t{font-size:13px;font-weight:700;margin-bottom:2px}
+.ug-map-pop .p-m{font-size:11px;color:var(--ug-ink-3)}
 .ug-leaflet .leaflet-popup-content-wrapper{background:rgba(var(--ug-panel-rgb, 12,21,36),.96);color:var(--ug-ink);
   border:1px solid var(--ug-line-strong);border-radius:10px;box-shadow:0 20px 50px -20px var(--ug-shadow-c, #000)}
 .ug-leaflet .leaflet-popup-tip{background:rgba(var(--ug-panel-rgb, 12,21,36),.96);border:1px solid var(--ug-line-strong)}
@@ -66,7 +66,7 @@
    zooms the group apart, or spiderfies it when the records share one point. */
 .ug-map .ug-cluster{display:flex;flex-direction:column;align-items:center;justify-content:center;
   background:#0E2243;border:2px solid #fff;border-radius:50%;cursor:pointer;color:#fff;
-  box-shadow:0 2px 8px rgba(11,18,32,.45);font-family:var(--ug-mono)}
+  box-shadow:0 2px 8px rgba(11,18,32,.45);font-family:var(--ug-font)}
 .ug-map .ug-cluster .n{font-size:11px;font-weight:800;line-height:1.05}
 .ug-map .ug-cluster .dots{display:flex;gap:2px;margin-top:2px}
 .ug-map .ug-cluster .dots i{width:4px;height:4px;border-radius:50%;display:block;
@@ -79,7 +79,7 @@
 /* over-map status strips: skipped-record notice and the empty state. Both are
    pointer-events:none so they can never block a marker or control under them. */
 .ug-map .ug-map-warn{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:640;
-  max-width:calc(100% - 96px);padding:4px 10px;border-radius:8px;font-size:10.5px;line-height:1.45;
+  max-width:calc(100% - 96px);padding:4px 10px;border-radius:8px;font-size:11px;line-height:1.45;
   background:rgba(11,18,32,.88);color:#DBE4F0;border:1px solid rgba(255,255,255,.16);pointer-events:none}
 .ug-map .ug-map-empty{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:640;
   padding:8px 14px;border-radius:10px;font-size:12px;font-weight:600;
@@ -98,16 +98,16 @@
 .ug-map .leaflet-control-zoom a:hover{background:rgba(23,37,63,.96)!important;color:#fff!important}
 
 /* ================= admin ================= */
-.ug-table{width:100%;border-collapse:collapse;font-size:12.5px}
-.ug-table th{text-align:left;font-family:var(--ug-display);font-size:10px;letter-spacing:.1em;
+.ug-table{width:100%;border-collapse:collapse;font-size:13px}
+.ug-table th{text-align:left;font-family:var(--ug-font);font-size:11px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--ug-ink-3);padding:11px 14px;border-bottom:1px solid var(--ug-line);
   background:rgba(var(--ug-tint, 255,255,255),.02);white-space:nowrap}
 .ug-table td{padding:12px 14px;border-bottom:1px solid var(--ug-line);vertical-align:middle}
 .ug-table tbody tr:hover{background:rgba(var(--ug-tint, 255,255,255),.022)}
 .ug-table .t-right{text-align:right}
-.ug-table .t-num{font-family:var(--ug-mono);font-variant-numeric:tabular-nums}
+.ug-table .t-num{font-family:var(--ug-font);font-variant-numeric:tabular-nums}
 .ug-sel-inline{background:var(--ug-field-bg, rgba(0,0,0,.3));border:1px solid var(--ug-line);color:var(--ug-ink);
-  border-radius:6px;padding:5px 8px;font-family:inherit;font-size:11.5px;max-width:170px}
+  border-radius:6px;padding:5px 8px;font-family:inherit;font-size:12px;max-width:170px}
 .ug-sel-inline:focus{outline:none;border-color:var(--ug-signal)}
 .ug-modal{position:fixed;inset:0;z-index:900;display:grid;place-items:center;padding:22px;
   background:rgba(3,6,12,.72);backdrop-filter:blur(6px)}
@@ -119,16 +119,16 @@
 .ug-modal-foot{display:flex;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--ug-line)}
 .ug-bar{height:7px;border-radius:4px;background:rgba(var(--ug-tint, 255,255,255),.08);overflow:hidden}
 .ug-bar i{display:block;height:100%;border-radius:4px}
-.ug-note{font-size:11.5px;line-height:1.55;color:var(--ug-ink-2)}
+.ug-note{font-size:12px;line-height:1.55;color:var(--ug-ink-2)}
 .ug-kv{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:12px}
 .ug-kv dt{color:var(--ug-ink-3)}
-.ug-kv dd{margin:0;font-family:var(--ug-mono)}
+.ug-kv dd{margin:0;font-family:var(--ug-font)}
 
 /* ================= status banners ================= */
 /* the strip is display:flex, which would otherwise beat the [hidden] attribute
    and leave an empty band above every screen */
 .ug-banner-strip[hidden]{display:none!important}
-.ug-banner-strip{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:11.5px;font-weight:600;
+.ug-banner-strip{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:12px;font-weight:600;
   border-bottom:1px solid var(--ug-line)}
 .ug-banner-strip.is-offline{background:rgba(255,176,32,.12);border-bottom-color:rgba(255,176,32,.28);color:var(--ug-tx-amber, #FFC659)}
 .ug-banner-strip.is-error{background:rgba(255,90,95,.12);border-bottom-color:rgba(255,90,95,.32);color:var(--ug-tx-red, #FFB0B2)}
@@ -186,16 +186,16 @@
   .ug-appbar{padding-top:calc(11px + env(safe-area-inset-top));padding-bottom:11px}
   .ug-appbar .ug-mark{width:26px;height:26px;border-radius:7px}
   .ug-tabbar{padding-top:5px}
-  .ug-tab{font-size:9px;gap:2px;padding:6px 1px 4px}
+  .ug-tab{font-size:11px;gap:2px;padding:6px 1px 4px}
   .ug-tab .t-badge{right:2px;top:0}
   .ug-fab{width:46px;height:46px;border-radius:14px;margin-top:-18px}
   .ug-card-b{padding:13px}
   .ug-card-h{padding:12px 13px}
   .ug-row{padding:11px 13px}
-  .ug-btn{padding:9px 13px;font-size:12.5px}
+  .ug-btn{padding:9px 13px;font-size:13px}
   .ug-wgrid-3{gap:8px}
   .ug-auth-card{padding:20px 15px 16px}
-  .ug-auth-h1{font-size:23px}
+  .ug-auth-h1{font-size:24px}
 }
 
 /* short viewports: phones in landscape, and small laptop windows */
@@ -295,5 +295,5 @@ body.ug-nav-open .ug-nav-scrim{opacity:1;pointer-events:auto}
   .ug-top .ug-col span.ug-dimmer{display:none}
   .ug-top .ug-col{min-width:0!important}
   .ug-map .map-legend{display:none}
-  .ug-map .map-scale{font-size:9px}
+  .ug-map .map-scale{font-size:11px}
 }

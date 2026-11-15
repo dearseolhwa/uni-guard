@@ -30,24 +30,24 @@ const UG_RELIEF = (function () {
      below it the row turns amber on the inventory tab. Categories mirror the
      relief catalogue used at a distribution point. */
   const DEFAULT_INVENTORY = [
-    { id: 'INV-01', name: 'Family Food Pack',        category: 'Food',     unit: 'packs',    stock: 420,  reorder: 200, location: 'MDRRMO Warehouse A', supplier: 'DSWD Field Office' },
-    { id: 'INV-02', name: 'Bottled Water (5L)',       category: 'Water',    unit: 'bottles',  stock: 180,  reorder: 250, location: 'MDRRMO Warehouse A', supplier: 'Lingayen Water District' },
-    { id: 'INV-03', name: 'Rice (25kg sack)',         category: 'Food',     unit: 'sacks',    stock: 64,   reorder: 40,  location: 'MDRRMO Warehouse B', supplier: 'NFA Pangasinan' },
-    { id: 'INV-04', name: 'Canned Goods',             category: 'Food',     unit: 'cans',     stock: 1280, reorder: 500, location: 'MDRRMO Warehouse A', supplier: 'Red Cross Pangasinan' },
-    { id: 'INV-05', name: 'First Aid Kit',            category: 'Medical',  unit: 'kits',     stock: 48,   reorder: 60,  location: 'MDRRMO Warehouse C', supplier: 'Provincial Health Office' },
-    { id: 'INV-06', name: 'Paracetamol / Biogesic',   category: 'Medical',  unit: 'boxes',    stock: 90,   reorder: 100, location: 'MDRRMO Warehouse C', supplier: 'Botika ng Bayan' },
+    { id: 'INV-01', name: 'Family Food Pack',        category: 'Food',     unit: 'packs',    stock: 420,  reorder: 200, location: 'LDRRMO Warehouse A', supplier: 'DSWD Field Office' },
+    { id: 'INV-02', name: 'Bottled Water (5L)',       category: 'Water',    unit: 'bottles',  stock: 180,  reorder: 250, location: 'LDRRMO Warehouse A', supplier: 'Lingayen Water District' },
+    { id: 'INV-03', name: 'Rice (25kg sack)',         category: 'Food',     unit: 'sacks',    stock: 64,   reorder: 40,  location: 'LDRRMO Warehouse B', supplier: 'NFA Pangasinan' },
+    { id: 'INV-04', name: 'Canned Goods',             category: 'Food',     unit: 'cans',     stock: 1280, reorder: 500, location: 'LDRRMO Warehouse A', supplier: 'Red Cross Pangasinan' },
+    { id: 'INV-05', name: 'First Aid Kit',            category: 'Medical',  unit: 'kits',     stock: 48,   reorder: 60,  location: 'LDRRMO Warehouse C', supplier: 'Provincial Health Office' },
+    { id: 'INV-06', name: 'Paracetamol / Biogesic',   category: 'Medical',  unit: 'boxes',    stock: 90,   reorder: 100, location: 'LDRRMO Warehouse C', supplier: 'Botika ng Bayan' },
     { id: 'INV-07', name: 'Banca / Boat',             category: 'Equipment',unit: 'units',    stock: 6,    reorder: 4,   location: 'Coastal Depot',        supplier: 'PCG Lingayen' },
     { id: 'INV-08', name: 'Life Jacket',              category: 'Equipment',unit: 'pieces',   stock: 38,   reorder: 30,  location: 'Coastal Depot',        supplier: 'PCG Lingayen' },
-    { id: 'INV-09', name: 'Portable Radio (VHF)',     category: 'Equipment',unit: 'units',    stock: 12,   reorder: 8,   location: 'MDRRMO Warehouse C', supplier: 'OCD Region I' },
-    { id: 'INV-10', name: 'Tarpaulin / Trapal',       category: 'Shelter Supplies', unit: 'pieces',   stock: 75,   reorder: 50,  location: 'MDRRMO Warehouse B', supplier: 'DSWD Field Office' },
-    { id: 'INV-11', name: 'Sleeping Mat',             category: 'Shelter Supplies', unit: 'pieces',   stock: 140,  reorder: 120, location: 'MDRRMO Warehouse B', supplier: 'DSWD Field Office' },
-    { id: 'INV-12', name: 'Hygiene Kit',              category: 'Hygiene',  unit: 'kits',     stock: 95,   reorder: 80,  location: 'MDRRMO Warehouse A', supplier: 'Red Cross Pangasinan' },
-    { id: 'INV-13', name: 'Family Tent (4-person)',   category: 'Shelter Supplies', unit: 'units',    stock: 22,   reorder: 25,  location: 'MDRRMO Warehouse B', supplier: 'DSWD Field Office' },
-    { id: 'INV-14', name: 'Blanket',                  category: 'Shelter Supplies', unit: 'pieces',   stock: 200,  reorder: 150, location: 'MDRRMO Warehouse B', supplier: 'Red Cross Pangasinan' },
-    { id: 'INV-15', name: 'Mosquito Net',             category: 'Shelter Supplies', unit: 'pieces',   stock: 60,   reorder: 75,  location: 'MDRRMO Warehouse B', supplier: 'Provincial Health Office' },
-    { id: 'INV-16', name: 'Water Container (20L)',    category: 'Hygiene',  unit: 'containers', stock: 40,  reorder: 50,  location: 'MDRRMO Warehouse A', supplier: 'Lingayen Water District' },
-    { id: 'INV-17', name: 'Soap / Detergent Pack',    category: 'Hygiene',  unit: 'packs',   stock: 110,  reorder: 90,  location: 'MDRRMO Warehouse A', supplier: 'Red Cross Pangasinan' },
-    { id: 'INV-18', name: 'Sanitary Napkin Pack',     category: 'Hygiene',  unit: 'packs',   stock: 70,   reorder: 80,  location: 'MDRRMO Warehouse A', supplier: 'Provincial Health Office' }
+    { id: 'INV-09', name: 'Portable Radio (VHF)',     category: 'Equipment',unit: 'units',    stock: 12,   reorder: 8,   location: 'LDRRMO Warehouse C', supplier: 'OCD Region I' },
+    { id: 'INV-10', name: 'Tarpaulin / Trapal',       category: 'Shelter Supplies', unit: 'pieces',   stock: 75,   reorder: 50,  location: 'LDRRMO Warehouse B', supplier: 'DSWD Field Office' },
+    { id: 'INV-11', name: 'Sleeping Mat',             category: 'Shelter Supplies', unit: 'pieces',   stock: 140,  reorder: 120, location: 'LDRRMO Warehouse B', supplier: 'DSWD Field Office' },
+    { id: 'INV-12', name: 'Hygiene Kit',              category: 'Hygiene',  unit: 'kits',     stock: 95,   reorder: 80,  location: 'LDRRMO Warehouse A', supplier: 'Red Cross Pangasinan' },
+    { id: 'INV-13', name: 'Family Tent (4-person)',   category: 'Shelter Supplies', unit: 'units',    stock: 22,   reorder: 25,  location: 'LDRRMO Warehouse B', supplier: 'DSWD Field Office' },
+    { id: 'INV-14', name: 'Blanket',                  category: 'Shelter Supplies', unit: 'pieces',   stock: 200,  reorder: 150, location: 'LDRRMO Warehouse B', supplier: 'Red Cross Pangasinan' },
+    { id: 'INV-15', name: 'Mosquito Net',             category: 'Shelter Supplies', unit: 'pieces',   stock: 60,   reorder: 75,  location: 'LDRRMO Warehouse B', supplier: 'Provincial Health Office' },
+    { id: 'INV-16', name: 'Water Container (20L)',    category: 'Hygiene',  unit: 'containers', stock: 40,  reorder: 50,  location: 'LDRRMO Warehouse A', supplier: 'Lingayen Water District' },
+    { id: 'INV-17', name: 'Soap / Detergent Pack',    category: 'Hygiene',  unit: 'packs',   stock: 110,  reorder: 90,  location: 'LDRRMO Warehouse A', supplier: 'Red Cross Pangasinan' },
+    { id: 'INV-18', name: 'Sanitary Napkin Pack',     category: 'Hygiene',  unit: 'packs',   stock: 70,   reorder: 80,  location: 'LDRRMO Warehouse A', supplier: 'Provincial Health Office' }
   ];
 
   /* ----------------------------------------------------- distribution records
@@ -55,8 +55,8 @@ const UG_RELIEF = (function () {
      which barangay and family, by whom, on what date. The records reconcile the
      inventory (stock decreases) against the relief_distributions schedule. */
   const DEFAULT_DISTRIBUTIONS_LOG = [
-    { id: 'DR-01', item_id: 'INV-01', item_name: 'Family Food Pack', qty: 50, barangay: 'Pangapisan North', family: 'Aquino household', distributed_by: 'MDRRMO Relief Desk', distributed_at: new Date(Date.now() - 1 * 86400000).toISOString() },
-    { id: 'DR-02', item_id: 'INV-02', item_name: 'Bottled Water (5L)', qty: 40, barangay: 'Pangapisan North', family: 'Aquino household', distributed_by: 'MDRRMO Relief Desk', distributed_at: new Date(Date.now() - 1 * 86400000).toISOString() },
+    { id: 'DR-01', item_id: 'INV-01', item_name: 'Family Food Pack', qty: 50, barangay: 'Pangapisan North', family: 'Aquino household', distributed_by: 'LDRRMO Relief Desk', distributed_at: new Date(Date.now() - 1 * 86400000).toISOString() },
+    { id: 'DR-02', item_id: 'INV-02', item_name: 'Bottled Water (5L)', qty: 40, barangay: 'Pangapisan North', family: 'Aquino household', distributed_by: 'LDRRMO Relief Desk', distributed_at: new Date(Date.now() - 1 * 86400000).toISOString() },
     { id: 'DR-03', item_id: 'INV-01', item_name: 'Family Food Pack', qty: 30, barangay: 'Poblacion', family: 'Soriano household', distributed_by: 'Brgy. Captain Office', distributed_at: new Date(Date.now() - 2 * 86400000).toISOString() },
     { id: 'DR-04', item_id: 'INV-05', item_name: 'First Aid Kit', qty: 5, barangay: 'Poblacion', family: 'Fernandez household', distributed_by: 'Brgy. Captain Office', distributed_at: new Date(Date.now() - 2 * 86400000).toISOString() }
   ];
@@ -94,7 +94,7 @@ const UG_RELIEF = (function () {
         location_name: 'Provincial Capitol Grounds', address: 'Aguila Rd, Lingayen, Pangasinan',
         lat: 16.033513, lng: 120.231519,
         distribution_at: new Date(Date.now() + 2 * 86400000).toISOString(),
-        contact_person: 'MDRRMO Relief Desk', contact_phone: '(075) 632-2222',
+        contact_person: 'LDRRMO Relief Desk', contact_phone: '(075) 632-2222',
         eligibility: ['Affected household', 'Senior citizen', 'Person with disability (PWD)'],
         required_docs: ['Valid government ID', 'Barangay certificate of indigency',
           'Authorization letter if claiming on behalf of a beneficiary'],
@@ -145,7 +145,7 @@ const UG_RELIEF = (function () {
     const list = U.DATA.relief.filter((r) => r.active !== false).filter((r) => f === 'All' || r.barangay === f);
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">Relief Assistance Information</div>' +
-      '<h2 style="font-size:19px;margin-top:3px">Relief Distribution</h2>' +
+      '<h2 style="font-size:18px;margin-top:3px">Relief Distribution</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Per-barangay relief schedules, eligibility, required documents, and the authorized-beneficiary list. Filter by your barangay.</p></div>' +
 
             (barangays.length ? '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' + barangays.map((b) =>
@@ -153,7 +153,7 @@ const UG_RELIEF = (function () {
 
       (list.length ? list.map((r) => reliefCard(r, isStaff(st))).join(''):
         '<div class="ug-card"><div class="ug-empty"><span class="e-ico">' + I('info', 20) + '</span>' +
-        '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No Active Distribution for ' + esc(f) + '</div>' +
+        '<div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">No Active Distribution for ' + esc(f) + '</div>' +
         '<div class="ug-dim" style="font-size:11px">Check another barangay or contact your barangay desk.</div></div></div>') +
 
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
@@ -171,8 +171,8 @@ const UG_RELIEF = (function () {
       '<div class="ug-card-b ug-col" style="gap:11px">' +
         '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
           '<span style="color:var(--ug-signal);display:flex">' + I('pin', 16) + '</span>' +
-          '<div style="min-width:0"><div style="font-size:12.5px;font-weight:600">' + esc(r.location_name) + '</div>' +
-          '<div class="ug-dim" style="font-size:11.5px;line-height:1.5">' + esc(r.address) + '</div></div></div>' +
+          '<div style="min-width:0"><div style="font-size:13px;font-weight:600">' + esc(r.location_name) + '</div>' +
+          '<div class="ug-dim" style="font-size:12px;line-height:1.5">' + esc(r.address) + '</div></div></div>' +
         '<div class="ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
           '<span style="color:var(--ug-prepared);display:flex">' + I('clock', 16) + '</span>' +
           '<div style="min-width:0"><div style="font-size:12px;font-weight:600">' + esc(fmtDate(r.distribution_at)) + '</div>' +
@@ -205,7 +205,7 @@ const UG_RELIEF = (function () {
       '<button class="ug-btn ug-btn--ghost ug-btn--sm" style="align-self:flex-start"' + A('nav', attr({ route: 'relief' })) + '>' +
         '<span style="transform:rotate(180deg);display:flex">' + I('chevron', 14) + '</span>Back to Relief</button>' +
       '<div><div class="ug-lab">Authorized Beneficiary List</div>' +
-      '<h2 style="font-size:17px;margin-top:3px">' + esc(r.title) + '</h2>' +
+      '<h2 style="font-size:16px;margin-top:3px">' + esc(r.title) + '</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:4px;line-height:1.5">Search by beneficiary name, claimant name, or claimant ID. Used by staff on the spot to confirm an authorized claimant.</p></div>' +
 
       '<div class="ug-card"><div class="ug-card-h"><h3>Search</h3></div>' +
@@ -215,7 +215,7 @@ const UG_RELIEF = (function () {
       '<div class="ug-card"><div class="ug-card-h"><h3>' + (list.length + ' Records') + '</h3>' + U.badge('id', r.barangay) + '</div>' +
         '<div class="ug-rows">' + (list.length ? list.map((b) => beneficiaryRow(b, st.benSearch)).join('') :
           '<div class="ug-empty"><span class="e-ico">' + I('users', 20) + '</span>' +
-          '<div style="font-size:12.5px;font-weight:600;color:var(--ug-ink-2)">No Authorized Records for ' + esc(r.barangay) + '</div>' +
+          '<div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">No Authorized Records for ' + esc(r.barangay) + '</div>' +
           '<div class="ug-dim" style="font-size:11px">The LGU has not uploaded any authorized beneficiaries for this barangay.</div></div>') + '</div></div>' +
     '</div>';
   }
@@ -266,7 +266,7 @@ const UG_RELIEF = (function () {
   function visibleInventory(st) {
     ensureInventory();
     const mine = scopedBrgy(st);
-    const all = (UG.DATA.inventory || []).filter((i) => !mine || (i.barangay || 'MDRRMO Warehouse') === mine || !i.barangay);
+    const all = (UG.DATA.inventory || []).filter((i) => !mine || (i.barangay || 'LDRRMO Warehouse') === mine || !i.barangay);
     const cat = st.invCatFilter || 'all';
     const q = (st.invSearch || '').trim().toLowerCase();
     const brgyFilter = mine ? mine : (st.invBrgyFilter || 'All');
@@ -302,31 +302,41 @@ const UG_RELIEF = (function () {
     ['records', T('relief.tab.records'), 'doc']
   ];
 
+  /* Relief Assistance (uniguard/src/components/LdrrmcReliefView.tsx):
+     title + one main action on the right, a compact low-stock line with a
+     Review shortcut, the three section tabs as a pill bar, then the tab. */
   function dRelief(st) {
     const tab = st.reliefTab || 'distributions';
-    const tabs = RELIEF_TABS.map((t) =>
-      '<button class="ug-chip' + (tab === t[0] ? ' is-on' : '') + '"' + A('relief-tab', attr({ v: t[0] })) + '>' + I(t[2], 14) + t[1] + '</button>').join('');
-    /* the low-stock alert banner is shared across all three tabs because a
-       shortfall affects distributions and records, not just inventory. */
+    const mine = scopedBrgy(st);
     const low = lowStockItems();
-    const lowBanner = low.length
-      ? '<div class="ug-card ug-lowstock-banner"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
-          '<span style="color:var(--ug-warning);display:flex">' + I('alert', 18) + '</span>' +
-          '<div class="ug-col" style="gap:4px;min-width:0;flex:1">' +
-            '<div style="font-size:12.5px;font-weight:700;color:var(--ug-warning)">' + low.length + ' ' + esc(T(low.length === 1 ? 'relief.lowStockBannerOne' : 'relief.lowStockBannerMany')) + '</div>' +
-            '<div class="ug-dim" style="font-size:11.5px;line-height:1.5">' + low.slice(0, 3).map((i) => esc(i.name) + ' (' + i.stock + ' ' + i.unit + ' ≤ ' + i.reorder + ')').join(' · ') + (low.length > 3 ? ' · +' + (low.length - 3) + ' more' : '') + '</div>' +
-          '</div>' +
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('relief-tab', attr({ v: 'inventory' })) + '>' + esc(T('relief.review')) + '</button>' +
-        '</div></div>'
+    const sub = mine ? 'Distribution schedules, beneficiaries, relief stock and what was handed out in Barangay ' + mine + '.'
+      : 'Manage distributions, track stock levels, and record every pack handed out per barangay and family.';
+    const main = tab === 'distributions' ? '<button class="ug-btn ug-btn--signal rl-main"' + A('relief-add') + '>' + I('plus', 15) + 'Add Distribution</button>'
+      : tab === 'inventory' ? '<button class="ug-btn ug-btn--signal rl-main"' + A('inv-add') + '>' + I('plus', 15) + 'Add item</button>'
+      : '<button class="ug-btn ug-btn--signal rl-main"' + A('rec-add') + '>' + I('plus', 15) + 'Record distribution</button>';
+    const lowLine = low.length
+      ? U.note('relief-low', low.map((i) => i.id + ':' + i.stock).join(','), 'alert', low.length + ' ' + (low.length === 1 ? 'item is' : 'items are') + ' at or below the reorder point',
+          low.slice(0, 3).map((i) => esc(i.name) + ' (' + i.stock + ' ' + esc(i.unit) + ')').join(' · ') + (low.length > 3 ? ' · +' + (low.length - 3) + ' more' : ''),
+          { btn: tab !== 'inventory' ? '<button class="n2-go"' + A('relief-tab', attr({ v: 'inventory' })) + '>Review</button>' : '' })
       : '';
-    return '<div class="ug-col" style="gap:18px">' +
-      head(T('title.relief'), T('relief.subtitle'),
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('relief-download', attr({ what: 'distributions' })) + ' title="Download the distribution schedule as CSV">' + I('download', 15) + esc(T('action.exportCsv')) + '</button>') +
-      lowBanner +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' + tabs + '</div>' +
-      (tab === 'inventory' ? dInventory(st) :
-       tab === 'records' ? dRecords(st) :
-       dDistributions(st)) +
+    const TABS = [['distributions', 'Distributions', 'shelter'], ['inventory', 'Resource Inventory', 'layers'], ['records', 'Distribution Records', 'doc']];
+    return '<div class="ug-col rl" style="gap:20px">' +
+      head(T('title.relief'), sub, main) +
+      (tab === 'inventory' ? '' : lowLine) +
+      /* phones: the section switch is a dropdown (the tabs hide there) */
+      (() => {
+        const cur = TABS.find((t) => t[0] === tab) || TABS[0];
+        return '<div class="rl-bar"><div class="ug-wmore inc-dd rl-dd"><button class="inc-dd-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Relief section">' +
+            I(cur[2], 15) + '<span>' + cur[1] + '</span>' + I('chevdn', 16) + '</button>' +
+          '<div class="inc-dd-panel" data-more-panel hidden role="listbox">' + TABS.map((t) =>
+            '<button role="option" class="' + (tab === t[0] ? 'is-on' : '') + '"' + A('relief-tab', attr({ v: t[0] })) + '>' + I(t[2], 15) + '<span>' + t[1] + '</span>' +
+              (tab === t[0] ? I('check', 14) : '') + '</button>').join('') + '</div></div>' +
+          /* phones: the main action sits beside the section switch */
+          main.replace('rl-main', 'rl-main rl-main--bar') + '</div>';
+      })() +
+      '<div class="rl-tabs" role="tablist" aria-label="Relief sections">' + TABS.map((t) =>
+        '<button role="tab" aria-selected="' + (tab === t[0]) + '" class="' + (tab === t[0] ? 'is-on' : '') + '"' + A('relief-tab', attr({ v: t[0] })) + '>' + I(t[2], 14) + t[1] + '</button>').join('') + '</div>' +
+      (tab === 'inventory' ? dInventory(st) : tab === 'records' ? dRecords(st) : dDistributions(st)) +
     '</div>';
   }
 
@@ -336,48 +346,50 @@ const UG_RELIEF = (function () {
     const barangays = mine ? [mine] : U.DATA.barangays;
     const rows = (U.DATA.relief || []).filter((r) => !mine || r.barangay === mine);
     const bens = (UG.DATA.beneficiaries || []).filter((b) => !mine || b.barangay === mine);
-    const benFilter = mine || st.benBarangayFilter;
-    /* the visible (filtered) beneficiary rows, so the Download button exports
-       exactly what the duty officer is looking at on screen. */
+    const benFilter = mine || st.benBarangayFilter || 'All';
+    const q = (st.benSearchLgu || '').trim().toLowerCase();
     const visibleBens = bens
-      .filter((b) => (!benFilter || benFilter === 'All' || b.barangay === benFilter))
-      .filter((b) => !((st.benSearchLgu || '').trim()) ||
-        (b.beneficiary_name || '').toLowerCase().indexOf(st.benSearchLgu.toLowerCase()) >= 0 ||
-        (b.claimant_name || '').toLowerCase().indexOf(st.benSearchLgu.toLowerCase()) >= 0 ||
-        (b.claimant_id || '').toLowerCase().indexOf(st.benSearchLgu.toLowerCase()) >= 0);
-    return '<div class="ug-col" style="gap:18px">' +
-      '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(T('relief.activeDistributions')) + '</h3><span class="ug-chip is-on">' + rows.length + ' ' + esc(T('admin.entriesOf')) + '</span></div>' +
-        '<div class="ug-rows ug-scroll" style="max-height:330px">' + rows.map((r) =>
-          '<div class="ug-row"><span class="r-dot" style="background:var(--ug-prepared)"></span>' +
-            '<div class="r-main"><div class="r-t">' + esc(r.title) + '</div>' +
-              '<div class="r-m"><span>' + I('pin', 12) + esc(r.barangay) + '</span>' +
-              '<span>' + I('clock', 12) + esc(fmtDate(r.distribution_at)) + '</span>' +
-              '<span class="ug-mono">' + esc(r.contact_phone) + '</span></div></div>' +
-              '<div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
-                '<button class="ug-btn ug-btn--sm" data-act="relief-verify" data-id="' + esc(r.id) + '">' + I('users', 14) + esc(T('action.verify')) + '</button>' +
-                '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="relief-view" data-id="' + esc(r.id) + '" title="' + esc(T('action.viewDetails')) + '">' + I('eye', 14) + esc(T('action.view')) + '</button>' +
-                '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="relief-edit" data-id="' + esc(r.id) + '" title="' + esc(T('action.edit')) + '">' + I('settings', 14) + esc(T('action.edit')) + '</button>' +
-              '</div></div>').join('') + '</div></div>' +
-      '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(T('relief.authorizedBeneficiaries')) + '</h3>' +
-        '<div class="ug-rowf ug-gap8" style="gap:8px">' +
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('relief-download', attr({ what: 'beneficiaries' })) + '>' + I('download', 14) + esc(T('action.exportCsv')) + '</button>' +
-          '<button class="ug-btn ug-btn--sm"' + A('beneficiary-add') + '>' + I('plus', 14) + esc(T('relief.beneficiaryAdd')) + '</button></div></div>' +
-        '<div class="ug-card-b"><div class="ug-rowf ug-gap10 ug-wrap" style="gap:10px;align-items:flex-end">' +
-          '<div class="ug-field" style="flex:1;min-width:200px;margin:0"><label class="ug-lab">' + esc(T('label.filterByBarangay')) + '</label>' +
-            '<select class="ug-sel" data-field="benBarangayFilter">' +
-                        (mine ? barangays : ['All'].concat(barangays)).map((b) => '<option' + (benFilter === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select></div>' +
-          '<div class="ug-field" style="flex:1;min-width:200px;margin:0"><label class="ug-lab">' + esc(T('action.search')) + '</label>' +
-            '<input class="ug-in" data-field="benSearchLgu" placeholder="' + esc(T('ben.searchPlaceholder')) + '" value="' + esc(st.benSearchLgu || '') + '"></div>' +
-        '</div></div>' +
-        '<div class="ug-rows ug-scroll" style="max-height:280px;margin-top:6px">' +
-                    visibleBens
-            .map((b) => '<div class="ug-row"><span class="r-dot" style="background:var(--ug-advisory)"></span>' +
-              '<div class="r-main"><div class="r-t">' + esc(b.beneficiary_name) + '</div>' +
-                '<div class="r-m"><span>' + esc(b.barangay) + '</span>' +
-                '<span>Claimant: ' + esc(b.claimant_name) + '</span>' +
-                '<span class="ug-mono">' + esc(b.claimant_id) + '</span></div></div>' +
-              '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="beneficiary-del" data-id="' + esc(b.id) + '">' + I('x', 13) + '</button></div>').join('') +
-        '</div></div>' +
+      .filter((b) => (benFilter === 'All' || b.barangay === benFilter))
+      .filter((b) => !q || [b.beneficiary_name, b.claimant_name, b.claimant_id].some((v) => String(v || '').toLowerCase().indexOf(q) >= 0));
+    const cardHead = (icon, title, right) => '<div class="rl-ch"><h2>' + I(icon, 15) + title + '</h2><div class="rl-ch-r">' + right + '</div></div>';
+    const exp = (what, empty) => '<button class="rl-ghost"' + A('relief-download', attr({ what: what })) + (empty ? ' disabled' : '') + ' title="Download as CSV">' + I('download', 13) + 'CSV</button>';
+    return '<div class="ug-col" style="gap:20px">' +
+      /* active distributions */
+      '<section class="rl-card">' +
+        cardHead('shelter', 'Active Distributions', exp('distributions', !rows.length) + '<span class="rl-count">' + rows.length + ' ' + (rows.length === 1 ? 'record' : 'records') + '</span>') +
+        (rows.length ? '<div class="rl-list">' + rows.map((r) =>
+          '<div class="rl-item"><div class="rl-item-t"><h3>' + esc(r.title) + '</h3>' +
+            '<div class="rl-meta"><span>' + I('pin', 13) + esc(r.location_name || r.barangay) + '</span><span>' + I('clock', 13) + esc(fmtDate(r.distribution_at)) + '</span>' +
+              (r.contact_phone ? '<span class="rl-mono">' + esc(r.contact_phone) + '</span>' : '') + '</div></div>' +
+            '<div class="rl-acts">' +
+              '<button class="rl-ghost" data-act="relief-verify" data-id="' + esc(r.id) + '">' + I('users', 13) + 'Verify</button>' +
+              '<button class="rl-ghost" data-act="relief-view" data-id="' + esc(r.id) + '">' + I('doc', 13) + 'View</button>' +
+              '<button class="rl-ghost" data-act="relief-edit" data-id="' + esc(r.id) + '">' + I('settings', 13) + 'Edit</button>' +
+            '</div></div>').join('') + '</div>'
+        : '<div class="rl-empty"><span>' + I('shelter', 22) + '</span><b>No Active Distributions</b><p>There are currently no active distribution drives recorded. Schedule one to let residents know when and where to go.</p>' +
+          '<button class="ug-btn ug-btn--signal"' + A('relief-add') + '>' + I('plus', 14) + 'Schedule New Distribution</button></div>') +
+      '</section>' +
+      /* authorized beneficiaries */
+      '<section class="rl-card" id="relief-beneficiaries">' +
+        cardHead('users', 'Authorized Beneficiaries', exp('beneficiaries', !visibleBens.length) +
+          '<button class="ug-btn ug-btn--signal rl-sm"' + A('beneficiary-add') + '>' + I('plus', 13) + 'Add</button>') +
+        '<div class="rl-filters">' +
+          '<label><span>' + (mine ? 'Barangay' : 'Filter by barangay') + '</span>' +
+            (mine ? '<p class="rl-fixed">Brgy. ' + esc(mine) + '</p>'
+              : '<select class="rl-in rl-sel" data-field="benBarangayFilter">' + ['All'].concat(barangays).map((b) => '<option value="' + esc(b) + '"' + (benFilter === b ? ' selected' : '') + '>' + (b === 'All' ? 'All (Municipality-wide)' : 'Brgy. ' + esc(b)) + '</option>').join('') + '</select>') + '</label>' +
+          '<label><span>Search</span><span class="rl-search">' + I('search', 14) + '<input class="rl-in" data-field="benSearchLgu" placeholder="Name or ID" value="' + esc(st.benSearchLgu || '') + '"></span></label>' +
+        '</div>' +
+        '<div class="rl-stat"><span>Showing <b>' + visibleBens.length + '</b> records</span>' +
+          (!mine && benFilter !== 'All' ? '<button' + A('relief-ben-reset') + '>Reset to All Barangays</button>' : '') + '</div>' +
+        (visibleBens.length ? '<div class="rl-tablewrap"><table class="rl-table"><thead><tr><th>Beneficiary ID</th><th>Head of household</th><th>Barangay / address</th><th class="c">Category</th><th class="c">Action</th></tr></thead><tbody>' +
+          visibleBens.map((b) => '<tr><td class="rl-mono">' + esc(b.claimant_id || '—') + '</td>' +
+            '<td><b>' + esc(b.beneficiary_name) + '</b><small>Claimant: ' + esc(b.claimant_name || '—') + '</small></td>' +
+            '<td><b>Brgy. ' + esc(b.barangay) + '</b></td>' +
+            '<td class="c"><span class="rl-cat">' + esc(b.category || 'General') + '</span></td>' +
+            '<td class="c"><button class="rl-icon" data-act="beneficiary-del" data-id="' + esc(b.id) + '" title="Delete record" aria-label="Delete ' + esc(b.beneficiary_name) + '">' + I('x', 13) + '</button></td></tr>').join('') +
+          '</tbody></table></div>'
+        : '<div class="rl-empty"><span>' + I('search', 20) + '</span><b>No matching beneficiaries found</b><p>Try adjusting your search or selecting a different barangay.</p></div>') +
+      '</section>' +
     '</div>';
   }
 
@@ -392,81 +404,70 @@ const UG_RELIEF = (function () {
    *  - LGU staff: see municipality-wide stock with an optional barangay filter
    *    so they can audit any single barangay's stock.
    */
+  /* Resource Inventory (uniguard ReliefStockPanel, stock view): three
+     figures, category pills with counts + search, the low-stock note, then
+     the items grouped by category, each with a stock bar against its
+     reorder point and Distribute / Restock / Edit. */
   function dInventory(st) {
     const vis = visibleInventory(st);
     const all = vis.all, cat = vis.cat, list = vis.list, mine = vis.mine, q = vis.q;
-    const cats = [['all', T('label.all'), all.length]].concat(INV_CATEGORIES.map((c) =>
-      [c, c, all.filter((i) => i.category === c).length]));
-    const lowN = (all).filter((i) => (i.stock || 0) <= (i.reorder || 0)).length;
-    const totalUnits = all.reduce((s, i) => s + (i.stock || 0), 0);
-    const summary = [
-      [T('relief.totalSkus'), all.length, 'layers', 'var(--ug-signal)'],
-      [T('relief.itemsInStock'), totalUnits + ' ' + T('label.units'), 'download', 'var(--ug-prepared)'],
-      [T('relief.lowStockAlerts'), lowN, 'alert', 'var(--ug-warning)']
-    ];
-    /* LGU-only barangay filter dropdown. Barangay officials see a static chip
-       telling them the inventory is locked to their barangay. */
-    const lguBrgyFilter = mine ? '' :
-      '<div class="ug-field" style="margin:0;min-width:200px"><label class="ug-lab">' + esc(T('label.filterByBarangay')) + '</label>' +
-        '<select class="ug-sel" data-field="invBrgyFilter">' +
-          '<option value="All">' + esc(T('label.allBarangays')) + '</option>' +
-          (U.DATA.barangays || []).map((b) => '<option value="' + esc(b) + '"' + (st.invBrgyFilter === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') +
-        '</select></div>';
-    const scopeChip = mine
-      ? '<span class="ug-chip is-on">' + I('pin', 13) + esc(mine) + '</span>'
-      : '';
-    return '<div class="ug-col" style="gap:18px">' +
-      '<div class="ug-dgrid-stats">' + summary.map((s) =>
-        '<div class="ug-card ug-stat-card"><div class="ug-card-b ug-col" style="gap:6px">' +
-        '<div class="ug-rowf ug-between" style="gap:8px"><span class="ug-lab">' + esc(s[0]) + '</span>' +
-        '<span style="color:' + s[3] + ';display:flex">' + I(s[2], 16) + '</span></div>' +
-        '<div class="ug-mono" style="font-size:22px;font-weight:600;color:' + s[3] + '">' + esc(s[1]) + '</div>' +
-        '</div></div>').join('') + '</div>' +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px;align-items:flex-end">' +
-        cats.map((c) => '<button class="ug-chip' + (cat === c[0] ? ' is-on' : '') + '"' + A('inv-cat', attr({ v: c[0] })) + '>' + I('layers', 13) + esc(c[1]) + ' <span class="ug-dimmer" style="margin-left:4px">' + c[2] + '</span></button>').join('') +
-        '<span style="flex:1"></span>' +
-        scopeChip +
-        lguBrgyFilter +
-        '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('inv-add') + '>' + I('plus', 14) + esc(T('action.addStockItem')) + '</button>' +
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('inv-download') + '>' + I('download', 14) + esc(T('action.exportCsv')) + '</button>' +
-      '</div>' +
-      '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap8 ug-wrap" style="gap:8px;align-items:flex-end">' +
-        '<div class="ug-field" style="margin:0;flex:1;min-width:240px"><label class="ug-lab">' + esc(T('action.search')) + '</label>' +
-          '<input class="ug-in" data-field="invSearch" value="' + esc(st.invSearch || '') + '" placeholder="' + esc(T('label.name')) + ', ' + esc(T('label.location')) + ', ' + esc(T('label.supplier')) + '"></div>' +
-        (q ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('inv-clear-search') + '>' + esc(T('action.clear')) + '</button>' : '') +
+    const low = all.filter((i) => (i.stock || 0) <= (i.reorder || 0));
+    const totalUnits = all.reduce((n, i) => n + (i.stock || 0), 0);
+    const cats = [['all', 'All', all.length]].concat(INV_CATEGORIES.map((c) => [c, c, all.filter((i) => i.category === c).length]).filter((c) => c[2] > 0));
+    const groups = INV_CATEGORIES.concat(['Other']).map((c) => ({ c: c, items: list.filter((i) => (INV_CATEGORIES.indexOf(i.category) >= 0 ? i.category : 'Other') === c) })).filter((g) => g.items.length);
+    return '<section class="rl-card">' +
+      '<div class="rl-ch"><h2>' + I('layers', 15) + 'Resource Inventory</h2><div class="rl-ch-r">' +
+        (mine ? '<span class="rl-count">' + I('pin', 12) + esc(mine) + '</span>'
+          : '<select class="rl-in rl-sel rl-sel--sm" data-field="invBrgyFilter" aria-label="Filter by barangay"><option value="All">All barangays</option>' +
+              (U.DATA.barangays || []).map((b) => '<option value="' + esc(b) + '"' + (st.invBrgyFilter === b ? ' selected' : '') + '>Brgy. ' + esc(b) + '</option>').join('') + '</select>') +
+        '<button class="rl-ghost"' + A('inv-download') + (all.length ? '' : ' disabled') + '>' + I('download', 13) + 'CSV</button>' +
       '</div></div>' +
-      '<div class="ug-card" style="overflow:hidden">' +
-        '<table class="ug-table ug-inv-table">' +
-          '<thead><tr><th>' + esc(T('label.item')) + '</th><th>' + esc(T('label.category')) + '</th><th class="t-num">' + esc(T('relief.itemsInStock')) + '</th><th class="t-num">' + esc(T('label.reorderAt')) + '</th><th>' + esc(T('label.status')) + '</th><th>' + esc(T('label.location')) + '</th><th>' + esc(T('label.supplier')) + '</th><th class="t-right">' + esc(T('label.action')) + '</th></tr></thead>' +
-          '<tbody>' + (list.length ? list.map(invRow).join('') :
-            '<tr><td colspan="8" style="text-align:center;padding:20px">' + (q ? esc(T('action.search')) + ' — ' + esc(q) : esc(T('relief.noStockItems'))) + '</td></tr>') + '</tbody>' +
-        '</table>' +
+      '<div class="rl-body">' +
+        '<div class="rl-figs">' +
+          '<div><span>Items</span><b>' + all.length.toLocaleString() + '</b></div>' +
+          '<div><span>Units on hand</span><b>' + totalUnits.toLocaleString() + '</b></div>' +
+          '<div class="' + (low.length ? 'is-warn' : '') + '"><span>Low stock</span><b>' + low.length.toLocaleString() + '</b></div>' +
+        '</div>' +
+        '<div class="rl-tool">' +
+          /* phones: the category filter as a dropdown (the pills hide there) */
+          (() => {
+            const cur = cats.find((c) => c[0] === cat) || cats[0];
+            return '<div class="ug-wmore inc-dd rl-cdd"><button class="inc-dd-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Filter by category">' +
+                '<span>' + esc(cur[0] === 'all' ? 'All categories' : cur[1]) + '</span><b>' + cur[2] + '</b>' + I('chevdn', 16) + '</button>' +
+              '<div class="inc-dd-panel" data-more-panel hidden role="listbox">' + cats.map((c) =>
+                '<button role="option" class="' + (cat === c[0] ? 'is-on' : '') + '"' + A('inv-cat', attr({ v: c[0] })) + '><span>' + esc(c[0] === 'all' ? 'All categories' : c[1]) + '</span><b>' + c[2] + '</b>' +
+                  (cat === c[0] ? I('check', 14) : '') + '</button>').join('') + '</div></div>';
+          })() +
+          '<div class="rl-pills" role="tablist" aria-label="Filter by category">' + cats.map((c) =>
+          '<button role="tab" aria-selected="' + (cat === c[0]) + '" class="' + (cat === c[0] ? 'is-on' : '') + '"' + A('inv-cat', attr({ v: c[0] })) + '>' + esc(c[1]) + '<b>' + c[2] + '</b></button>').join('') + '</div>' +
+          '<span class="rl-search rl-search--sm">' + I('search', 14) + '<input class="rl-in" type="search" data-field="invSearch" value="' + esc(st.invSearch || '') + '" placeholder="Search items" aria-label="Search the inventory">' +
+            (q ? '<button' + A('inv-clear-search') + ' aria-label="Clear search">' + I('x', 11) + '</button>' : '') + '</span></div>' +
+        /* a friendly, dismissible stock reminder (comes back when the low list changes) */
+        (low.length ? U.note('inv-low', low.map((i) => i.id + ':' + i.stock).join(','), 'alert',
+            low.length + ' ' + (low.length === 1 ? 'item needs' : 'items need') + ' restocking',
+            low.slice(0, 3).map((i) => esc(i.name) + ' — ' + i.stock + ' ' + esc(i.unit) + ' left').join('<br>') + (low.length > 3 ? '<br>and ' + (low.length - 3) + ' more' : ''),
+            { tone: 'glass' }) : '') +
+        (!all.length ? '<p class="rl-muted">No items yet. Add the goods the LDRRMO keeps in its warehouses.</p>'
+          : !groups.length ? '<p class="rl-muted">No items match. Try another category or search.</p>'
+          : groups.map((g) => '<div class="rl-group"><h3>' + esc(g.c) + '</h3><ul>' + g.items.map(invRow).join('') + '</ul></div>').join('')) +
       '</div>' +
-    '</div>';
+    '</section>';
   }
 
   function invRow(i) {
-    const low = (i.stock || 0) <= (i.reorder || 0);
-    const out = (i.stock || 0) <= 0;
-    const status = out ? '<span class="ug-badge ug-badge--closed">' + esc(T('relief.outOfStock')) + '</span>'
-      : low ? '<span class="ug-badge ug-badge--full">' + esc(T('relief.lowStock')) + '</span>'
-      : '<span class="ug-badge ug-badge--open">' + esc(T('relief.inStock')) + '</span>';
-    const catColor = CAT_COLOR[i.category] || 'var(--ug-ink-2)';
-    return '<tr class="' + (low ? 'ug-inv-row-low' : '') + '" data-act="inv-detail" data-id="' + esc(i.id) + '" style="cursor:pointer">' +
-      '<td><div style="font-weight:600">' + esc(i.name) + '</div>' +
-        '<div class="ug-dimmer ug-mono" style="font-size:10px">' + esc(i.id) + '</div></td>' +
-      '<td><span class="ug-chip" style="background:' + catColor + '22;color:' + catColor + '">' + esc(i.category) + '</span></td>' +
-      '<td class="t-num ug-mono" style="font-weight:600;color:' + (low ? 'var(--ug-warning)' : 'var(--ug-ink)') + '">' + esc(i.stock) + ' <span class="ug-dimmer" style="font-weight:400">' + esc(i.unit) + '</span></td>' +
-      '<td class="t-num ug-mono">' + esc(i.reorder) + '</td>' +
-      '<td>' + status + '</td>' +
-      '<td class="ug-dim" style="font-size:11.5px">' + esc(i.location || '—') + '</td>' +
-      '<td class="ug-dim" style="font-size:11.5px">' + esc(i.supplier || '—') + '</td>' +
-      '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end">' +
-        '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="inv-adjust" data-id="' + esc(i.id) + '" data-d="-1">−</button>' +
-        '<button class="ug-btn ug-btn--sm" data-act="inv-restock" data-id="' + esc(i.id) + '">' + I('plus', 12) + esc(T('action.restock')) + '</button>' +
-        '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="inv-edit" data-id="' + esc(i.id) + '" title="' + esc(T('action.edit')) + '">' + I('settings', 12) + '</button>' +
-      '</div></td>' +
-    '</tr>';
+    const isLow = (i.stock || 0) <= (i.reorder || 0);
+    const pct = i.reorder > 0 ? Math.min(100, Math.round((i.stock || 0) / (i.reorder * 2) * 100)) : 100;
+    return '<li class="rl-inv' + (isLow ? ' is-low' : '') + '">' +
+      '<div class="rl-inv-t"><button class="rl-link" data-act="inv-detail" data-id="' + esc(i.id) + '">' + esc(i.name) + '</button>' +
+        '<small>' + esc([i.location, i.supplier].filter(Boolean).join(' · ')) + '</small>' +
+        '<div class="rl-bar"><i style="width:' + Math.max(pct, (i.stock || 0) > 0 ? 4 : 0) + '%"></i></div></div>' +
+      '<div class="rl-inv-r"><span class="rl-mono rl-qty">' + (i.stock || 0).toLocaleString() + ' ' + esc(i.unit || '') + '<em>/ reorder ' + (i.reorder || 0) + '</em></span>' +
+        '<div class="rl-acts">' +
+          '<button class="rl-ghost" data-act="rec-add" data-item="' + esc(i.id) + '"' + ((i.stock || 0) <= 0 ? ' disabled' : '') + ' title="Record goods handed out">' + I('download', 12) + 'Distribute</button>' +
+          '<button class="rl-ghost" data-act="inv-restock" data-id="' + esc(i.id) + '">' + I('plus', 12) + 'Restock</button>' +
+          '<button class="rl-icon" data-act="inv-edit" data-id="' + esc(i.id) + '" title="Edit" aria-label="Edit ' + esc(i.name) + '">' + I('settings', 13) + '</button>' +
+        '</div></div>' +
+    '</li>';
   }
 
   /* full detail modal for an inventory item — opens when the row is clicked.
@@ -481,7 +482,7 @@ const UG_RELIEF = (function () {
     const statusTone = out ? 'var(--ug-emergency)' : low ? 'var(--ug-warning)' : 'var(--ug-prepared)';
     const catColor = CAT_COLOR[i.category] || 'var(--ug-ink-2)';
     const pct = i.reorder > 0 ? Math.min(100, Math.round((i.stock || 0) / Math.max(i.reorder * 2, 1) * 100)) : 100;
-    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
+    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
     UG_FEATURES.modal({
       title: i.name || 'Stock item',
       body:
@@ -491,7 +492,7 @@ const UG_RELIEF = (function () {
             '<span class="ug-badge" style="background:' + statusTone + '22;color:' + statusTone + ';border-color:' + statusTone + '55">' + esc(status) + '</span>' +
           '</div>' +
           '<div>' +
-            '<div class="ug-rowf ug-between" style="font-size:11.5px;margin-bottom:5px"><span class="ug-dim">Stock vs reorder point</span>' +
+            '<div class="ug-rowf ug-between" style="font-size:12px;margin-bottom:5px"><span class="ug-dim">Stock vs reorder point</span>' +
               '<span class="ug-mono">' + esc(i.stock || 0) + ' / ' + esc(i.reorder || 0) + ' ' + esc(i.unit || '') + '</span></div>' +
             '<div style="height:8px;border-radius:4px;background:rgba(var(--ug-tint, 255,255,255),.07);overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + statusTone + '"></div></div>' +
           '</div>' +
@@ -522,7 +523,7 @@ const UG_RELIEF = (function () {
   function distDetailModal(id, st) {
     const r = (UG.DATA.relief || []).find((x) => x.id === id);
     if (!r) return false;
-    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
+    const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
     const li = (arr) => (arr || []).map((x) => '<li>' + esc(x) + '</li>').join('');
     const phone = String(r.contact_phone || '').replace(/[^\d+]/g, '');
     const canWaze = typeof r.lat === 'number' && typeof r.lng === 'number' && UG_GEO.classify(r.lat, r.lng) === 'ok';
@@ -537,7 +538,7 @@ const UG_RELIEF = (function () {
         kv('Address', r.address) +
         kv('Schedule', fmtDate(r.distribution_at)) +
         kv('Contact person', r.contact_person) +
-        '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">Contact phone</span>' +
+        '<div class="ug-rowf ug-between" style="gap:12px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">Contact phone</span>' +
           (phone ? '<a href="tel:' + esc(phone) + '" style="font-weight:600">' + esc(r.contact_phone) + '</a>' : '<span style="font-weight:600">—</span>') + '</div>' +
         kv('Status', r.active === false ? 'Inactive' : 'Active') +
         (r.eligibility && r.eligibility.length ? '<div class="ug-field" style="margin-top:10px"><div class="ug-lab">Eligibility</div><ul class="ug-bullets">' + li(r.eligibility) + '</ul></div>' : '') +
@@ -559,49 +560,42 @@ const UG_RELIEF = (function () {
      Every handover is one row. The "Record distribution" modal decrements the
      inventory and appends a record in one action so stock and ledger never
      drift apart. */
+  /* Distribution Records (uniguard ReliefStockPanel, log view): totals per
+     barangay with bars, then every hand-out, newest first */
   function dRecords(st) {
     const vis = visibleRecords(st);
-    const mine = vis.mine, rows = vis.rows, brgyFilter = vis.brgyFilter, filtered = vis.filtered;
+    const mine = vis.mine, brgyFilter = vis.brgyFilter, filtered = vis.filtered;
     const barangays = mine ? [mine] : ['All'].concat(U.DATA.barangays);
-    /* aggregate: total packs per barangay, so the duty officer can see who has
-       been served the most / the least in the current response. */
-    const perBrgy = {};
-    filtered.forEach((r) => { perBrgy[r.barangay] = (perBrgy[r.barangay] || 0) + (r.qty || 0); });
-    const perBrgyRows = Object.keys(perBrgy).sort((a, b) => perBrgy[b] - perBrgy[a])
-      .map((b) => '<div class="ug-row"><span class="r-dot" style="background:var(--ug-signal)"></span>' +
-        '<div class="r-main"><div class="r-t">' + esc(b) + '</div>' +
-        '<div class="r-m"><span>' + perBrgy[b] + ' units distributed</span></div></div>' +
-        '<span class="ug-mono">' + perBrgy[b] + '</span></div>').join('');
-    return '<div class="ug-col" style="gap:18px">' +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:8px;align-items:flex-end">' +
-        '<div class="ug-field" style="margin:0;min-width:220px"><label class="ug-lab">Filter by barangay</label>' +
-          '<select class="ug-sel" data-field="recBrgyFilter">' +
-            barangays.map((b) => '<option' + (brgyFilter === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select></div>' +
-        '<span style="flex:1"></span>' +
-        '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('rec-add') + '>' + I('plus', 14) + 'Record Distribution</button>' +
-        '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('rec-download') + '>' + I('download', 14) + 'Export CSV</button>' +
+    const per = {};
+    filtered.forEach((r) => { const k = r.barangay || 'Unspecified'; per[k] = (per[k] || 0) + (r.qty || 0); });
+    const perRows = Object.keys(per).sort((x, y) => per[y] - per[x]);
+    const max = perRows.length ? per[perRows[0]] : 1;
+    const total = filtered.reduce((n, r) => n + (r.qty || 0), 0);
+    return '<section class="rl-card">' +
+      '<div class="rl-ch"><h2>' + I('doc', 15) + 'Distribution Records</h2><div class="rl-ch-r">' +
+        (mine ? '<span class="rl-count">' + I('pin', 12) + esc(mine) + '</span>'
+          : '<select class="rl-in rl-sel rl-sel--sm" data-field="recBrgyFilter" aria-label="Filter by barangay">' + barangays.map((b) => '<option value="' + esc(b) + '"' + (brgyFilter === b ? ' selected' : '') + '>' + (b === 'All' ? 'All barangays' : 'Brgy. ' + esc(b)) + '</option>').join('') + '</select>') +
+        '<button class="rl-ghost"' + A('rec-download') + (filtered.length ? '' : ' disabled') + '>' + I('download', 13) + 'CSV</button>' +
+      '</div></div>' +
+      '<div class="rl-body rl-rec">' +
+        '<div><h3 class="rl-h3">' + (mine ? 'Total handed out' : 'Per-barangay totals') + '<em>' + total.toLocaleString() + ' units</em></h3>' +
+          (perRows.length ? '<ul class="rl-per">' + perRows.map((b) => '<li><div><span>' + esc(b) + '</span><b class="rl-mono">' + per[b].toLocaleString() + '</b></div><div class="rl-bar"><i style="width:' + Math.max(4, Math.round(per[b] / max * 100)) + '%"></i></div></li>').join('') + '</ul>'
+            : '<p class="rl-muted">No distributions recorded yet.</p>') + '</div>' +
+        '<div><h3 class="rl-h3">Goods handed out<em>' + filtered.length + ' records</em></h3>' +
+          (filtered.length ? '<ul class="rl-log">' + filtered.map(recRow).join('') + '</ul>' : '<p class="rl-muted">No distribution records.</p>') + '</div>' +
       '</div>' +
-      '<div class="ug-dgrid-2">' +
-        '<div class="ug-card"><div class="ug-card-h"><h3>Per-Barangay Totals</h3><span class="ug-chip is-on">' + Object.keys(perBrgy).length + ' barangays</span></div>' +
-          '<div class="ug-rows ug-scroll" style="max-height:260px">' + (perBrgyRows || '<div class="ug-empty"><span class="e-ico">' + I('doc', 20) + '</span><div style="font-size:12px;color:var(--ug-ink-2)">No distributions recorded yet</div></div>') + '</div></div>' +
-        '<div class="ug-card"><div class="ug-card-h"><h3>Distribution Log</h3><span class="ug-chip">' + filtered.length + ' records</span></div>' +
-          '<div class="ug-rows ug-scroll" style="max-height:260px">' + (filtered.length ? filtered.map(recRow).join('') :
-            '<div class="ug-empty"><span class="e-ico">' + I('doc', 20) + '</span><div style="font-size:12px;color:var(--ug-ink-2)">No distribution records</div></div>') + '</div></div>' +
-      '</div>' +
-    '</div>';
+    '</section>';
   }
 
   function recRow(r) {
-    return '<div class="ug-row"><span class="r-dot" style="background:var(--ug-prepared)"></span>' +
-      '<div class="r-main"><div class="r-t">' + esc(r.qty + ' ' + (r.item_name || 'item')) + ' → ' + esc(r.family || '—') + '</div>' +
-      '<div class="r-m"><span>' + I('pin', 12) + esc(r.barangay) + '</span>' +
-      '<span>' + I('users', 12) + esc(r.distributed_by || '—') + '</span>' +
-      '<span>' + esc(fmtDateTime(r.distributed_at)) + '</span></div></div>' +
-      '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="rec-del" data-id="' + esc(r.id) + '">' + I('x', 13) + '</button></div>';
+    return '<li><div class="rl-log-t"><b>' + (r.qty || 0).toLocaleString() + ' × ' + esc(r.item_name || 'Removed item') + '</b>' +
+      '<small>' + esc(r.family || '—') + ' · Brgy. ' + esc(r.barangay || '—') + '</small>' +
+      '<small class="rl-faint">' + esc(fmtDateTime(r.distributed_at)) + (r.distributed_by ? ' · ' + esc(r.distributed_by) : '') + '</small></div>' +
+      '<button class="rl-icon" data-act="rec-del" data-id="' + esc(r.id) + '" title="Remove record" aria-label="Remove record">' + I('x', 13) + '</button></li>';
   }
 
   function head(title, sub, actions) {
-    return '<div class="ug-rowf ug-between ug-wrap" style="gap:14px;align-items:flex-end">' +
+    return '<div class="ug-rowf ug-between ug-wrap ug-phead" style="gap:14px;align-items:flex-end">' +
       '<div><h2 style="font-size:20px">' + esc(title) + '</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:4px">' + esc(sub) + '</p></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';

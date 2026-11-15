@@ -202,7 +202,7 @@ const UG_UTIL = (function () {
     const m = (raw + ' ' + code).toLowerCase();
     const t = (k, fallback) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : fallback);
     if (NETWORK_RE.test(m)) return t('error.network', 'No internet connection. Check your signal and try again.');
-    if (/schema cache|column|relation|does not exist/.test(m)) return t('error.needsUpdate', 'Something on our side needs an update. Please try again later or contact the MDRRMO.');
+    if (/schema cache|column|relation|does not exist/.test(m)) return t('error.needsUpdate', 'Something on our side needs an update. Please try again later or contact the LDRRMO.');
     if (/jwt|token|session/.test(m) && /expired|invalid/.test(m)) return t('error.sessionEnded', 'Your session ended. Please sign in again.');
     if (/row-level security|permission denied|42501/.test(m)) return t('error.permission', 'You don\'t have permission to do that.');
     if (/rate limit|too many/.test(m)) return t('error.rateLimit', 'Too many attempts. Please wait a few minutes and try again.');
@@ -217,4 +217,34 @@ const UG_UTIL = (function () {
     normalisePhone, formatPhone, passwordStrength, authError, syncLabel,
     friendlyError, looksTechnical, isNetworkError, plural, corroborationLabel
   };
+})();
+
+/* The office is the Lingayen LDRRMO. Text that still comes from the database
+   or old seed data ("MDRRMO Relief Desk", "verified by the Municipal DRRMO")
+   is shown with the right name. Only on-screen text changes: form values and
+   the stored team names (e.g. 'MDRRMO Rescue', checked by the server) stay. */
+(function () {
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
+  const RX = /\bMDRRMO\b|Municipal DRRMO|Municipal Disaster Risk Reduction and Management Office/g;
+  const fix = (t) => t.replace(RX, (m) => m === 'MDRRMO' ? 'LDRRMO' : m === 'Municipal DRRMO' ? 'Lingayen LDRRMO' : 'Lingayen Local Disaster Risk Reduction and Management Office');
+  function walk(root) {
+    if (!root) return;
+    if (root.nodeType === 3) { if (RX.test(root.nodeValue)) { RX.lastIndex = 0; root.nodeValue = fix(root.nodeValue); } RX.lastIndex = 0; return; }
+    if (root.nodeType !== 1 || /^(SCRIPT|STYLE|TEXTAREA)$/.test(root.nodeName)) return;
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let n;
+    while ((n = w.nextNode())) {
+      if (n.parentNode && /^(SCRIPT|STYLE|TEXTAREA)$/.test(n.parentNode.nodeName)) continue;
+      RX.lastIndex = 0;
+      if (RX.test(n.nodeValue)) { RX.lastIndex = 0; n.nodeValue = fix(n.nodeValue); }
+    }
+  }
+  const start = () => {
+    walk(document.body);
+    new MutationObserver((list) => list.forEach((m) => {
+      if (m.type === 'characterData') walk(m.target);
+      else m.addedNodes.forEach(walk);
+    })).observe(document.body, { childList: true, subtree: true, characterData: true });
+  };
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();

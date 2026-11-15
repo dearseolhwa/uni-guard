@@ -98,7 +98,9 @@ const UG_THEME = (function () {
     verified:   entry('verified',   'blue',   { label: 'Verified',            short: 'VER',  shape: 'circle', glyph: 'eye',   note: 'Confirmed by an official or by corroboration' }),
     dispatched: entry('dispatched', 'violet', { label: 'Response Dispatched', short: 'DISP', shape: 'circle', glyph: 'truck', note: 'Responders are on it' }),
     resolved:   entry('resolved',   'green',  { label: 'Resolved',            short: 'DONE', shape: 'circle', glyph: 'check', note: 'Cleared and closed' }),
-    rejected:   entry('rejected',   'stone',  { label: 'Rejected',            short: 'REJ',  shape: 'circle', glyph: 'x',     note: 'Not actionable or a duplicate' })
+    rejected:   entry('rejected',   'stone',  { label: 'Rejected',            short: 'REJ',  shape: 'circle', glyph: 'x',     note: 'Not actionable or a duplicate' }),
+    /* display only: a report stored as rejected with expired_at set (067) */
+    expired:    entry('expired',    'stone',  { label: 'Expired',             short: 'EXP',  shape: 'circle', glyph: 'clock', note: 'Not verified within 3 days; closed automatically' })
   };
   /* the four steps of the normal path, in order; rejected is a side exit */
   const STATUS_FLOW = ['reported', 'verified', 'dispatched', 'resolved'];

@@ -261,7 +261,7 @@ const UG_I18N = (function () {
       'settings.smsFallbackToggle': 'Text message backup for emergency advisories',
       'settings.smsFallbackToggleHelp': 'When a phone cannot receive push notifications, also send emergency advisories by text message.',
       'settings.emailAlerts': 'Daily email summary',
-      'settings.emailAlertsHelp': 'Email a daily summary of emergency advisories to the MDRRMO office email address.',
+      'settings.emailAlertsHelp': 'Email a daily summary of emergency advisories to the LDRRMO office email address.',
       'settings.enableQuietHours': 'Enable quiet hours',
       'settings.enableQuietHoursHelp': 'Preparedness messages wait until quiet hours end. Emergency alerts are always sent right away.',
       'settings.quietStart': 'Quiet starts',
@@ -284,17 +284,17 @@ const UG_I18N = (function () {
       /* ---- page titles (the main screens) ---- */
       'title.dashboard': 'Operations Dashboard',
       'title.incidents': 'Incident Queue',
-      'title.advisories': 'Early Warning & Announcements',
+      'title.advisories': 'Advisories and Alerts',
       'title.centers': 'Evacuation Center Management',
-      'title.relief': 'Relief & Resource Inventory',
+      'title.relief': 'Relief Assistance',
       'title.command': 'Command View',
       'title.hotlines': 'Emergency Hotlines',
-      'title.analytics': 'Analytics',
+      'title.analytics': 'Analytics and Reporting',
       'title.users': 'User Management',
-      'title.audit': 'Activity Log',
+      'title.audit': 'Audit Log',
       'title.offline': 'Offline Sync',
       'title.settings': 'Settings',
-      'title.responseTeam': 'Barangay Response Team',
+      'title.responseTeam': 'Response Team',
       'title.dispatchUnits': 'Dispatch Units',
       'title.roadwork': 'Road Work Posts',
       'title.guides': 'Preparedness Guides',
@@ -400,6 +400,7 @@ const UG_I18N = (function () {
       'roadwork.roadStatusOverlay': 'Road Status Overlay',
       'roadwork.addRoadStatus': 'Add Road Status',
       'roadwork.activeRoadWork': 'Active Road Work',
+      'roadwork.roadPin': 'Road work location',
       'roadwork.roadConditions': 'Road Conditions',
       'roadwork.roadWorkAndStatus': 'Road Work & Road Status',
       'roadwork.roadWorkIntro': 'Active road work posts from the LGU and the live road-status overlay. Tap a road-closed marker on the map to see why.',
@@ -459,7 +460,7 @@ const UG_I18N = (function () {
       'dispatch.decided': 'Decided',
       'dispatch.newRequest': 'New request',
       'dispatch.unitAnalytics': 'Unit analytics',
-      'dispatch.analyticsSub': 'Response time, monthly count, equipment usage.',
+      'dispatch.analyticsSub': 'How fast your unit acknowledges and reaches the scene, and every dispatch it handled.',
       'dispatch.noAnalyticsYet': 'No dispatches yet',
       'dispatch.noAnalyticsHint': 'Your response time and monthly count appear here once you have an active dispatch.',
       'dispatch.directory': 'Directory',
@@ -630,7 +631,7 @@ const UG_I18N = (function () {
       /* ---- roles ---- */
       'role.citizen': 'Citizen',
       'role.barangay_official': 'Barangay Official',
-      'role.lgu_ldrrmc': 'LGU / MDRRMO',
+      'role.lgu_ldrrmc': 'LGU / LDRRMO',
       'role.dispatch_team': 'Dispatch Team',
       'role.super_admin': 'Super Admin',
 
@@ -913,7 +914,7 @@ const UG_I18N = (function () {
 
       /* ---- fix pack 01 · F5 plain language ---- */
       'error.network': 'No internet connection. Check your signal and try again.',
-      'error.needsUpdate': 'Something on our side needs an update. Please try again later or contact the MDRRMO.',
+      'error.needsUpdate': 'Something on our side needs an update. Please try again later or contact the LDRRMO.',
       'error.sessionEnded': 'Your session ended. Please sign in again.',
       'error.permission': 'You don\'t have permission to do that.',
       'error.rateLimit': 'Too many attempts. Please wait a few minutes and try again.',
@@ -945,9 +946,9 @@ const UG_I18N = (function () {
 
       /* ---- fix pack 01 · F7 SOS offline ---- */
       'sos.waitingForSignal': 'Waiting for signal',
-      'sos.savedOffline': 'No internet connection. Your SOS is saved on this phone and will be sent automatically as soon as you are back online. If you are in danger, call MDRRMO now.',
+      'sos.savedOffline': 'No internet connection. Your SOS is saved on this phone and will be sent automatically as soon as you are back online. If you are in danger, call LDRRMO now.',
       'sos.notSent': 'SOS not sent',
-      'sos.delivered': 'Your SOS was delivered to the MDRRMO.',
+      'sos.delivered': 'Your SOS was delivered to the LDRRMO.',
       'action.tryAgainShort': 'Try again',
 
       /* ---- fix pack 01 · F9 plurals ---- */
@@ -1320,7 +1321,7 @@ const UG_I18N = (function () {
       'settings.smsFallbackToggle': 'Text message bilang reserba para sa emergency advisory',
       'settings.smsFallbackToggleHelp': 'Kapag hindi makatanggap ng push notification ang telepono, ipadala rin ang emergency advisory sa text message.',
       'settings.emailAlerts': 'Pang-araw-araw na buod sa email',
-      'settings.emailAlertsHelp': 'Mag-email ng pang-araw-araw na buod ng mga emergency advisory sa email address ng opisina ng MDRRMO.',
+      'settings.emailAlertsHelp': 'Mag-email ng pang-araw-araw na buod ng mga emergency advisory sa email address ng opisina ng LDRRMO.',
       'settings.enableQuietHours': 'I-enable ang quiet hours',
       'settings.enableQuietHoursHelp': 'Maghihintay ang mga mensaheng pang-paghahanda hanggang matapos ang quiet hours. Ang emergency alert ay laging ipinapadala agad.',
       'settings.quietStart': 'Simula ng quiet',
@@ -1459,6 +1460,7 @@ const UG_I18N = (function () {
       'roadwork.roadStatusOverlay': 'Overlay ng Status ng Kalsada',
       'roadwork.addRoadStatus': 'Magdagdag ng Status ng Kalsada',
       'roadwork.activeRoadWork': 'Aktibong Gawa sa Kalsada',
+      'roadwork.roadPin': 'Lokasyon ng gawa sa kalsada',
       'roadwork.roadConditions': 'Kondisyon ng Kalsada',
       'roadwork.roadWorkAndStatus': 'Gawa sa Kalsada at Status ng Kalsada',
       'roadwork.roadWorkIntro': 'Mga aktibong post ng gawa sa kalsada mula sa LGU at ang live na overlay ng road status. Pindutin ang marker ng sarado na kalsada sa mapa para makita ang dahilan.',
@@ -1518,7 +1520,7 @@ const UG_I18N = (function () {
       'dispatch.decided': 'Natapos',
       'dispatch.newRequest': 'Bagong kahilingan',
       'dispatch.unitAnalytics': 'Analytics ng unit',
-      'dispatch.analyticsSub': 'Oras ng tugon, buwanang bilang, paggamit ng kagamitan.',
+      'dispatch.analyticsSub': 'Gaano kabilis tumugon at makarating ang inyong unit, at bawat dispatch na hinawakan nito.',
       'dispatch.noAnalyticsYet': 'Wala pang dispatch',
       'dispatch.noAnalyticsHint': 'Lalabas dito ang iyong oras ng tugon at buwanang bilang kapag may aktibo kang dispatch.',
       'dispatch.directory': 'Direktoryo',
@@ -1689,7 +1691,7 @@ const UG_I18N = (function () {
       /* ---- roles ---- */
       'role.citizen': 'Mamamayan',
       'role.barangay_official': 'Opisyal ng Barangay',
-      'role.lgu_ldrrmc': 'LGU / MDRRMO',
+      'role.lgu_ldrrmc': 'LGU / LDRRMO',
       'role.dispatch_team': 'Dispatch Team',
       'role.super_admin': 'Super Admin',
 
@@ -1972,7 +1974,7 @@ const UG_I18N = (function () {
 
       /* ---- fix pack 01 · F5 plain language ---- */
       'error.network': 'Walang koneksyon sa internet. Tingnan ang iyong signal at subukang muli.',
-      'error.needsUpdate': 'May kailangang i-update sa aming system. Subukang muli mamaya o makipag-ugnayan sa MDRRMO.',
+      'error.needsUpdate': 'May kailangang i-update sa aming system. Subukang muli mamaya o makipag-ugnayan sa LDRRMO.',
       'error.sessionEnded': 'Natapos na ang iyong session. Mag-sign in muli.',
       'error.permission': 'Wala kang pahintulot na gawin iyan.',
       'error.rateLimit': 'Masyadong maraming pagsubok. Maghintay ng ilang minuto at subukang muli.',
@@ -2004,9 +2006,9 @@ const UG_I18N = (function () {
 
       /* ---- fix pack 01 · F7 SOS offline ---- */
       'sos.waitingForSignal': 'Naghihintay ng signal',
-      'sos.savedOffline': 'Walang koneksyon sa internet. Naka-save ang iyong SOS sa teleponong ito at awtomatikong ipapadala pagbalik ng koneksyon. Kung nasa panganib ka, tumawag na sa MDRRMO.',
+      'sos.savedOffline': 'Walang koneksyon sa internet. Naka-save ang iyong SOS sa teleponong ito at awtomatikong ipapadala pagbalik ng koneksyon. Kung nasa panganib ka, tumawag na sa LDRRMO.',
       'sos.notSent': 'Hindi naipadala ang SOS',
-      'sos.delivered': 'Naihatid na ang iyong SOS sa MDRRMO.',
+      'sos.delivered': 'Naihatid na ang iyong SOS sa LDRRMO.',
       'action.tryAgainShort': 'Subukang muli',
 
       /* ---- fix pack 01 · F9 plurals ---- */

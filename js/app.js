@@ -163,7 +163,8 @@
   }
   /* only when css/design.css is linked: without it there is no data-portal,
      so theme.js's light shades stay off and the previous dark design is intact */
-  const DESIGN_ON = !!document.querySelector('link[href$="css/design.css"]');
+  /* matches with or without the ?v= version tag index.html adds */
+  const DESIGN_ON = !!document.querySelector('link[href*="css/design.css"]');
   function applyPortal() {
     if (!DESIGN_ON) return;
     const portal = portalFor();
@@ -175,7 +176,41 @@
     if (meta) meta.setAttribute('content', PORTAL_THEME[portal]);
   }
 
+  /* reports this resident confirmed, kept on the device per account, so the
+     button stays "Confirmed" after a reload or a data refresh */
+  window.UG_CORR_DONE = {
+    key() { return 'uniguard_corr_done_' + ((S.session && (S.session.id || S.session.email)) || 'anon'); },
+    all() { try { return JSON.parse(localStorage.getItem(this.key()) || '{}') || {}; } catch (e) { return {}; } },
+    has(id) { return !!(id && ((S.corrDone && S.corrDone[id]) || this.all()[id])); },
+    save(id) { try { const m = this.all(); m[id] = Date.now(); localStorage.setItem(this.key(), JSON.stringify(m)); } catch (e) { } }
+  };
+  /* the field being typed in, so ANY redraw (live data, a refresh, a timer)
+     puts the cursor back instead of dropping it after one letter */
+  const KEEP_ATTRS = ['data-field', 'data-rp', 'data-setting', 'data-f', 'id', 'name'];
+  function typingTarget() {
+    const a = document.activeElement;
+    if (!a || !root.contains(a) || !/^(INPUT|TEXTAREA)$/.test(a.tagName)) return null;
+    const k = KEEP_ATTRS.find((n) => a.getAttribute(n));
+    if (!k) return null;
+    let s0 = null, s1 = null;
+    try { s0 = a.selectionStart; s1 = a.selectionEnd; } catch (e) { }
+    return { sel: '[' + k + '="' + String(a.getAttribute(k)).replace(/"/g, '\\"') + '"]', s0: s0, s1: s1, v: a.value };
+  }
+  /* one redraw at a time: replacing the page can fire blur / change on the
+     field being removed, and a redraw started from there broke the outer one
+     (innerHTML threw, so focus was never put back) */
+  let rendering = false, renderAgain = false;
   function render(focusField) {
+    if (rendering) { renderAgain = true; return; }
+    rendering = true;
+    try { renderNow(focusField); }
+    finally {
+      rendering = false;
+      if (renderAgain) { renderAgain = false; setTimeout(() => render(), 0); }
+    }
+  }
+  function renderNow(focusField) {
+    const typing = focusField ? null : typingTarget();
     applyPortal();
     /* Sidebar scroll position preservation. The DOCX reports a recurring
        bug: clicking a lower sidebar item snaps the sidebar back to the top
@@ -192,8 +227,18 @@
     const prevDispatchNav = q('#ug-dispatch-nav');
     const sideTop = prevSide ? prevSide.scrollTop : 0;
     const dispatchTop = prevDispatchNav ? prevDispatchNav.scrollTop : 0;
+    const prevBgNav = q('.bg-nav > div');
+    const bgNavLeft = prevBgNav ? prevBgNav.scrollLeft : 0;
+    const prevNear = q('.rw-rows--scroll');
+    const nearTop = prevNear ? prevNear.scrollTop : 0;
     S.view = viewFor();
     S.role = S.session ? S.session.role : 'citizen';
+    if (S.session) {
+      /* confirmed on this device, or on this account anywhere (061) */
+      const server = {};
+      (UG.DATA.myCorroborations || []).forEach((id) => { server[id] = true; });
+      S.corrDone = Object.assign({}, window.UG_CORR_DONE.all(), server, S.corrDone);
+    }
     S.offline = !UG_PWA.state.online || Repo.state.source === 'offline';
     UG.DATA.queueCount = UG_PWA.state.queued;
 
@@ -204,6 +249,32 @@
       const stage = (S.session.role === 'citizen' && !isWide()) ? 'ug-stage ug-stage--m' : 'ug-stage ug-stage--d';
       root.innerHTML = '<div class="' + stage + '">' + UG_SCREENS.frame(st) + '</div>';
     }
+
+    /* keep the address bar on the screen being shown (one history entry
+       per screen), and remember which item a detail screen showed so
+       back / forward can bring it back */
+    if (S.session && S.route && HASH_ROUTES.indexOf(S.route) !== -1) {
+      if (S.openId && DETAIL_PARENT[S.route]) S.lastOpen = Object.assign({}, S.lastOpen, { [S.route]: S.openId });
+      setHash(S.route);
+    }
+
+    /* staff phone bar: the circle moves. The bar is redrawn on every render,
+       so draw the previous section raised for a frame, then let the new one
+       rise while the old one sinks (the CSS transition does the motion). */
+    const bgOn = q('.bg-pbar .bg-pb.is-on');
+    const bgNow = bgOn ? bgOn.getAttribute('data-slot') : null;
+    if (bgNow && window.__ugBarSlot && window.__ugBarSlot !== bgNow) {
+      const was = q('.bg-pbar .bg-pb[data-slot="' + window.__ugBarSlot + '"]');
+      if (was) {
+        bgOn.classList.remove('is-on'); was.classList.add('is-on');
+        void was.offsetWidth;   /* commit the old position */
+        let swapped = false;
+        const swap = () => { if (swapped) return; swapped = true; was.classList.remove('is-on'); bgOn.classList.add('is-on'); };
+        requestAnimationFrame(swap);
+        setTimeout(swap, 34);   /* frames can be paused (background tab); never leave the old one raised */
+      }
+    }
+    window.__ugBarSlot = bgNow;
 
     const sc = q('.ug-scroll');
     if (sc) {
@@ -222,16 +293,42 @@
     /* restore sidebar scroll position so the active item stays in view. */
     const newSide = q('.ug-side');
     if (newSide && sideTop) newSide.scrollTop = sideTop;
+    const newNear = q('.rw-rows--scroll');
+    if (newNear && nearTop) newNear.scrollTop = nearTop;
     const newDispatchNav = q('#ug-dispatch-nav');
     if (newDispatchNav && dispatchTop) newDispatchNav.scrollTop = dispatchTop;
+    /* barangay / LGU top nav: keep its sideways scroll, bring the current
+       section into view, and fade only the edges that hide more items */
+    const bgNav = q('.bg-nav > div');
+    if (bgNav) {
+      bgNav.style.scrollBehavior = 'auto';
+      bgNav.scrollLeft = bgNavLeft;
+      const on = bgNav.querySelector('.is-on');
+      if (on) {
+        const l = on.offsetLeft - bgNav.offsetLeft, r = l + on.offsetWidth;
+        if (l < bgNav.scrollLeft + 44) bgNav.scrollLeft = Math.max(0, l - 44);
+        else if (r > bgNav.scrollLeft + bgNav.clientWidth - 44) bgNav.scrollLeft = r - bgNav.clientWidth + 44;
+      }
+      bgNavFade(bgNav);
+      bgNav.style.scrollBehavior = '';
+    }
     if (focusField) {
       const el = q('[data-field="' + focusField + '"]');
       if (el && el.focus) {
         el.focus();
         try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) { }
       }
+    } else if (typing) {
+      const el = q(typing.sel);
+      if (el && el.focus && document.activeElement !== el) {
+        /* a field that keeps its text only in the page: carry it over */
+        if (!el.value && typing.v && el.type !== 'file') el.value = typing.v;
+        try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+        try { if (typing.s0 != null) el.setSelectionRange(typing.s0, typing.s1); } catch (e) { }
+      }
     }
     paintChrome();
+    if (window.UG_SC_LAYOUT) window.UG_SC_LAYOUT();
     mountMaps();
     syncNavButton();
     /* auto-acquire GPS the first time a citizen opens the report form, so the
@@ -292,6 +389,32 @@
       });
     });
     return out;
+  }
+
+  /* the live map mounts asynchronously after render(); wait for it, then move */
+  function rwFly(lat, lng, zoom) {
+    if (!UG_GEO.isNum(lat) || !UG_GEO.isNum(lng)) return;
+    let tries = 0;
+    const tick = () => {
+      const el = q('[data-map="live"]');
+      const m = MapView.getMap && MapView.getMap();
+      if (el && el.dataset.mounted === 'live' && m && MapView.owns(el)) {
+        m.flyTo([lat, lng], zoom || 16, { duration: 0.6 });
+        rwMeMarker(m);
+        return;
+      }
+      if (++tries < 40) setTimeout(tick, 100);
+    };
+    tick();
+  }
+  let rwMeLayer = null;
+  function rwMeMarker(m) {
+    if (!S.rwMe || !window.L) return;
+    try {
+      if (rwMeLayer) rwMeLayer.remove();
+      rwMeLayer = L.circleMarker([S.rwMe.lat, S.rwMe.lng], { radius: 8, color: '#FFFFFF', weight: 3, fillColor: '#2563EB', fillOpacity: 1 })
+        .bindTooltip('You are here').addTo(m);
+    } catch (e) { }
   }
 
   async function mountMaps() {
@@ -398,10 +521,10 @@
   function layerToggleHtml(hidden) {
     if (!S.mapLayers) return '';
     const items = [
-      ['hazards', 'Hazards', 'octagon', 'var(--ug-emergency)'],
-      ['relief', 'Relief', 'square', '#8B5CF6'],
-      ['centers', 'Shelters', 'square', 'var(--ug-shelter-open)'],
-      ['roadStatus', 'Road status', 'diamond', 'var(--ug-warning)']
+      ['hazards', 'Hazards', 'octagon', '#B91C1C'],
+      ['relief', 'Relief', 'square', '#6D28D9'],
+      ['centers', 'Shelters', 'square', '#15803D'],
+      ['roadStatus', 'Road status', 'diamond', '#B45309']
     ];
     return '<div class="ug-layer-toggle" role="group" aria-label="Map layers"' + (hidden ? ' hidden' : '') + '>' + items.map((it) =>
       '<button class="' + (S.mapLayers[it[0]] ? 'is-on' : '') + '" aria-pressed="' + !!S.mapLayers[it[0]] + '" data-act="map-layer-toggle" data-layer="' + it[0] + '">' +
@@ -537,15 +660,26 @@
     'equipment', 'roster', 'hospital', 'requests', 'contacts', 'dispatch-detail', 'settings',
     'admin-home'];
 
+  /* detail screens and the list each falls back to (back / forward) */
+  const DETAIL_PARENT = { 'report-detail': 'reports', 'advisory-detail': 'advisories', 'incident': 'incidents',
+    'dispatch-detail': 'dispatch', 'report-done': 'reports' };
+
   function routeFromHash() {
     const h = String((window.location && window.location.hash) || '').replace(/^#\/?/, '').split('?')[0];
     return (h && HASH_ROUTES.indexOf(h) !== -1) ? h : null;
   }
 
+  /* Moving to another screen adds a browser history entry, so the phone's
+     Back button (and the browser's back / forward) step through screens
+     instead of leaving the app. The first screen after a load replaces. */
   function setHash(route) {
     const want = '#' + route;
     if (window.location.hash === want) return;
-    try { window.history.replaceState(null, '', want); }
+    const hasRoute = !!routeFromHash();
+    try {
+      if (hasRoute) window.history.pushState(null, '', want);
+      else window.history.replaceState(null, '', want);
+    }
     catch (e) { try { window.location.hash = route; } catch (e2) { } }
   }
 
@@ -708,6 +842,13 @@
       if (S.auth.screen === 'signup' && !S.auth.barangays.length) {
         Repo.listBarangays().then((list) => { S.auth.barangays = list; render(); });
       }
+      render();
+    },
+    /* the sign-in screen's quiet motion switch (remembered on this device) */
+    'auth-motion': () => {
+      let off = false;
+      try { off = localStorage.getItem('uniguard.login.motion') === 'off'; localStorage.setItem('uniguard.login.motion', off ? 'on' : 'off'); } catch (e) { }
+      window.__uaMotionOff = !off;
       render();
     },
     'toggle-reveal': (d) => {
@@ -983,41 +1124,80 @@
     const sevOpts = [['advisory', 'Moderate'], ['warning', 'High'], ['emergency', 'Critical']]
       .map((s) => '<option value="' + s[0] + '"' + (existing && existing.severity === s[0] ? ' selected' : '') + '>' + s[1] + '</option>').join('');
     const val = (v) => (existing && existing[v] != null) ? UG_UTIL.esc(String(existing[v])) : '';
+    /* an "Other" cause keeps its description at the start of the note
+       ("Cause: ..."), since road_status.cause only takes the fixed values */
+    const causeM = existing && existing.cause === 'other' ? /^Cause: ([^\n]*?)\.(?:\s|$)/.exec(existing.note || '') : null;
+    const causeSpec = causeM ? causeM[1] : '';
+    const noteVal = causeM ? UG_UTIL.esc(String(existing.note || '').slice(causeM[0].length).trim()) : val('note');
+    /* datetime-local needs "YYYY-MM-DDTHH:MM" in local time; stored values are ISO */
+    const dt = (v) => {
+      const raw = existing && existing[v];
+      if (!raw) return '';
+      const d = new Date(raw);
+      if (isNaN(d)) return '';
+      const pad = (n) => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    };
+    const sec = (n, title, hint, inner) => '<section class="rsf-sec"><h4><b>' + n + '</b>' + title + (hint ? '<i>' + hint + '</i>' : '') + '</h4>' + inner + '</section>';
+    const f = (label, ctl, extra) => '<label class="rsf-f' + (extra || '') + '"><span>' + label + '</span>' + ctl + '</label>';
+    /* phones: the same sections as three pages (Road · Condition · Details) */
+    const paged = window.matchMedia && window.matchMedia('(max-width: 767px)').matches;
+    const pg = (n, html) => paged ? '<div class="rf-page" data-p="' + n + '">' + html + '</div>' : html;
     UG_FEATURES.modal({
       title: existing ? 'Edit road status' : 'Add road status',
+      cls: paged ? 'rf-modal rf-steps' : '',
       body:
-        '<div class="ug-rowf ug-gap12" style="gap:12px">' +
-          '<div class="ug-field" style="flex:2"><label class="ug-lab">Road name</label><input class="ug-in" data-rs-road value="' + val('road_name') + '" placeholder="e.g. Aguila Rd"></div>' +
-          '<div class="ug-field" style="flex:1"><label class="ug-lab">Barangay</label><select class="ug-sel" data-rs-brgy>' + brgyOpts + '</select></div>' +
-        '</div>' +
-        '<div class="ug-rowf ug-gap12" style="gap:12px">' +
-          '<div class="ug-field" style="flex:1"><label class="ug-lab">From (segment or landmark)</label><input class="ug-in" data-rs-from value="' + val('segment_from') + '" placeholder="e.g. Brgy hall"></div>' +
-          '<div class="ug-field" style="flex:1"><label class="ug-lab">To</label><input class="ug-in" data-rs-to value="' + val('segment_to') + '" placeholder="e.g. national highway junction"></div>' +
-        '</div>' +
-        '<div class="ug-rowf ug-gap12" style="gap:12px">' +
-          '<div class="ug-field" style="flex:1"><label class="ug-lab">Status</label><select class="ug-sel" data-rs-status>' + statusOpts + '</select></div>' +
-          '<div class="ug-field" style="flex:1"><label class="ug-lab">Cause</label><select class="ug-sel" data-rs-cause>' + causeOpts + '</select></div>' +
-          '<div class="ug-field" style="flex:1"><label class="ug-lab">Severity</label><select class="ug-sel" data-rs-sev>' + sevOpts + '</select></div>' +
-        '</div>' +
-        '<div class="ug-rowf ug-gap12" style="gap:12px">' +
-          '<div class="ug-field" style="flex:1"><label class="ug-lab">Start time</label><input class="ug-in" type="datetime-local" data-rs-start value="' + val('started_at') + '"></div>' +
-          '<div class="ug-field" style="flex:1"><label class="ug-lab">Estimated reopening</label><input class="ug-in" type="datetime-local" data-rs-reopen value="' + val('estimated_reopen') + '"></div>' +
-        '</div>' +
-        '<div class="ug-field"><label class="ug-lab">Map pin</label>' +
-          '<div class="ug-rowf ug-gap8" style="gap:8px;align-items:center">' +
-            '<input class="ug-in" style="flex:1" data-rs-lat placeholder="lat" value="' + val('lat') + '">' +
-            '<input class="ug-in" style="flex:1" data-rs-lng placeholder="lng" value="' + val('lng') + '">' +
-            '<button class="ug-btn ug-btn--sm" type="button" data-act="rs-pin" data-keep-modal>Use my location</button>' +
+        (paged ? '<ol class="rf-stepper">' + [['1', 'Road'], ['2', 'Condition'], ['3', 'Details']].map((x) =>
+          '<li data-s="' + x[0] + '"><i></i><span>' + x[1] + '</span></li>').join('') + '</ol>' : '') +
+        pg(1, '<p class="rsf-lead">' + (existing ? 'Update this road so residents and responders see its current condition on the map.' : 'Post a road condition so residents and responders see it on the map.') + '</p>' +
+        sec(1, 'Road', '',
+          '<div class="rsf-grid rsf-grid--3">' +
+            f('Road name <em>required</em>', '<input class="ug-in" data-rs-road value="' + val('road_name') + '" placeholder="e.g. Aguila Rd">', ' rsf-span2') +
+            f('Barangay', '<select class="ug-sel" data-rs-brgy>' + brgyOpts + '</select>') +
+            f('From', '<input class="ug-in" data-rs-from value="' + val('segment_from') + '" placeholder="Segment or landmark, e.g. Barangay hall">', ' rsf-half') +
+            f('To', '<input class="ug-in" data-rs-to value="' + val('segment_to') + '" placeholder="e.g. National highway junction">', ' rsf-half') +
+          '</div>')) +
+        pg(2, sec(2, 'Condition', '',
+          '<div class="rsf-grid rsf-grid--3">' +
+            f('Status', '<select class="ug-sel" data-rs-status>' + statusOpts + '</select>') +
+            f('Cause', '<select class="ug-sel" data-rs-cause>' + causeOpts.replace('>—</option>', '>Not specified</option>') + '</select>' +
+              '<input class="ug-in rsf-other" data-rs-cause-other maxlength="60" placeholder="Please specify the cause"' + (existing && existing.cause === 'other' ? '' : ' hidden') + ' value="' + UG_UTIL.esc(causeSpec) + '">') +
+            f('Severity', '<select class="ug-sel" data-rs-sev>' + sevOpts + '</select>') +
+          '</div>')) +
+        pg(3, sec(3, 'Schedule', 'optional',
+          '<div class="rsf-grid rsf-grid--2">' +
+            f('Start time', '<input class="ug-in" type="datetime-local" data-rs-start value="' + dt('started_at') + '">') +
+            f('Estimated reopening', '<input class="ug-in" type="datetime-local" data-rs-reopen value="' + dt('estimated_reopen') + '">') +
+          '</div>') +
+        sec(4, 'Map pin', 'optional',
+          '<div class="rsf-pin">' +
+            f('Latitude', '<input class="ug-in" data-rs-lat placeholder="e.g. 16.0206" inputmode="decimal" value="' + val('lat') + '">') +
+            f('Longitude', '<input class="ug-in" data-rs-lng placeholder="e.g. 120.2306" inputmode="decimal" value="' + val('lng') + '">') +
+            '<button class="rsf-loc" type="button" data-act="rs-pin" data-keep-modal>' + UG.icon('target', 14) + 'Use my location</button>' +
           '</div>' +
-          '<div class="ug-help">Tap the map on the Road Status screen and pick “Set pin here”, or type coordinates from it (latitude first). The pin powers the map overlay and navigation.</div></div>' +
-        '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Notes</label><textarea class="ug-ta" rows="2" data-rs-note>' + val('note') + '</textarea></div>',
-      footer:
-        '<button class="ug-btn" data-modal-close>Cancel</button>' +
+          '<p class="rsf-hint">' + UG.icon('info', 13) + 'Places the road on the map and enables directions. Latitude comes first.</p>') +
+        sec(5, 'Notes', 'optional',
+          '<textarea class="ug-ta" rows="3" data-rs-note placeholder="e.g. Drainage clearing tonight 9 PM to 4 AM; expect brief delays near the market.">' + noteVal + '</textarea>')),
+      footer: paged
+        ? '<button class="ug-btn" data-rp-back>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-rp-next>Next' + UG.icon('chevron', 14) + '</button>' +
+          '<button class="ug-btn ug-btn--signal" data-save hidden>' + (existing ? 'Save changes' : 'Publish status') + '</button>'
+        : '<button class="ug-btn" data-modal-close>Cancel</button>' +
         '<button class="ug-btn ug-btn--signal" data-save>' + (existing ? 'Save changes' : 'Publish status') + '</button>',
       onMount: (wrap, close) => {
+        wrap.classList.add('rsf-modal');
+        if (paged) UG_FEATURES.formPages(wrap, close, '[data-save]', (n) => {
+          const road = wrap.querySelector('[data-rs-road]');
+          if (n === 1 && !road.value.trim()) { toast('The road name is required', 'warning'); road.focus(); return false; }
+        });
+        const causeSel = wrap.querySelector('[data-rs-cause]');
+        const causeOther = wrap.querySelector('[data-rs-cause-other]');
+        causeSel.addEventListener('change', () => { causeOther.hidden = causeSel.value !== 'other'; if (!causeOther.hidden) causeOther.focus(); });
         wrap.querySelector('[data-save]').addEventListener('click', async () => {
           const roadName = wrap.querySelector('[data-rs-road]').value.trim();
           if (!roadName) { toast('The road name is required', 'warning'); return; }
+          const causeText = causeSel.value === 'other' ? causeOther.value.trim().replace(/\.+$/, '') : '';
+          if (causeSel.value === 'other' && !causeText) { toast('Please specify the cause', 'warning'); causeOther.focus(); return; }
           const lat = UG_GEO.toNum(wrap.querySelector('[data-rs-lat]').value);
           const lng = UG_GEO.toNum(wrap.querySelector('[data-rs-lng]').value);
           if ((wrap.querySelector('[data-rs-lat]').value || wrap.querySelector('[data-rs-lng]').value)) {
@@ -1035,7 +1215,7 @@
             segment_to: wrap.querySelector('[data-rs-to]').value.trim(),
             started_at: toISO(wrap.querySelector('[data-rs-start]').value),
             estimated_reopen: toISO(wrap.querySelector('[data-rs-reopen]').value),
-            note: wrap.querySelector('[data-rs-note]').value.trim(),
+            note: ((causeText ? 'Cause: ' + causeText + '. ' : '') + wrap.querySelector('[data-rs-note]').value.trim()).trim(),
             lat: isFinite(lat) ? lat : null,
             lng: isFinite(lng) ? lng : null
           };
@@ -1071,7 +1251,7 @@
   /* "Barangay Tanod" was renamed to "Barangay Response Team" per LGU request —
      the team is now an organized per-barangay response unit rather than a
      watchman. The DB constraint (migration 035) accepts the new name.
-     G1 (Oct 24 2026): "MDRRMO Rescue" is removed from the form's pickable
+     G1 (Oct 24 2026): "LDRRMO Rescue" is removed from the form's pickable
      list so dispatchers see only "Rescue Unit". The DB check still accepts
      the old name and routes it through the same Rescue logic
      (migration 039 maps it to unit_type 'Rescue'); old rows keep rendering. */
@@ -1177,7 +1357,7 @@
     }).join('');
 
     const defaultEta = toLocalInput(new Date(Date.now() + 30 * 60000));
-    const kv = (k, v, attrs) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)">' +
+    const kv = (k, v, attrs) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--ug-line)">' +
       '<span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600"' + (attrs || '') + '>' + esc(v) + '</span></div>';
 
     /* Equipment picker: populated based on the team. For municipality-wide
@@ -1328,6 +1508,7 @@
   /* ------------------------------------------------------------- app actions */
   const APP_ACTIONS = {
     nav: (d) => {
+      S.bgMenu = false;   /* the staff phone menu closes after a choice */
       go(d.route);
       /* on a phone the drawer is in the way after a choice */
       if (window.innerWidth < 1200) setNav(false);
@@ -1338,7 +1519,27 @@
     'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); loadDispatchesFor(d.id); },
     'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); loadDispatchesFor(d.id); },
     'open-sos-detail': (d) => { UG_SOS.sosDetailModal(S, d.id); },
+    'sos-filter': (d) => { S.sosFilter = d.v; render(); },
+    'sos-search-clear': () => { S.sosSearch = ''; render(); },
     /* the tap itself unlocks browser audio; play a short SOS so they hear it works */
+    'sos-dock': () => { UG_SOS.toggleDock(); },
+    /* dismiss a glass notice (UG.note); it stays hidden until its content changes */
+    'note-x': (d, el) => {
+      try {
+        const store = d.session ? sessionStorage : localStorage;
+        const map = JSON.parse(store.getItem('ug_notes_x') || '{}');
+        map[d.key] = d.sig; store.setItem('ug_notes_x', JSON.stringify(map));
+      } catch (e) { }
+      const box = el && el.closest ? el.closest('.ug-note2') : null;
+      if (box) { box.classList.add('is-gone'); setTimeout(() => box.remove(), 200); }
+    },
+    /* dismiss the escalated reminder until the count grows past this number */
+    'esc-note-x': (d, el) => {
+      try { localStorage.setItem('ug_esc_note_x', String(parseInt(d.n, 10) || 0)); } catch (e) { }
+      const box = el && el.closest ? el.closest('.ug-esc-note') : null;
+      if (box) box.remove();
+    },
+    'alarm-sound-help': () => { try { UG_ALARM.soundHelp(); } catch (e) { } },
     'alarm-unlock': () => { UG_ALARM.unlock(); try { UG_ALARM.play('sos', { force: true }); } catch (e) { } render(); },
     'history-all': (d) => { S.historyAll = S.historyAll === d.id ? null : d.id; render(); },
     'auto-dispatch': async (d) => {
@@ -1472,29 +1673,69 @@
     'open-center-detail': (d, el) => {
       const c = (UG.DATA.centers || []).find((x) => (x.uuid || x.id) === d.id || x.id === d.id);
       if (!c) return;
-      const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + UG_UTIL.esc(k) + '</span><span style="text-align:right;font-weight:600">' + UG_UTIL.esc(v) + '</span></div>';
-      const pct = c.cap ? Math.min(100, Math.round((c.occ || 0) / c.cap * 100)) : 0;
+      const esc = UG_UTIL.esc, I = UG.icon;
+      const cap = c.cap || 0, occ = c.occ || 0;
+      const left = Math.max(0, cap - occ);
+      const pct = cap ? Math.min(100, Math.round(occ / cap * 100)) : 0;
+      /* what to tell people: a shelter marked open but already at capacity is
+         effectively full */
+      const st = c.status === 'closed' ? 'closed' : (c.status === 'full' || (cap && left === 0)) ? 'full' : 'open';
+      const ST = {
+        open: ['Open', 'You can go here now.'],
+        full: ['Full', 'No space left. Please go to another shelter.'],
+        closed: ['Closed', 'Not taking evacuees right now.']
+      }[st];
+      const hasPos = typeof c.lat === 'number' && typeof c.lng === 'number';
+      const row = (icon, k, v) => v ? '<div class="cd-row"><span class="cd-ri">' + I(icon, 14) + '</span><span class="cd-rk">' + esc(k) + '</span><b>' + esc(v) + '</b></div>' : '';
       UG_FEATURES.modal({
         title: c.name || 'Evacuation center',
         body:
-          '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' + UG.badge(c.status, (c.status || 'open').charAt(0).toUpperCase() + (c.status || '').slice(1)) +
-            '<span class="ug-mono" style="font-size:12px">' + (c.occ || 0) + ' / ' + (c.cap || 0) + ' slots</span></div>' +
-          '<div style="height:6px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.08);overflow:hidden;margin-bottom:12px">' +
-            '<div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + '"></div></div>' +
-          kv('Barangay', c.brgy || '—') +
-          kv('Address / notes', c.note || '—') +
-          kv('Capacity', String(c.cap || 0)) +
-          kv('Current occupancy', String(c.occ || 0)) +
-          kv('Coordinates', (typeof c.lat === 'number' && typeof c.lng === 'number') ? UG_GEO.fmt(c.lat, c.lng) : 'Not recorded') +
-          (typeof c.lat === 'number' && typeof c.lng === 'number' && UG_GEO.canNavigate(c.lat, c.lng)
-            ? '<a class="ug-waze-btn" style="margin-top:12px;display:inline-flex" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(c.lat, c.lng) + '">' + UG.icon('route', 13) + ' Navigate with Waze</a>' : ''),
-        footer: '<button class="ug-btn" data-modal-close>Close</button>'
+          '<div class="cd-top"><span class="cd-st is-' + st + '"><i></i>' + ST[0] + '</span><p>' + esc(ST[1]) + '</p></div>' +
+          '<div class="cd-occ">' +
+            '<div class="cd-occ-h"><div><b>' + left.toLocaleString() + '</b><span>space' + (left === 1 ? '' : 's') + ' left</span></div>' +
+              '<small>' + occ.toLocaleString() + ' of ' + cap.toLocaleString() + ' people · ' + pct + '% full</small></div>' +
+            '<div class="cd-bar"><i class="is-' + st + '" style="width:' + pct + '%"></i></div>' +
+          '</div>' +
+          '<div class="cd-rows">' +
+            row('pin', 'Barangay', c.brgy ? 'Brgy. ' + c.brgy : '') +
+            row('doc', 'Location', c.note || '') +
+            row('phone', 'Contact', c.contact || c.contact_number || '') +
+            row('target', 'Coordinates', hasPos ? UG_GEO.fmt(c.lat, c.lng) : 'Not recorded') +
+          '</div>',
+        footer: '<button class="ug-btn" data-modal-close>Close</button>' +
+          (hasPos && UG_GEO.canNavigate(c.lat, c.lng)
+            ? '<a class="ug-btn cd-go" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(c.lat, c.lng) + '">' + I('route', 14) + 'Navigate with Waze</a>' : ''),
+        onMount: (wrap) => { wrap.classList.add('cd-modal'); }
       });
     },
     'sev-filter': (d) => { S.sevFilter = d.v; render(); },
     'inc-brgy-clear': () => { S.incBrgyFilter = 'All'; render(); },
     'inc-hazard-clear': () => { S.incHazardFilter = 'All'; render(); },
+    'ac-toggle': () => { S.acOpen = !S.acOpen; render(S.acOpen ? 'centerName' : undefined); },
+    /* guides on phones: fold / unfold one long guide in place (remembered) */
+    'gd-more': (d, el) => {
+      const card = el.closest('.gd-card'); if (!card) return;
+      const open = !card.classList.contains('is-open');
+      card.classList.toggle('is-open', open);
+      el.setAttribute('aria-expanded', String(open));
+      const lbl = el.querySelector('span'); if (lbl) lbl.textContent = open ? el.getAttribute('data-less') : el.getAttribute('data-more');
+      S.gdOpen = S.gdOpen || {}; if (open) S.gdOpen[d.id] = 1; else delete S.gdOpen[d.id];
+      if (!open && card.getBoundingClientRect().top < 0) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    },
+    'rw-hours': (d) => { S.roadDraft.expected_hours = Number(d.v) || 6; render(); },
+    /* road work post on phones: two pages (the fields keep their values) */
+    'rw-step': (d) => {
+      const n = Number(d.v) === 2 ? 2 : 1;
+      if (n === 2 && !String((S.roadDraft || {}).title || '').trim()) { toast('Add a title first', 'warning'); const t = q('[data-field="rwTitle"]'); if (t) t.focus(); return; }
+      S.rwStep = n; render();
+      const sec = q('.rw[data-rw-step]'); if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    },
+    'relief-ben-reset': () => { S.benBarangayFilter = 'All'; render(); },
+    'inc-search-clear': () => { S.incSearch = ''; render(); },
+    'inc-row': (d) => { S.incOpenRow = S.incOpenRow === d.id ? null : d.id; render(); },
+    'inc-reset': () => { S.sevFilter = 'all'; S.incHazardFilter = 'All'; S.incBrgyFilter = 'All'; S.incSearch = ''; render(); },
     'center-filter': (d) => { S.centerFilter = d.v; render(); },
+    'hotline-filter': (d) => { S.hotlineFilter = d.v; render(); },
     'set-urg': (d) => { S.report.urg = d.v; render(); },
 
     gps: async () => {
@@ -1698,14 +1939,126 @@
     },
 
         'confirm-corr': async (d) => {
+      if (window.UG_CORR_DONE && window.UG_CORR_DONE.has(d.id)) return;
+      /* from the resident home ("Reported Near You") the outcome shows inline
+         on the card and the button turns into "Confirmed" */
+      const home = d.from === 'home';
+      if (home) {
+        if (S.corrBusy) return;
+        S.corrBusy = d.id; S.nearNotice = ''; render();
+      }
       let pos = null;
       try { pos = await UG_FEATURES.locate(); } catch (e) { /* no GPS: the barangay rule applies */ }
+      let msg = '';
       try {
         const res = await Repo.corroborate(d.id, '', pos);
-        if (res && res.verified) toast('Three corroborations reached. This report is verified.', 'prepared');
-        else toast('Corroboration logged: ' + ((res && res.corroborations) || 0) + ' of ' + UG_CONFIG.CORROBORATION_THRESHOLD, 'warning');
-      } catch (e) { toast(e.message, 'warning'); }
+        S.corrDone = Object.assign({}, S.corrDone, { [d.id]: true }); window.UG_CORR_DONE.save(d.id);
+        if (res && res.verified) { msg = 'Thank you. Enough neighbours confirmed it, so the report is now verified.'; if (!home) toast('Three corroborations reached. This report is verified.', 'prepared'); }
+        else { msg = 'Thank you for confirming this hazard.'; if (!home) toast('Corroboration logged: ' + ((res && res.corroborations) || 0) + ' of ' + UG_CONFIG.CORROBORATION_THRESHOLD, 'warning'); }
+      } catch (e) {
+        if (/report_corroborations_unique|duplicate|already/i.test((e && e.message) || '')) {
+          S.corrDone = Object.assign({}, S.corrDone, { [d.id]: true }); window.UG_CORR_DONE.save(d.id);
+          msg = 'You already confirmed this report.';
+        } else msg = (e && e.message) || 'Could not confirm the report.';
+        if (!home) toast(msg, 'warning');
+      }
+      if (home) {
+        S.corrBusy = null; S.nearNotice = msg;
+        setTimeout(() => { if (S.nearNotice === msg) { S.nearNotice = ''; render(); } }, 5000);
+      }
       render();
+    },
+
+    /* resident shell (css/resident.css): fold the sidebar to icons, which is
+       remembered on this device, and the drawer menu on narrower screens */
+    'rw-fold': () => {
+      const fr = q('.ug-rw');
+      if (!fr) return;
+      const on = !fr.classList.contains('is-folded');
+      fr.classList.toggle('is-folded', on);
+      try { localStorage.setItem('uniguard_resident_sidebar_minimized', String(on)); } catch (e) { }
+    },
+    /* barangay / LGU top nav: the arrow on a faded side scrolls that way */
+    'bg-nav-scroll': (d) => {
+      const el = q('.bg-nav > div');
+      if (el) el.scrollBy({ left: (Number(d.dir) || 1) * Math.max(160, el.clientWidth * 0.6), behavior: 'smooth' });
+    },
+    'rw-drawer': () => { const fr = q('.ug-rw'); if (fr) fr.classList.toggle('is-drawer'); },
+    'rw-pmenu': () => { const fr = q('.ug-rw'); if (fr) fr.classList.toggle('is-pmenu'); },
+    /* staff phone menu (barangay / LDRRMO): kept in state so a live refresh
+       does not snap it shut; data-v="0" always closes */
+    'bg-pmenu': (d) => {
+      const closing = d.v === '0' || S.bgMenu;
+      const pm = q('#bg-pm'), scrim = q('.bg-pm-scrim');
+      if (closing) {
+        if (!S.bgMenu) return;
+        /* slide out first, then drop it from the page state */
+        if (pm) pm.classList.remove('is-open');
+        if (scrim) scrim.classList.remove('is-open');
+        setTimeout(() => { S.bgMenu = false; render(); }, 280);
+        return;
+      }
+      /* draw it closed, then open on the next frame so it slides in */
+      S.bgMenu = true; S.bgMenuEnter = true; render();
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        S.bgMenuEnter = false;
+        const p2 = q('#bg-pm'), s2 = q('.bg-pm-scrim');
+        if (p2) { p2.classList.add('is-open'); p2.removeAttribute('inert'); }
+        if (s2) s2.classList.add('is-open');
+      }));
+    },
+    /* a small piece of page state: data-k (key) and data-v (value) */
+    'rw-set': (d) => { S[d.k] = d.v; render(); },
+    /* My Reports: open one report in place, with its history */
+    'rw-report': (d) => {
+      S.rwReport = S.rwReport === d.id ? null : d.id;
+      render();
+      if (S.rwReport) loadDispatchesFor(d.id);
+    },
+    'rw-relief-all': () => { UG_RW.reliefAllModal(S); },
+    'rw-guide-pick': (d) => { S.guideHazard = d.v; S.rwGuideQ = ''; render(); },
+    'rw-faq': (d) => {
+      S.rwFaqOpen = Object.assign({}, S.rwFaqOpen, { [d.id]: !d.open });
+      render();
+    },
+    'rw-faq-clear': () => { S.faqSearch = ''; S.rwFaqCat = 'All'; S.rwFaqOpen = {}; render(); },
+    /* Hazard Map: the list, zoom and "show my location" act on the live map in
+       place; a render() would rebuild it and lose the view */
+    'rw-map-go': (d) => { rwFly(parseFloat(d.lat), parseFloat(d.lng), 17); },
+    'rw-map-zoom': (d) => { const m = MapView.getMap && MapView.getMap(); if (m) m.setZoom(m.getZoom() + (parseInt(d.d, 10) || 1)); },
+    'rw-map-all': () => {
+      Object.keys(S.mapLayers).forEach((k) => { S.mapLayers[k] = true; });
+      render();
+    },
+    'rw-places-all': (d, el) => {
+      const list = q('[data-rw-places]');
+      if (!list) return;
+      const more = list.querySelectorAll('.rw-more');
+      const show = more.length && more[0].hidden;
+      more.forEach((li) => { li.hidden = !show; });
+      el.textContent = show ? el.dataset.less : el.dataset.more;
+    },
+    'rw-legend': (d, el) => {
+      const box = el.closest('.rw-legend');
+      if (!box) return;
+      box.classList.toggle('is-open');
+      S.rwLegendClosed = !box.classList.contains('is-open');
+    },
+    'rw-map-locate': async () => {
+      if (S.rwLocating) return;
+      S.rwLocating = true; render();
+      try {
+        const pos = await UG_FEATURES.locate();
+        S.rwMe = { lat: pos.lat, lng: pos.lng };
+      } catch (e) { toast('Could not find your location. Allow location access and try again.', 'warning'); }
+      S.rwLocating = false;
+      render();
+      if (S.rwMe) rwFly(S.rwMe.lat, S.rwMe.lng, 16);
+    },
+    /* from a report: open the Hazard Map on that spot */
+    'rw-map-show': (d) => {
+      go('map'); render();
+      rwFly(parseFloat(d.lat), parseFloat(d.lng), 17);
     },
 
     advance: async (d) => {
@@ -1889,6 +2242,7 @@
           contact_phone: contact_phone.trim(), note: note.trim()
         });
         toast('Evacuation centre added to the directory' + (lat === null ? ' — add coordinates later so Waze navigation works' : ''), 'prepared');
+        S.acOpen = false;
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
@@ -1984,7 +2338,7 @@
               '<span class="ug-mono" style="font-size:11px;color:var(--ug-ink-3)">' + UG_UTIL.esc(c.id) + '</span>' +
             '</div>' +
             '<div>' +
-              '<div class="ug-rowf ug-between" style="font-size:11.5px;margin-bottom:5px"><span class="ug-dim">Occupancy</span>' +
+              '<div class="ug-rowf ug-between" style="font-size:12px;margin-bottom:5px"><span class="ug-dim">Occupancy</span>' +
                 '<span class="ug-mono">' + (c.occ || 0) + ' / ' + (c.cap || 0) + ' &middot; ' + pct + '%</span></div>' +
               '<div style="height:8px;border-radius:4px;background:rgba(var(--ug-tint, 255,255,255),.07);overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--ug-emergency)' : pct >= 80 ? 'var(--ug-warning)' : 'var(--ug-prepared)') + '"></div></div>' +
             '</div>' +
@@ -2063,6 +2417,9 @@
       });
     },
 
+    'hl-type': (d) => { S.hlType = d.v; render(); },
+    'hl-search-clear': () => { S.hlSearch = ''; render(); },
+    'hl-add-toggle': () => { S.hlAddOpen = !S.hlAddOpen; render(); },
     'add-hotline': async () => {
       /* Master prompt · Emergency Hotlines Management. Only the Super Admin
          can directly add an official hotline. LGU / BO use request-hotline-add. */
@@ -2074,6 +2431,7 @@
       try {
         await Repo.createHotline({ agency_name: agency, contact_number: number, scope: scope });
         toast('Hotline added and logged to the audit trail', 'prepared');
+        S.hlAddOpen = false;
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
@@ -2139,7 +2497,7 @@
         title: h.agency || 'Hotline',
         body:
           '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-between" style="gap:10px;align-items:center">' +
-            '<span class="ug-mono" style="font-size:17px;color:var(--ug-signal)">' + UG_UTIL.esc(h.number) + '</span>' +
+            '<span class="ug-mono" style="font-size:16px;color:var(--ug-signal)">' + UG_UTIL.esc(h.number) + '</span>' +
             '<a class="ug-btn ug-btn--sm" href="tel:' + UG_UTIL.esc(String(h.number).replace(/[^\d+]/g, '')) + '" style="text-decoration:none">' + UG.icon('phone', 13) + 'Call</a>' +
           '</div></div>' +
           '<div style="margin-top:14px">' +
@@ -2182,7 +2540,7 @@
         title: 'Request a change · ' + h.agency,
         body:
           '<div class="ug-col" style="gap:10px">' +
-            '<div class="ug-dim" style="font-size:11.5px;line-height:1.5">Pick the kind of change you want to request. The Super Admin will review it before the official directory is updated.</div>' +
+            '<div class="ug-dim" style="font-size:12px;line-height:1.5">Pick the kind of change you want to request. The Super Admin will review it before the official directory is updated.</div>' +
             '<button class="ug-btn ug-btn--signal" data-act="request-hotline-form" data-action="edit" data-id="' + UG_UTIL.esc(h.id) + '">' + UG.icon('settings', 14) + 'Edit this hotline</button>' +
             '<button class="ug-btn ug-btn--danger" data-act="request-hotline-form" data-action="delete" data-id="' + UG_UTIL.esc(h.id) + '">' + UG.icon('x', 14) + 'Request deletion of this hotline</button>' +
           '</div>',
@@ -2208,7 +2566,7 @@
         if (!data || typeof data !== 'object') return '—';
         const keys = Object.keys(data);
         if (!keys.length) return '—';
-        return keys.map((k) => '<div class="ug-rowf ug-between" style="gap:8px;font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;max-width:60%">' + esc(String(data[k] == null ? '—' : data[k])) + '</span></div>').join('');
+        return keys.map((k) => '<div class="ug-rowf ug-between" style="gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;max-width:60%">' + esc(String(data[k] == null ? '—' : data[k])) + '</span></div>').join('');
       };
       const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
       UG_FEATURES.modal({
@@ -2301,7 +2659,7 @@
       try {
         const res = await Repo.declareEmergency({
   title: 'Emergency declaration: municipality-wide response activated',
-  body: 'The Municipal DRRMO has declared a municipality-wide emergency. Follow official instructions, move to the nearest open evacuation center if advised, and keep monitoring UniGuard advisories.'
+  body: 'The Lingayen LDRRMO has declared a municipality-wide emergency. Follow official instructions, move to the nearest open evacuation center if advised, and keep monitoring UniGuard advisories.'
 });
         toast('Emergency declaration broadcast to ' + ((res && res.devices) != null ? res.devices : devices) + ' devices', 'emergency');
         if (S.role !== 'citizen') S.route = 'advisories';
@@ -2319,7 +2677,7 @@
       });
       if (!ok) return;
       try {
-        await Repo.createAdvisory({
+        const pub = await Repo.createAdvisory({
           title: S.draft.title.trim(), body: S.draft.msg.trim(), severity: S.draft.sev,
           kind: S.draft.type === 'Preparedness' ? 'preparedness' : 'emergency',
           affected_area: S.draft.area, citywide: /citywide|municipality-wide|municipality wide/i.test(S.draft.area),
@@ -2336,7 +2694,10 @@
              unchanged; selecting in-app skips the Web Push step entirely. */
           delivery_mode: S.draft.deliveryMode || 'push'
         });
-        toast('Broadcast published to ' + S.draft.area + ' residents', 'prepared');
+        if (pub && pub.notifyWarning) toast(pub.notifyWarning, 'warning');
+        else if (pub && pub.reached === 0) toast('Advisory published, but no resident accounts are registered in ' + S.draft.area + ' yet.', 'warning');
+        else toast('Broadcast published to ' + S.draft.area + ' residents' + (pub && pub.reached ? ' (' + pub.reached + ' notified)' : ''), 'prepared');
+        S.advStep = 1;
       } catch (e) {
         console.error('[UniGuard] publish advisory failed', e);
         /* a missing column / stale schema cache is a deploy problem, not the officer's */
@@ -2346,7 +2707,29 @@
       render();
     },
 
+    'adv-pub-filter': (d) => { S.advPubFilter = d.v; render(); },
+    /* Add Evacuation Center steps on phones: switched in place (no re-render,
+       so what has been typed stays) */
+    'ac-step': (d, el) => {
+      const ac = el.closest('.ac'); if (!ac) return;
+      const cur = Number(ac.getAttribute('data-ac-step')) || 1;
+      const nxt = d.v === 'next' ? cur + 1 : d.v === 'prev' ? cur - 1 : Number(d.v);
+      if (d.v === 'next' && cur === 1) {
+        const nm = ac.querySelector('[data-field="centerName"]');
+        if (nm && !nm.value.trim()) { nm.focus(); toast('Add the center name first', 'warning'); return; }
+      }
+      ac.setAttribute('data-ac-step', String(Math.max(1, Math.min(3, nxt))));
+      if (ac.scrollIntoView) ac.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    },
+    /* advisory composer steps on phones (Type → Message → Send) */
+    'adv-step': (d) => {
+      S.advStep = Math.max(1, Math.min(3, Number(d.v) || 1));
+      render();
+      const card = q('.adv-steps');
+      if (card && card.scrollIntoView) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    },
     'clear-draft': () => {
+      S.advStep = 1;
       S.draft = { title: '', sev: 'warning', type: 'Emergency', area: UG_GEO.PLACE.areaAll, msg: '', lang: 'en', alertType: 'general', deliveryMode: 'push' };
       toast('Composer cleared', 'info');
       render();
@@ -2356,6 +2739,31 @@
        the duty officer taps instead of typing. The template picker loads the
        matching category from the Settings module and fills the composer in
        the currently selected language. */
+    /* Advisories: Broadcast Console / Resident Feed (js/screens.js advResidentFeed) */
+    'adv-view': (d) => { S.advView = d.v; render(); },
+    'adv-feed-filter': (d) => { S.advFeedFilter = d.v; render(); },
+    'adv-feed-open': (d) => {
+      const a = (UG.DATA.advisories || []).find((x) => String(x.id) === String(d.id));
+      if (!a) return;
+      const TAG = { emergency: 'Emergency', warning: 'Warning', advisory: 'Advisory', prepared: 'Preparedness' };
+      const tag = a.kind === 'preparedness' ? 'Preparedness' : (TAG[a.severity] || 'Advisory');
+      const esc = UG_UTIL.esc;
+      const when = a.created_at ? new Date(a.created_at).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      UG_FEATURES.modal({
+        title: 'Advisory',
+        body: '<div class="af-quick"><span class="af-tag is-' + tag.toLowerCase() + '">' + tag + '</span>' +
+          '<h3>' + esc(a.title) + '</h3><p>' + esc(a.body) + '</p>' +
+          '<dl><div><dt>Area</dt><dd>' + esc(a.area || UG_GEO.PLACE.areaAll) + '</dd></div><div><dt>Published</dt><dd>' + esc(when) + '</dd></div></dl></div>',
+        footer: '<button class="ug-btn" data-modal-close>Close</button>' +
+          '<button class="ug-btn ug-btn--signal" data-act="adv-feed-share" data-id="' + esc(String(a.id)) + '" data-keep-modal>' + UG.icon('megaphone', 14) + 'Share</button>',
+        onMount: () => {}
+      });
+    },
+    'adv-feed-share': async (d) => {
+      const a = (UG.DATA.advisories || []).find((x) => String(x.id) === String(d.id));
+      const res = await UG_FEATURES.shareOrCopy(a ? a.title : 'UniGuard advisory', a ? a.body : '', location.href);
+      toast(res === 'shared' ? 'Shared' : res === 'copied' ? 'Copied — ready to paste' : 'Sharing is not available here', res === 'failed' ? 'warning' : 'info');
+    },
     'adv-alert-type': (d) => { S.draft.alertType = d.v; render(); },
     'adv-sev': (d) => { S.draft.sev = d.v; render(); },
     'adv-lang': (d) => { S.draft.lang = d.v; render(); },
@@ -2383,8 +2791,8 @@
           const cat2 = UG_SETTINGS.CATEGORY[t.category] || { color: 'var(--ug-signal)', icon: 'megaphone' };
           return '<button class="ug-row ug-tpl-pick" style="cursor:pointer;text-align:left;width:100%;background:none;border:0;color:inherit"' + A('adv-apply-template', attr({ id: t.id })) + '>' +
             '<span class="r-dot" style="background:' + cat2.color + '"></span>' +
-            '<div class="r-main"><div class="r-t" style="font-size:12.5px">' + esc(title) + '</div>' +
-            '<div class="r-m ug-clamp2" style="font-size:11px;line-height:1.45">' + esc(body) + '</div></div>' +
+            '<div class="r-main"><div class="r-t" style="font-size:13px">' + UG_UTIL.esc(title) + '</div>' +
+            '<div class="r-m ug-clamp2" style="font-size:11px;line-height:1.45">' + UG_UTIL.esc(body) + '</div></div>' +
             UG.icon('chevron', 14) + '</button>';
         }).join('') + '</div>',
         footer: '<button class="ug-btn" data-modal-close>Close</button>',
@@ -2392,6 +2800,44 @@
       });
     },
 
+    /* "Start from a template" fold-out in the composer (js/screens.js advTemplatePicker) */
+    'adv-tpl-toggle': () => { S.tpl = Object.assign({}, S.tpl, { open: !(S.tpl && S.tpl.open) }); render(); },
+    'adv-tpl-lang': (d) => { S.tpl = Object.assign({}, S.tpl, { lang: d.v }); render(); },
+    'adv-tpl-cat': (d) => { S.tplCat = d.v; S.tplId = null; S.tpl = Object.assign({}, S.tpl, { missing: [] }); render(); },
+    'adv-tpl-pick': (d) => { S.tplId = d.id; S.tpl = Object.assign({}, S.tpl, { missing: [] }); render(); },
+    'adv-tpl-apply': (d) => {
+      if (typeof UG_SETTINGS === 'undefined') return;
+      const t = UG_SETTINGS.templateById(d.id) || (UG_SETTINGS.loadTemplates() || [])[0];
+      if (!t) return;
+      const st = S.tpl || {};
+      const lang = st.lang || 'en';
+      const own = (S.session && S.session.barangay) || '';
+      const area = S.draft.area;
+      const raw = Object.assign({ barangay: own || (area && area !== UG_GEO.PLACE.areaAll ? area : ''), area: own || '' }, st.vals || {});
+      const vals = {};
+      Object.keys(raw).forEach((k) => {
+        let v = raw[k];
+        if (k === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''))) v = new Date(v + 'T00:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        vals[k] = v;
+      });
+      const title = (lang === 'fil' && t.title_fil) ? t.title_fil : t.title_en;
+      const body = (lang === 'fil' && t.body_fil) ? t.body_fil : t.body_en;
+      /* never publish with a literal {placeholder} left in it */
+      const missing = [];
+      (String(title) + ' ' + String(body)).replace(/\{(\w+)\}/g, (m, k) => { if (!String(vals[k] || '').trim() && missing.indexOf(k) < 0) missing.push(k); return m; });
+      if (missing.length) { S.tpl = Object.assign({}, st, { missing: missing }); render(); return; }
+      S.draft.title = UG_SETTINGS.fillTemplate(title, vals);
+      S.draft.msg = UG_SETTINGS.fillTemplate(body, vals);
+      S.draft.lang = lang;
+      if (t.category) {
+        S.draft.alertType = t.category;
+        const sev = { evacuation_order: 'emergency', weather_advisory: 'warning', road_closure: 'advisory' }[t.category];
+        if (sev) S.draft.sev = sev;
+      }
+      S.tpl = Object.assign({}, st, { open: false, missing: [] });
+      toast('Template applied — review and publish', 'prepared');
+      render('advTitle');
+    },
     'adv-apply-template': (d) => {
       if (typeof UG_SETTINGS === 'undefined') return;
       const t = UG_SETTINGS.templateById(d.id);
@@ -2419,6 +2865,55 @@
       render();
     },
 
+    /* staff inbox: a tap marks the notification read (the row turns grey)
+       and opens a preview; "View full page" runs open-notification, which
+       goes to the linked report / SOS / advisory / road work / relief page */
+    'nt-preview': (d) => {
+      const esc = UG_UTIL.esc, I = UG.icon;
+      const n = (UG.DATA.notifications || []).find((x) => x.id === d.id) || {};
+      if (n.unread) {
+        n.unread = false;
+        if (d.id) { Repo.markRead(d.id).catch(() => { }); try { UG_NOTIF_STORE.markReadLocal(d.id); } catch (e) { } }
+      }
+      render();
+      const KIND = { sos: ['SOS', 'alert'], dispatch: ['Dispatch', 'truck'], reports: ['Report', 'doc'], advisories: ['Advisory', 'megaphone'], other: ['Notice', 'bell'] };
+      const k = KIND[d.kind] || KIND.other;
+      const row = (a, b) => b ? '<div class="np-row"><span>' + a + '</span><b>' + esc(b) + '</b></div>' : '';
+      const cap = (v) => { v = String(v || '').replace(/_/g, ' '); return v ? v.charAt(0).toUpperCase() + v.slice(1) : ''; };
+      let linked = '', where = '';
+      if (d.report) {
+        const r = (UG.DATA.incidents || []).find((x) => x.uuid === d.report || x.id === d.report);
+        where = 'Open report';
+        if (r) linked = row('Report', r.id) + row('Hazard', r.hazard || r.hazard_type) + row('Barangay', r.brgy ? 'Brgy. ' + r.brgy : '') + row('Status', cap(r.status)) + row('Severity', cap(r.sev));
+      } else if (d.sos) {
+        const x = (UG.DATA.sosLog || []).find((y) => y.id === d.sos);
+        where = 'Open SOS record';
+        if (x) linked = row('Sender', x.profile_name) + row('Type', typeof UG_SOS !== 'undefined' ? UG_SOS.kindLabel(x.kind) : x.kind) + row('Status', x.status === 'sent' ? 'New' : cap(x.status)) + row('Barangay', x.barangay ? 'Brgy. ' + x.barangay : '') + row('Contact', x.profile_phone);
+      } else if (d.advisory) {
+        const a = (UG.DATA.advisories || []).find((y) => y.id === d.advisory || y.code === d.advisory);
+        where = 'Open advisory';
+        if (a) linked = row('Advisory', a.title) + row('Severity', cap(a.severity)) + row('Area', a.area);
+      } else if (d.roadWork) { where = 'Open road work'; }
+      else if (d.relief) { where = 'Open relief'; }
+      const attrs = ['id', 'advisory', 'report', 'roadWork', 'sos', 'relief'].map((key) => {
+        const attr = key === 'roadWork' ? 'road-work' : key;
+        return ' data-' + attr + '="' + esc(d[key] || '') + '"';
+      }).join('');
+      UG_FEATURES.modal({
+        title: k[0] + ' notification',
+        body:
+          '<div class="np-top"><span class="np-ico is-' + esc(d.kind || 'other') + '">' + I(k[1], 18) + '</span>' +
+            '<div><b>' + esc(n.title || '') + '</b><small>' + esc(n.time || '') + (n.created_at ? ' · ' + esc(UG_UTIL.absTime(n.created_at) || '') : '') + '</small></div></div>' +
+          (n.body ? '<p class="np-body">' + esc(n.body) + '</p>' : '') +
+          (linked ? '<div class="np-sec"><h4>Details</h4><div class="np-rows">' + linked + '</div></div>' : '') +
+          (!where ? '<p class="np-fine">' + I('check', 12) + 'Marked as read. This notice has no page to open.</p>' : ''),
+        footer: '<button class="ug-btn" data-modal-close>Close</button>' +
+          (where ? '<button class="ug-btn np-go" data-act="open-notification"' + attrs + '>' + esc(where) + I('chevron', 14) + '</button>' : ''),
+        onMount: (wrap) => { wrap.classList.add('np-modal'); }
+      });
+    },
+    'nt-filter': (d) => { S.ntFilter = d.v; render(); },
+    'nt-search-clear': () => { S.ntSearch = ''; render(); },
     'open-notification': async (d) => {
       /* every tap marks the row read; a row with a link also opens it */
       const n = (UG.DATA.notifications || []).find((x) => x.id === d.id);
@@ -2864,7 +3359,7 @@
               '<span class="ug-mono" style="font-size:11px;color:var(--ug-ink-3)">' + esc(unit.id) + '</span>' +
             '</div>' +
             (members.length ? '<div class="ug-col" style="gap:6px"><div class="ug-lab">Members (' + members.length + ')</div>' +
-              members.slice(0, 5).map((m) => '<div class="ug-rowf ug-between" style="font-size:11.5px;gap:8px"><span>' + esc(m.full_name || m.email) + '</span>' +
+              members.slice(0, 5).map((m) => '<div class="ug-rowf ug-between" style="font-size:12px;gap:8px"><span>' + esc(m.full_name || m.email) + '</span>' +
                 '<span class="ug-dim">' + esc(m.unit_role || 'member') + (m.disabled ? ' · disabled' : '') + '</span></div>').join('') +
               (members.length > 5 ? '<div class="ug-dimmer" style="font-size:11px">+' + (members.length - 5) + ' more</div>' : '') + '</div>' : '') +
           '</div></div>' +
@@ -2901,7 +3396,7 @@
       const esc = UG_UTIL.esc;
       const memberRow = (m) => '<tr>' +
         '<td><div style="font-weight:600">' + esc(m.full_name || '(no name)') + '</div>' +
-          '<div class="ug-dimmer" style="font-size:10.5px">' + esc(m.email || '') + '</div></td>' +
+          '<div class="ug-dimmer" style="font-size:11px">' + esc(m.email || '') + '</div></td>' +
         '<td>' + esc(m.unit_role || 'member') + '</td>' +
         '<td>' + (m.disabled ? UG.icon('x', 13) + ' Disabled' : UG.icon('check', 13) + ' Active') + '</td>' +
         '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end">' +
@@ -3012,7 +3507,7 @@
                   const label = c ? c.label : (r.custom_label || r.identifier || 'Equipment');
                   return '<tr>' +
                     '<td><div style="font-weight:600">' + UG_UTIL.esc(r.identifier || label) + '</div>' +
-                      '<div class="ug-dimmer" style="font-size:10.5px">' + UG_UTIL.esc(r.notes || '') + '</div></td>' +
+                      '<div class="ug-dimmer" style="font-size:11px">' + UG_UTIL.esc(r.notes || '') + '</div></td>' +
                     '<td>' + UG_UTIL.esc(label) + '</td>' +
                     '<td>' + UG_UTIL.esc((typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.statusLabel ? UG_DISPATCH.statusLabel(r.status) : r.status)) + '</td>' +
                     '<td>' + UG_UTIL.esc((typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.conditionLabel ? UG_DISPATCH.conditionLabel(r.condition) : r.condition)) + '</td>' +
@@ -3181,7 +3676,7 @@
       if (!unit) { toast('That unit no longer exists', 'warning'); return; }
       const ok = await UG_FEATURES.confirm({
         title: 'Delete this dispatch unit?',
-        message: 'Unit "' + unit.name + '" will be permanently removed. Personnel and equipment records stay, but the unit can no longer be dispatched to. This cannot be undone.',
+        message: 'Unit "' + unit.name + '" will be permanently removed, together with its equipment list, roster, shifts and requests. Member accounts stay (they are no longer linked to a unit) and past dispatches keep their record. This cannot be undone. To keep its history, mark the unit Inactive instead.',
         danger: true,
         confirmLabel: 'Delete'
       });
@@ -3189,20 +3684,16 @@
       try {
         const c = Repo.client();
         if (!c) { throw new Error('Connect Supabase first — units cannot be deleted without a database.'); }
-        /* try the RPC first (preferred: server-side re-checks the caller);
-           fall back to a direct delete if the RPC is not deployed yet. */
-        let err = null;
-        try {
-          const { error } = await c.rpc('delete_dispatch_unit', { p_unit_id: d.id });
-          if (error && !/Could not find|does not exist|P0001|42883/i.test(error.message)) err = error;
-        } catch (e) { /* fall through to direct delete */ }
-        if (!err) {
-          /* the RPC may have done a soft delete (active=false). A direct
-             delete is also safe: RLS restricts it to Super Admin anyway. */
-          const { error: e2 } = await c.from('dispatch_units').delete().eq('id', d.id);
-          if (e2 && !/no rows/i.test(e2.message)) err = e2;
+        /* the server re-checks the caller and refuses while the unit is out
+           on an open dispatch (migration 062). No direct-delete fallback:
+           row security refuses it silently, which used to report success. */
+        const { error } = await c.rpc('delete_dispatch_unit', { p_unit_id: d.id });
+        if (error) {
+          if (/Could not find|does not exist|42883|PGRST202/i.test(error.message)) {
+            throw new Error('Deleting units needs migration 062 on the database. Ask your admin to run it.');
+          }
+          throw new Error(error.message);
         }
-        if (err) throw new Error(err.message);
         toast('Unit deleted', 'prepared');
         try { await Repo.loadDispatchDirectory(); } catch (e) {}
         render();
@@ -3266,9 +3757,11 @@
            barangay). */
         const c = Repo.client();
         if (!c) { toast('Connect to the server to update the roster', 'warning'); return; }
-        const { error } = await c.from('responders').update({ status: d.next })
-          .eq('id', d.id);
+        const { data: saved, error } = await c.from('responders').update({ status: d.next })
+          .eq('id', d.id).select('id');
         if (error) throw new Error(error.message);
+        /* row security refuses silently: nothing saved means not allowed */
+        if (!saved || !saved.length) throw new Error('This responder could not be updated. They may belong to another barangay.');
         toast('Responder status updated', 'prepared');
         S.responders = await Repo.listResponders(); UG.DATA.responders = S.responders;
         render();
@@ -3299,7 +3792,7 @@
         const m = a.meta || {};
         if (m.changed) {
           changed = Object.keys(m.changed).map((k) =>
-            '<div style="font-size:11.5px;padding:6px 0;border-bottom:1px solid var(--ug-line)"><b>' + UG_UTIL.esc(k) + '</b>: ' +
+            '<div style="font-size:12px;padding:6px 0;border-bottom:1px solid var(--ug-line)"><b>' + UG_UTIL.esc(k) + '</b>: ' +
             UG_UTIL.esc(String(m.changed[k].from)) + ' → ' + UG_UTIL.esc(String(m.changed[k].to)) + '</div>').join('');
         }
       } catch (e) { changed = ''; }
@@ -3366,7 +3859,19 @@
     /* both run from the SOS detail pop-up; reload the log afterwards so the
        status badge in the list is current */
     'sos-ack': async (d) => {
-      try { await Repo.updateSosStatus(d.id, 'acknowledged'); toast('SOS acknowledged — the sender has been notified', 'prepared'); }
+      const x = (UG.DATA.sosLog || []).find((r) => String(r.id) === String(d.id)) || {};
+      /* a quick confirmation, so a stray tap does not tell the sender help has seen it */
+      const ok = await UG_FEATURES.confirm({
+        title: 'Acknowledge this SOS?',
+        message: (x.profile_name || 'The sender') + ' will be told their SOS was received by you and that help is being arranged. This cannot be undone.',
+        confirmLabel: 'Acknowledge'
+      });
+      if (!ok) return;
+      try {
+        const res = await Repo.updateSosStatus(d.id, 'acknowledged');
+        if (res && res.already) toast('Already acknowledged' + (res.by ? ' by ' + res.by : '') + (res.office ? ' (' + res.office + ')' : '') + '.', 'info');
+        else toast('SOS acknowledged — ' + (x.profile_name || 'the sender') + ' has been told help is on it', 'prepared');
+      }
       catch (e) { toast(e.message, 'warning'); }
       try { if (Repo.client()) UG.DATA.sosLog = await Repo.listSos(); } catch (e) { }
       render();
@@ -3390,6 +3895,18 @@
     'shelter-clear-search': () => { S.shelterSearch = ''; render(); },
 
     /* analytics date range: date inputs land in S via the change handler */
+    'an-tab': (d) => { S.anTab = d.v; render(); },
+    'an-range': (d) => {
+      S.anRange = d.v;
+      if (d.v === 'custom') { render(); return; }
+      const pad = (n) => String(n).padStart(2, '0');
+      const iso = (t) => { const x = new Date(t); return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()); };
+      S.anTo = iso(Date.now()); S.anFrom = iso(Date.now() - Number(d.v) * 86400000);
+      APP_ACTIONS['an-apply']();
+    },
+    'an-open-haz': (d) => { S.incHazardFilter = UG_HAZARDS.classify(d.v).key; S.sevFilter = 'all'; APP_ACTIONS.nav({ route: 'incidents' }); },
+    'an-open-brgy': (d) => { S.incBrgyFilter = d.v || 'All'; S.sevFilter = 'all'; APP_ACTIONS.nav({ route: 'incidents' }); },
+    'an-open-stage': (d) => { S.sevFilter = d.v; APP_ACTIONS.nav({ route: 'incidents' }); },
     'an-apply': async () => {
       render();
       try {
@@ -3680,20 +4197,89 @@
        search (UG_RELIEF.visibleSchedules / visibleBeneficiaries). */
     'relief-download': (d) => UG_EXPORTS.run('relief-download:' + ((d && d.what) === 'distributions' ? 'distributions' : 'beneficiaries')),
 
-    'relief-add': async () => {
-      const fields = await UG_FEATURES.prompt({
-        title: 'Add a relief distribution',
-        label: 'Title', placeholder: 'e.g. Family Food Pack Distribution'
+    /* a full form for a new distribution (it used to ask for the title only,
+       so the schedule, place, contact and requirements had to be added later
+       through Edit). Same fields as the edit form, grouped in three parts. */
+    'relief-add': () => {
+      const esc = UG_UTIL.esc;
+      const mine = (S.session && S.session.role === 'barangay_official') ? S.session.barangay : null;
+      const barangays = mine ? [mine] : (S.barangays || []).map((b) => b.name);
+      const brgyOpts = barangays.map((b) => '<option' + (b === myBrgyName() ? ' selected' : '') + '>' + esc(b) + '</option>').join('');
+      const sec = (n, t, hint) => '<p class="rf-sec"><b>' + n + '</b>' + t + (hint ? '<em>' + hint + '</em>' : '') + '</p>';
+      UG_FEATURES.modal({
+        title: 'New relief distribution',
+        cls: 'rf-modal rf-steps',
+        body:
+          /* page by page: one part at a time, Back / Next, Add on the last page */
+          '<ol class="rf-stepper">' + [['1', 'Schedule'], ['2', 'Place'], ['3', 'Who can claim']].map((x) =>
+            '<li data-s="' + x[0] + '"><i></i><span>' + x[1] + '</span></li>').join('') + '</ol>' +
+          '<div class="rf-page" data-p="1">' +
+          sec(1, 'What and when') +
+          '<div class="ug-field"><label class="ug-lab">Title <i>required</i></label>' +
+            '<input class="ug-in" data-ra-title placeholder="e.g. Family Food Pack Distribution"></div>' +
+          '<div class="rf-row">' +
+            '<div class="ug-field"><label class="ug-lab">Barangay</label><select class="ug-sel" data-ra-barangay' + (mine ? ' disabled' : '') + '>' + brgyOpts + '</select></div>' +
+            '<div class="ug-field"><label class="ug-lab">Date and time</label><input class="ug-in" type="datetime-local" data-ra-when></div>' +
+          '</div>' +
+          '</div><div class="rf-page" data-p="2">' +
+          sec(2, 'Where and who to call') +
+          '<div class="ug-field"><label class="ug-lab">Place</label><input class="ug-in" data-ra-loc placeholder="e.g. Barangay Hall covered court"></div>' +
+          '<div class="ug-field"><label class="ug-lab">Address</label><input class="ug-in" data-ra-address placeholder="Street, landmark"></div>' +
+          '<div class="rf-row">' +
+            '<div class="ug-field"><label class="ug-lab">Contact person</label><input class="ug-in" data-ra-cp placeholder="e.g. Brgy. Secretary"></div>' +
+            '<div class="ug-field"><label class="ug-lab">Contact phone</label><input class="ug-in" data-ra-cphone inputmode="tel" placeholder="0917 000 0000"></div>' +
+          '</div>' +
+          '</div><div class="rf-page" data-p="3">' +
+          sec(3, 'Who can claim', 'optional') +
+          '<div class="ug-field"><label class="ug-lab">Eligibility <i>one per line</i></label>' +
+            '<textarea class="ug-ta" rows="3" data-ra-elig placeholder="Affected households&#10;Senior citizens"></textarea></div>' +
+          '<div class="ug-field"><label class="ug-lab">Bring these <i>one per line</i></label>' +
+            '<textarea class="ug-ta" rows="3" data-ra-docs placeholder="Valid ID&#10;Barangay certificate"></textarea></div>' +
+          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Note for residents</label>' +
+            '<textarea class="ug-ta" rows="2" data-ra-note placeholder="e.g. Distribution starts 8:00 AM. Bring your own bag."></textarea></div>' +
+          '</div>',
+        footer: '<button class="ug-btn" data-ra-back>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-ra-next>Next' + UG.icon('chevron', 14) + '</button>' +
+          '<button class="ug-btn ug-btn--signal" data-ra-save hidden>' + UG.icon('plus', 15) + 'Add distribution</button>',
+        onMount: (wrap, close) => {
+          const v = (k) => (wrap.querySelector('[data-ra-' + k + ']') || {}).value || '';
+          const list = (k) => v(k).split('\n').map((x) => x.trim()).filter(Boolean);
+          let page = 1;
+          const back = wrap.querySelector('[data-ra-back]'), next = wrap.querySelector('[data-ra-next]'), save = wrap.querySelector('[data-ra-save]');
+          const show = (n) => {
+            page = Math.max(1, Math.min(3, n));
+            wrap.querySelector('.ug-modal-card').setAttribute('data-page', String(page));
+            wrap.querySelectorAll('.rf-page').forEach((p) => { p.hidden = p.getAttribute('data-p') !== String(page); });
+            wrap.querySelectorAll('.rf-stepper li').forEach((li) => { const k = Number(li.getAttribute('data-s')); li.classList.toggle('is-on', k <= page); li.classList.toggle('is-cur', k === page); });
+            back.textContent = page === 1 ? 'Cancel' : 'Back';
+            next.hidden = page === 3; save.hidden = page !== 3;
+            const body = wrap.querySelector('.ug-modal-body'); if (body) body.scrollTop = 0;
+          };
+          back.addEventListener('click', () => { if (page === 1) close(); else show(page - 1); });
+          next.addEventListener('click', () => {
+            if (page === 1 && !v('title').trim()) { const t = wrap.querySelector('[data-ra-title]'); t.focus(); toast('Add a title first', 'warning'); return; }
+            show(page + 1);
+          });
+          show(1);
+          wrap.querySelector('[data-ra-save]').addEventListener('click', async () => {
+            const title = v('title').trim();
+            if (!title) { const t = wrap.querySelector('[data-ra-title]'); t.focus(); toast('Add a title first', 'warning'); return; }
+            const input = {
+              title: title, barangay: mine || v('barangay') || myBrgyName(), active: true,
+              location_name: v('loc').trim(), address: v('address').trim(),
+              contact_person: v('cp').trim(), contact_phone: v('cphone').trim(),
+              eligibility: list('elig'), required_docs: list('docs'), note: v('note').trim()
+            };
+            const t = Date.parse(v('when'));
+            if (!isNaN(t)) input.distribution_at = new Date(t).toISOString();
+            try {
+              await Repo.createRelief(input);
+              toast('Relief distribution added', 'prepared');
+              close(); render();
+            } catch (e) { toast(e.message || 'Could not add the distribution', 'warning'); }
+          });
+        }
       });
-      if (!fields) return;
-      try {
-        await Repo.createRelief({
-          title: fields, barangay: myBrgyName(), active: true,
-          eligibility: [], required_docs: []
-        });
-        toast('Relief distribution added', 'prepared');
-      } catch (e) { toast(e.message, 'warning'); }
-      render();
     },
     'relief-edit': async (d) => {
       /* FULL edit modal — not just a single prompt for the title. The duty
@@ -3716,7 +4302,11 @@
       };
       UG_FEATURES.modal({
         title: 'Edit distribution · ' + (r.title || ''),
+        cls: 'rf-modal rf-steps',
         body:
+          '<ol class="rf-stepper">' + [['1', 'Schedule'], ['2', 'Place'], ['3', 'Who can claim']].map((x) =>
+            '<li data-s="' + x[0] + '"><i></i><span>' + x[1] + '</span></li>').join('') + '</ol>' +
+          '<div class="rf-page" data-p="1">' +
           '<div class="ug-field"><label class="ug-lab">Title</label>' +
             '<input class="ug-in" data-re-title value="' + esc(r.title || '') + '"></div>' +
           '<div class="ug-rowf ug-gap12" style="gap:12px">' +
@@ -3725,6 +4315,7 @@
             '<div class="ug-field" style="flex:1"><label class="ug-lab">Distribution at</label>' +
               '<input class="ug-in" type="datetime-local" data-re-when value="' + esc(fmtInput(r.distribution_at)) + '"></div>' +
           '</div>' +
+          '</div><div class="rf-page" data-p="2">' +
           '<div class="ug-field"><label class="ug-lab">Location name</label>' +
             '<input class="ug-in" data-re-loc value="' + esc(r.location_name || '') + '"></div>' +
           '<div class="ug-field"><label class="ug-lab">Address</label>' +
@@ -3735,6 +4326,7 @@
             '<div class="ug-field" style="flex:1"><label class="ug-lab">Contact phone</label>' +
               '<input class="ug-in" data-re-cphone value="' + esc(r.contact_phone || '') + '"></div>' +
           '</div>' +
+          '</div><div class="rf-page" data-p="3">' +
           '<div class="ug-field"><label class="ug-lab">Eligibility (one per line)</label>' +
             '<textarea class="ug-ta" rows="3" data-re-elig>' + esc(toList(r.eligibility)) + '</textarea></div>' +
           '<div class="ug-field"><label class="ug-lab">Required documents (one per line)</label>' +
@@ -3743,9 +4335,13 @@
             '<textarea class="ug-ta" rows="2" data-re-note>' + esc(r.note || '') + '</textarea></div>' +
           '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Active</label>' +
             '<select class="ug-sel" data-re-active><option value="true"' + (r.active !== false ? ' selected' : '') + '>Active</option>' +
-              '<option value="false"' + (r.active === false ? ' selected' : '') + '>Inactive</option></select></div>',
-        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-re-save>Save</button>',
+              '<option value="false"' + (r.active === false ? ' selected' : '') + '>Inactive</option></select></div>' +
+          '</div>',
+        footer: '<button class="ug-btn" data-rp-back>Cancel</button>' +
+          '<button class="ug-btn ug-btn--signal" data-rp-next>Next' + UG.icon('chevron', 14) + '</button>' +
+          '<button class="ug-btn ug-btn--signal" data-re-save hidden>Save</button>',
         onMount: (wrap, close) => {
+          UG_FEATURES.formPages(wrap, close, '[data-re-save]');
           wrap.querySelector('[data-re-save]').addEventListener('click', async () => {
             const patch = {
               title: wrap.querySelector('[data-re-title]').value.trim() || r.title,
@@ -3790,9 +4386,11 @@
           (S.barangays || []).map((b) => '<option>' + esc(b.name) + '</option>').join('') + '</select></div>';
       UG_FEATURES.modal({
         title: 'Add authorized beneficiary',
+        cls: 'rf-modal',
         body:
           '<div class="ug-field"><label class="ug-lab">Beneficiary name</label><input class="ug-in" data-ben-name placeholder="Last, First" autocomplete="off"></div>' +
-          '<div class="ug-field"><label class="ug-lab">Category</label><select class="ug-sel" data-ben-cat>' + cats.map((c) => '<option>' + esc(c) + '</option>').join('') + '</select></div>' +
+          '<div class="ug-field"><label class="ug-lab">Category</label><select class="ug-sel" data-ben-cat>' + cats.map((c) => '<option>' + esc(c) + '</option>').join('') + '</select>' +
+            '<input class="ug-in" data-ben-cat-other maxlength="60" placeholder="Please specify the category" style="margin-top:8px" hidden></div>' +
           '<div class="ug-field"><label class="ug-lab">Claimant</label><input class="ug-in" data-ben-claimant placeholder="Same as beneficiary" autocomplete="off">' +
             '<div class="ug-help">Who will claim on their behalf. Leave empty if the beneficiary claims in person.</div></div>' +
           '<div class="ug-field"><label class="ug-lab">Claimant ID number</label><input class="ug-in" data-ben-id placeholder="ID-2026-000000" autocomplete="off"></div>' +
@@ -3801,6 +4399,10 @@
         onMount: (wrap, close) => {
           const nameEl = wrap.querySelector('[data-ben-name]');
           const saveBtn = wrap.querySelector('[data-save]');
+          /* "Other": ask which category; saved as "Other: <text>" */
+          const catSel = wrap.querySelector('[data-ben-cat]');
+          const catOther = wrap.querySelector('[data-ben-cat-other]');
+          catSel.addEventListener('change', () => { catOther.hidden = catSel.value !== 'Other'; if (!catOther.hidden) catOther.focus(); });
           setTimeout(() => nameEl.focus(), 30);
           saveBtn.addEventListener('click', async () => {
             if (saveBtn.disabled) return;
@@ -3809,6 +4411,9 @@
             const barangay = isBO ? myBrgyName() : (brgyEl ? brgyEl.value : '');
             if (!name) { toast('Enter the beneficiary\'s name', 'warning'); nameEl.focus(); return; }
             if (!barangay) { toast('Select the barangay', 'warning'); return; }
+            const catSpec = catSel.value === 'Other' ? catOther.value.trim() : '';
+            if (catSel.value === 'Other' && !catSpec) { toast('Please specify the category', 'warning'); catOther.focus(); return; }
+            const benCategory = catSpec ? 'Other: ' + catSpec : catSel.value;
             saveBtn.disabled = true;
             try {
               await Repo.createBeneficiary({
@@ -3816,7 +4421,7 @@
                 claimant_name: wrap.querySelector('[data-ben-claimant]').value.trim() || name,
                 claimant_id: wrap.querySelector('[data-ben-id]').value.trim(),
                 barangay: barangay,
-                category: wrap.querySelector('[data-ben-cat]').value
+                category: benCategory
               });
               close();
               toast('Beneficiary added', 'prepared');
@@ -3830,6 +4435,28 @@
       });
     },
     'beneficiary-del': async (d) => {
+      const b = (UG.DATA.beneficiaries || []).find((x) => String(x.id) === String(d.id)) || {};
+      const esc = UG_UTIL.esc;
+      const name = b.beneficiary_name || 'this beneficiary';
+      const ini = String(b.beneficiary_name || '?').split(/[ ,]+/).filter(Boolean).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join('');
+      const row = (k, v) => '<div class="cfm-row"><span>' + k + '</span><b>' + v + '</b></div>';
+      const ok = await UG_FEATURES.confirm({
+        title: 'Remove beneficiary?',
+        cls: 'ug-cfm',
+        body:
+          '<p class="cfm-lead">This takes <b>' + esc(name) + '</b> off the authorized beneficiaries list.</p>' +
+          '<div class="cfm-card">' +
+            '<div class="cfm-who"><span class="cfm-av">' + esc(ini || '?') + '</span>' +
+              '<div><b>' + esc(name) + '</b><small>' + esc(b.claimant_id || 'No ID on file') + '</small></div>' +
+              (b.category ? '<span class="cfm-tag">' + esc(b.category) + '</span>' : '') + '</div>' +
+            row('Claimant', esc(b.claimant_name || '—')) +
+            row('Barangay', b.barangay ? 'Brgy. ' + esc(b.barangay) : '—') +
+          '</div>' +
+          '<p class="cfm-warn">' + UG.icon('info', 14) + '<span>They won\'t be able to claim relief until they are added again.</span></p>',
+        confirmLabel: 'Remove',
+        danger: true
+      });
+      if (!ok) return;
       try { await Repo.deleteBeneficiary(d.id); toast('Beneficiary removed', 'warning'); }
       catch (e) { toast(e.message, 'warning'); }
       render();
@@ -3841,6 +4468,7 @@
        reachable they would hit Repo methods that mirror the change server-side. */
 
     'relief-tab': (d) => { S.reliefTab = d.v; render(); },
+    'du-type': (d) => { S.unitType = d.v; render(); },
     'inv-cat': (d) => { S.invCatFilter = d.v; render(); },
     'inv-clear-search': () => { S.invSearch = ''; render(); },
     'inv-detail': (d) => { if (typeof UG_RELIEF !== 'undefined' && UG_RELIEF.invDetailModal) UG_RELIEF.invDetailModal(d.id); },
@@ -3850,6 +4478,7 @@
       const cats = UG_RELIEF.INV_CATEGORIES.map((c) => '<option>' + c + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Add a stock item',
+        cls: 'rf-modal',
         body:
           '<div class="ug-field"><label class="ug-lab">Item name</label><input class="ug-in" data-inv-name placeholder="e.g. Family Food Pack"></div>' +
           '<div class="ug-rowf ug-gap12" style="gap:12px">' +
@@ -3861,7 +4490,7 @@
             '<div class="ug-field" style="flex:1"><label class="ug-lab">Reorder at</label><input class="ug-in" data-inv-reorder placeholder="0" inputmode="numeric"></div>' +
           '</div>' +
           '<div class="ug-rowf ug-gap12" style="gap:12px">' +
-            '<div class="ug-field" style="flex:1"><label class="ug-lab">Location</label><input class="ug-in" data-inv-loc placeholder="MDRRMO Warehouse A"></div>' +
+            '<div class="ug-field" style="flex:1"><label class="ug-lab">Location</label><input class="ug-in" data-inv-loc placeholder="LDRRMO Warehouse A"></div>' +
             '<div class="ug-field" style="flex:1"><label class="ug-lab">Supplier</label><input class="ug-in" data-inv-sup placeholder="DSWD Field Office"></div>' +
           '</div>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Add Item</button>',
@@ -3961,13 +4590,16 @@
 
     'inv-download': () => UG_EXPORTS.run('inv-download'),
 
-    'rec-add': () => {
+    'rec-add': (d) => {
       if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can record distributions', 'warning'); return; }
       UG_RELIEF.ensureInventory();
-      const items = (UG.DATA.inventory || []).map((i) => '<option value="' + i.id + '">' + UG_UTIL.esc(i.name + ' (' + (i.stock || 0) + ' ' + i.unit + ' in stock)') + '</option>').join('');
-      const brgys = UG.DATA.barangays.map((b) => '<option>' + UG_UTIL.esc(b) + '</option>').join('');
+      const pre = (d && d.item) || '';
+      const own = (S.session && S.session.role === 'barangay_official' && S.session.barangay) || '';
+      const items = (UG.DATA.inventory || []).map((i) => '<option value="' + i.id + '"' + (i.id === pre ? ' selected' : '') + '>' + UG_UTIL.esc(i.name + ' (' + (i.stock || 0) + ' ' + i.unit + ' in stock)') + '</option>').join('');
+      const brgys = UG.DATA.barangays.map((b) => '<option' + (b === own ? ' selected' : '') + '>' + UG_UTIL.esc(b) + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Record a distribution',
+        cls: 'rf-modal',
         body:
           '<div class="ug-field"><label class="ug-lab">Item</label><select class="ug-sel" data-rec-item>' + items + '</select></div>' +
           '<div class="ug-rowf ug-gap12" style="gap:12px">' +
@@ -4049,6 +4681,8 @@
     },
 
     'alarm-toggle': () => {
+      /* the alarm is always on; kept only so an old button cannot break */
+      return;
       const on = UG_ALARM.muted();
       UG_ALARM.setMuted(!on);
       toast(on ? 'Alarm sound on' : 'Alarm sound off', 'info');
@@ -4159,6 +4793,9 @@
           '<button class="ug-btn" data-modal-close>Cancel</button>' +
           '<button class="ug-btn ug-btn--signal" data-save>Publish guide</button>',
         onMount: (wrap, close) => {
+          /* start on the hazard that is open on the Guides page */
+          const hs = wrap.querySelector('[data-g-hazard]');
+          if (hs && S.guideHazard && [].some.call(hs.options, (o) => o.value === S.guideHazard)) hs.value = S.guideHazard;
           wrap.querySelector('[data-save]').addEventListener('click', async () => {
             const title = wrap.querySelector('[data-g-title]').value.trim();
             const before = wrap.querySelector('[data-g-before]').value.trim();
@@ -4242,13 +4879,21 @@
       if (!ok) return;
       const c = Repo.client();
       try {
-        if (c) { await c.from('preparedness_guides').delete().eq('id', d.id); }
+        if (c) {
+          /* row security refuses silently (no error, nothing deleted), so
+             ask for the deleted row back and treat "none" as a failure */
+          const { data: gone, error } = await c.from('preparedness_guides').delete().eq('id', d.id).select('id');
+          if (error) throw error;
+          if (!gone || !gone.length) throw new Error('This guide could not be deleted. Your account may not have permission.');
+        }
         UG.DATA.guides = (UG.DATA.guides || []).filter((g) => g.id !== d.id);
         toast('Guide deleted', 'warning');
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
 
+    'faq-cat': (d) => { S.faqCat = d.v; render(); },
+    'faq-q-clear': () => { S.faqAdminQ = ''; render(); },
     'faq-add': () => {
       if (!requireRole(['lgu_ldrrmc'])) { toast('Only LGU can manage FAQs', 'warning'); return; }
       UG_FEATURES.modal({
@@ -4332,11 +4977,13 @@
           expected_start: start, expected_end: end, citywide: citywide
         });
         toast('Road work published and residents notified', 'prepared');
+        S.rwStep = 1;
         S.roadDraft = { title: '', description: '', barangay: UG_GEO.PLACE.areaAll, road_name: '', address: '', lat: null, lng: null, expected_hours: 6, citywide: false };
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
     'rw-clear': () => {
+      S.rwStep = 1;
       S.roadDraft = { title: '', description: '', barangay: UG_GEO.PLACE.areaAll, road_name: '', address: '', lat: null, lng: null, expected_hours: 6, citywide: false };
       toast('Composer cleared', 'info');
       render();
@@ -4460,6 +5107,12 @@
         b.classList.toggle('is-on', S.mapLayers[k]);
         b.setAttribute('aria-pressed', String(S.mapLayers[k]));
       });
+      /* phone layer dropdown: refresh its "All" / "2 of 4" summary */
+      const sum = q('[data-lay-sum]');
+      if (sum) {
+        const keys = Object.keys(S.mapLayers), on = keys.filter((x) => S.mapLayers[x]).length;
+        sum.textContent = on === keys.length ? 'All' : on + ' of ' + keys.length;
+      }
     },
 
     'map-layers-panel': (d, el) => {
@@ -4629,6 +5282,9 @@
       if (f === 'email' || f === 'password' || f === 'confirm' || f === 'lastName' || f === 'firstName' || f === 'phone') S.auth.form[f] = v;
       return;
     }
+    /* resident pages (js/resident.js): data-field="rw.<state key>" */
+    if (f.indexOf('tplv.') === 0) { S.tpl = Object.assign({}, S.tpl); S.tpl.vals = Object.assign({}, S.tpl.vals, { [f.slice(5)]: v }); S.tpl.missing = []; render(f); return; }
+    if (f.indexOf('rw.') === 0) { S[f.slice(3)] = v; render(f); return; }
     if (f === 'advTitle') { S.draft.title = v; render(f); return; }
     if (f === 'advMsg') { S.draft.msg = v; render(f); return; }
     if (f === 'desc') { S.report.desc = v; render(f); return; }
@@ -4665,16 +5321,34 @@
       if (f === 'barangay_id') { S.auth.form.barangay_id = v; return; }
       return;
     }
+    /* a text field already saved by the input handler fires 'change' when the
+       redraw removes it; redrawing again from inside that redraw crashed it */
+    if (f.indexOf('rw.') === 0) { if (S[f.slice(3)] === v) return; S[f.slice(3)] = v; render(); return; }
     if (f === 'advSev') S.draft.sev = v;
     else if (f === 'advType') S.draft.type = v;
     else if (f === 'advArea') S.draft.area = v;
-    else if (f === 'anFrom') { S.anFrom = v; return; }
-    else if (f === 'anTo') { S.anTo = v; return; }
+    else if (f === 'anFrom' || f === 'anTo') {
+      /* editing a date applies a custom range at once; a reversed pair is
+         swapped so From is always the earlier day */
+      if (!v) return;
+      S[f] = v;
+      const pad = (n) => String(n).padStart(2, '0');
+      const today = new Date(); const t = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+      if (!S.anTo) S.anTo = t;
+      if (!S.anFrom) { const x = new Date(Date.now() - 30 * 86400000); S.anFrom = x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()); }
+      if (S.anTo > t) S.anTo = t;
+      if (S.anFrom > S.anTo) { const sw = S.anFrom; S.anFrom = S.anTo; S.anTo = sw; }
+      S.anRange = 'custom';
+      APP_ACTIONS['an-apply']();
+      return;
+    }
     else if (f === 'anBrgyFilter') { S.anBrgyFilter = v; render(); return; }
     else if (f === 'hazard') S.report.hazard = v;
     else if (f === 'brgy') S.report.brgy = v;
     else if (f === 'rwBarangay') { S.roadDraft.barangay = v; render(); return; }
+    else if (f === 'rwHours') { S.roadDraft.expected_hours = parseFloat(v) || 6; render(); return; }
     else if (f === 'benBarangayFilter') { S.benBarangayFilter = v; render(); return; }
+    else if (f.indexOf('tplv.') === 0) { S.tpl = Object.assign({}, S.tpl); S.tpl.vals = Object.assign({}, S.tpl.vals, { [f.slice(5)]: v }); S.tpl.missing = []; render(); return; }
     else if (f === 'incBrgyFilter') { S.incBrgyFilter = v; render(); return; }
     else if (f === 'incHazardFilter') { S.incHazardFilter = v; render(); return; }
     else if (f === 'recBrgyFilter') { S.recBrgyFilter = v; render(); return; }
@@ -4714,6 +5388,82 @@
      the page would leave the panel in a stale position. Closing on page
      scroll keeps the experience clean. Scrolling INSIDE the panel (the
      barangay list itself) is allowed and does not close the combo. */
+  /* edge fades on the barangay / LGU top nav (see css/barangay.css) */
+  function bgNavFade(el) {
+    const max = el.scrollWidth - el.clientWidth;
+    const nav = el.parentNode;
+    nav.classList.toggle('fade-l', max > 1 && el.scrollLeft > 1);
+    nav.classList.toggle('fade-r', max > 1 && el.scrollLeft < max - 1);
+  }
+  window.addEventListener('scroll', (e) => {
+    const t = e.target;
+    if (t && t.parentNode && t.parentNode.classList && t.parentNode.classList.contains('bg-nav')) bgNavFade(t);
+  }, { capture: true, passive: true });
+  window.addEventListener('resize', () => { const el = q('.bg-nav > div'); if (el) bgNavFade(el); });
+  /* turn a mouse wheel into sideways scroll over the nav */
+  window.addEventListener('wheel', (e) => {
+    const el = e.target && e.target.closest && e.target.closest('.bg-nav > div');
+    if (!el || el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    el.scrollLeft += e.deltaY; e.preventDefault();
+  }, { passive: false });
+
+  /* keep the SOS wait timers honest: refresh once a minute while the SOS
+     bar is on screen, unless someone is typing or a pop-up is open */
+  setInterval(() => {
+    if (!q('.ug-sosx')) return;
+    const a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    if (q('.ug-modal, .ug-sheet, [role="dialog"]')) return;
+    render();
+  }, 60000);
+
+  /* shelter cards: a masonry grid. Each card spans as many 4px grid rows as
+     its height needs, so opening "More" pushes down only the cards below it
+     in the same column; order stays left to right. */
+  function scLayout() {
+    /* staff shelter grid and the resident shelter grid share the behaviour */
+    [['.sc-grid', '.sc-card', 20], ['.rw-scgrid', '.rw-sc2', 24]].forEach((g) => {
+      const grid = q(g[0]);
+      if (!grid) return;
+      grid.classList.add('is-masonry');
+      grid.querySelectorAll(':scope > ' + g[1]).forEach((c) => {
+        const gap = parseFloat(getComputedStyle(grid).getPropertyValue('--sc-gap')) || g[2];
+        c.style.gridRowEnd = 'span ' + Math.ceil((c.getBoundingClientRect().height + gap) / 4);
+      });
+    });
+  }
+  window.UG_SC_LAYOUT = scLayout;
+  /* an open "More" folds back (and the cards below slide up) when the
+     pointer leaves that card or the user clicks anywhere outside it */
+  let scOpenedAt = 0, scLeaveTimer = null;
+  function scCloseAll(except) {
+    document.querySelectorAll('details.sc-more[open]').forEach((d) => { if (d !== except) d.open = false; });
+  }
+  document.addEventListener('toggle', (e) => {
+    if (e.target && e.target.matches && e.target.matches('details.sc-more') && e.target.open) { scOpenedAt = Date.now(); scCloseAll(e.target); }
+  }, true);
+  document.addEventListener('mouseover', (e) => {
+    const card = e.target.closest && e.target.closest('.sc-card, .rw-sc2');
+    const open = document.querySelector('details.sc-more[open]');
+    if (!open) return;
+    if (card && card.contains(open)) { clearTimeout(scLeaveTimer); scLeaveTimer = null; return; }
+    if (!scLeaveTimer) scLeaveTimer = setTimeout(() => { scLeaveTimer = null; scCloseAll(); }, 450);
+  });
+  document.addEventListener('click', (e) => {
+    if (!document.querySelector('details.sc-more[open]')) return;
+    if (e.target.closest && (e.target.closest('details.sc-more[open]') || e.target.closest('.ug-modal'))) return;
+    scCloseAll();
+  }, true);
+
+  window.addEventListener('resize', () => { scLayout(); });
+  /* shelter cards: remember which "More" panels are open across re-renders */
+  window.UG_SC_OPEN = window.UG_SC_OPEN || {};
+  document.addEventListener('toggle', (e) => {
+    const d = e.target;
+    if (d && d.matches && d.matches('details[data-sc-more]')) { window.UG_SC_OPEN[d.getAttribute('data-sc-more')] = d.open; scLayout(); }
+    if (d && d.matches && d.matches('details[data-keep-open]')) window.UG_SC_OPEN[d.getAttribute('data-keep-open')] = d.open;
+  }, true);
+
   let comboJustOpened = 0;
   window.addEventListener('scroll', (e) => {
     if (e.target && e.target.closest && e.target.closest('.ug-combo-panel')) return;
@@ -4801,6 +5551,14 @@
     APP_ACTIONS['open-incident']({ id: id });
   });
 
+  /* a button in a map popup (js/map.js): only the actions a popup offers */
+  const MAP_POPUP_ACTIONS = ['open-incident', 'open-center-detail', 'nav'];
+  document.addEventListener('ug:map-action', (e) => {
+    const d = (e && e.detail) || {};
+    if (!S.session || MAP_POPUP_ACTIONS.indexOf(d.act) === -1 || !APP_ACTIONS[d.act]) return;
+    APP_ACTIONS[d.act](d, null);
+  });
+
   /* a queued SOS reached the server after the connection came back */
   document.addEventListener('ug:sos-delivered', (e) => {
     const res = (e.detail && e.detail.result) || {};
@@ -4845,18 +5603,48 @@
     /* Closing open combos on resize keeps the dropdown anchored to its
        trigger instead of floating in a stale position. */
     closeAllBarangayCombos();
-    if (viewFor() !== S.view) render();
+    /* the staff Hazard Map has its own phone layout: re-render when it crosses 767px */
+    const phoneNow = !!(window.matchMedia && window.matchMedia('(max-width: 767px)').matches);
+    const mapFlip = S.route === 'map' && S.view !== 'mobile' && phoneNow !== !!S.mapPhone;
+    const dpFlip = !!(S.session && S.session.role === 'dispatch_team') && phoneNow !== !!window.__dpPhone;
+    /* the sign-in screen has a desktop card and a phone layout */
+    const authFlip = !S.session && typeof UG_AUTH !== 'undefined' && UG_AUTH.isWide && (UG_AUTH.isWide() !== !!window.__authWide);
+    if (!S.session && typeof UG_AUTH !== 'undefined' && UG_AUTH.isWide) window.__authWide = UG_AUTH.isWide();
+    if (viewFor() !== S.view || mapFlip || dpFlip || authFlip) render();
     else MapView.invalidate();
   }, 180));
 
-  window.addEventListener('hashchange', () => {
-    const hr = routeFromHash();
-    if (hr && S.session && hr !== S.route) {
-      go(hr);
-      render();
-      loadRouteData(hr);
+  /* Back / forward: show the screen in the address bar. A detail screen
+     reached without its item (its id is not in the URL) goes to its list. */
+  function followAddressBar() {
+    let hr = routeFromHash();
+    if (!hr || !S.session || hr === S.route) return;
+    const keepId = DETAIL_PARENT[hr] && S.lastOpen && S.lastOpen[hr];
+    if (DETAIL_PARENT[hr] && !keepId) {
+      hr = DETAIL_PARENT[hr];
+      try { window.history.replaceState(null, '', '#' + hr); } catch (e) { }
     }
+    S.route = hr; S.openId = keepId || null;
+    render();
+    loadRouteData(hr);
+  }
+  window.addEventListener('hashchange', followAddressBar);
+  /* staff phone menu: Escape closes it, and so does dragging it back towards
+     the right edge (as in uniguard/src/components/StaffMobileNav.tsx) */
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && S.bgMenu && APP_ACTIONS['bg-pmenu']) APP_ACTIONS['bg-pmenu']({ v: '0' });
   });
+  let bgDrag = null;
+  document.addEventListener('touchstart', (e) => {
+    bgDrag = (e.target.closest && e.target.closest('#bg-pm')) ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    const from = bgDrag; bgDrag = null;
+    if (!from || !S.bgMenu) return;
+    const dx = e.changedTouches[0].clientX - from.x, dy = e.changedTouches[0].clientY - from.y;
+    if (dx > 60 && dx > Math.abs(dy) * 1.5 && APP_ACTIONS['bg-pmenu']) APP_ACTIONS['bg-pmenu']({ v: '0' });
+  }, { passive: true });
+  window.addEventListener('popstate', followAddressBar);
 
   Repo.onChange(() => {
     if (!S.session) return;
@@ -4903,6 +5691,10 @@
     if (!alarmSeen || alarmSeenFor !== who) {
       alarmSeen = new Set(keys);
       alarmSeenFor = who;
+      /* staff opening the app while an SOS is still unanswered hear it once */
+      if (role !== 'citizen' && sosRows.some((x) => x.status === 'sent' && x.user_id !== S.session.id)) {
+        try { UG_ALARM.play('sos'); } catch (e) { }
+      }
       return;
     }
     const newInc = inc.filter((i) => i.uuid && !alarmSeen.has('r' + i.uuid) && i.status !== 'resolved' && i.status !== 'rejected');
@@ -4933,8 +5725,176 @@
     }
     if (kind) { try { UG_ALARM.play(kind); } catch (e) { } }
   }
+  /* Instant alarm: ring as soon as the row arrives over realtime (or a push
+     arrives), with the same role rules as alarmOnNew; the row is marked seen
+     so the refresh that follows does not ring a second time. */
+  function instantAlarm(table, row) {
+    if (!S.session || !row || !alarmSeen) return;
+    const role = S.session.role;
+    if (role === 'dispatch_team') return;
+    const sup = !!S.session.superAdmin;
+    let key = '', kind = null;
+    if (table === 'notifications') {
+      if (row.user_id && S.session.id && row.user_id !== S.session.id) return;
+      key = 'n' + row.id;
+      if (alarmSeen.has(key)) return;
+      const title = row.title || '', type = row.type || '';
+      if (role === 'citizen') {
+        const mine = new Set((UG.DATA.incidents || []).filter((i) => i.mine).map((i) => i.uuid));
+        if (row.report_id && mine.has(row.report_id) && (type === 'dispatch' || (type === 'dispatch_status' && /on scene/i.test(title)))) kind = 'help';
+      } else if (type === 'sos') kind = 'sos';
+      else if ((role === 'lgu_ldrrmc') && NEEDS_DISPATCH.test(title)) kind = 'attention';
+      else if (role === 'barangay_official' && type === 'dispatch' && /^Barangay Response Team/.test(row.body || '')) kind = 'dispatch';
+      else if (role !== 'citizen' && type === 'report') kind = title;
+    } else if (table === 'sos_log') {
+      key = 's' + row.id;
+      if (role === 'citizen' || alarmSeen.has(key) || row.user_id === S.session.id || row.status === 'resolved') return;
+      if (role === 'barangay_official' && S.session.barangay_id && row.barangay_id && row.barangay_id !== S.session.barangay_id) return;
+      kind = 'sos';
+    } else if (table === 'reports') {
+      key = 'r' + row.id;
+      if (role === 'citizen' || alarmSeen.has(key)) return;
+      if (role === 'barangay_official' && S.session.barangay_id && row.barangay_id && row.barangay_id !== S.session.barangay_id) return;
+      if (sup && row.severity !== 'emergency') return;
+      kind = row.hazard_type || 'report';
+    }
+    if (key) alarmSeen.add(key);
+    if (kind) { try { UG_ALARM.play(kind, kind === 'sos' ? { force: true } : undefined); } catch (e) { } }
+  }
+  /* SOS sheet on phones: swiping the cards moves the dot under them */
+  document.addEventListener('scroll', (e) => {
+    const list = e.target && e.target.matches && e.target.matches('[data-sx-list]') ? e.target : null;
+    if (!list) return;
+    /* the card nearest the middle is the current one (cards are narrower
+       than the sheet, centred, with the neighbours peeking in) */
+    const mid = list.scrollLeft + list.clientWidth / 2;
+    let n = 0, best = Infinity;
+    Array.prototype.forEach.call(list.children, (c, k) => {
+      const d = Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid);
+      if (d < best) { best = d; n = k; }
+    });
+    const dots = list.parentElement && list.parentElement.querySelectorAll('.sx-dots i');
+    if (dots) dots.forEach((d, k) => d.classList.toggle('is-on', k === n));
+  }, true);
+
+  /* an SOS nobody has answered rings again every 3 minutes while this screen
+     is in view, until someone acknowledges it (staff portals only) */
+  setInterval(() => {
+    if (!S.session || S.session.role === 'citizen' || S.session.role === 'dispatch_team') return;
+    if (document.visibilityState !== 'visible') return;
+    const waiting = (UG.DATA.sosLog || []).some((x) => x.status === 'sent' && x.user_id !== S.session.id &&
+      (!x.created_at || Date.now() - Date.parse(x.created_at) < 24 * 3600000));
+    if (waiting) { try { UG_ALARM.play('sos'); } catch (e) { } }
+  }, 180000);
+  document.addEventListener('ug:realtime', (e) => {
+    const d = e.detail || {};
+    if (d.type === 'INSERT') instantAlarm(d.table, d.row);
+    /* an emergency advisory (or emergency declaration) raises the alert
+       card and its alarm the moment it is published, every portal but the
+       dispatch console, without waiting for the refresh */
+    if (d.table === 'advisories' && d.row && (d.type === 'INSERT' || d.type === 'UPDATE') && d.row.severity === 'emergency' &&
+        S.session && S.session.role !== 'dispatch_team' && d.row.status !== 'draft' && d.row.active !== false) {
+      try { UG_URGENT.fire(Repo.toAdvisory(d.row)); } catch (err) { }
+    }
+  });
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if (!e.data || e.data.type !== 'UG_PUSH' || !S.session) return;
+        const p = e.data.payload || {};
+        const kind = /sos/i.test(p.title || '') ? 'sos' : ((p.title || '') + ' ' + (p.body || ''));
+        try { UG_ALARM.play(kind, { force: p.severity === 'emergency' || kind === 'sos' }); } catch (err) { }
+        if (p.severity === 'emergency' && p.advisory_id && S.session.role !== 'dispatch_team') {
+          try { UG_URGENT.fire({ id: p.advisory_id, severity: 'emergency', title: p.title, body: p.body, time: 'just now' }); } catch (err) { }
+        }
+      });
+    }
+  } catch (e) { }
+
+  /* Home's offline status is a peek, like a rubber-band pull: hidden below
+     the last card, it slides in only while the page is pulled past its end
+     (finger dragging up, or the wheel still scrolling down at the bottom),
+     and springs back out of sight as soon as you let go. */
+  (function () {
+    let pull = 0, touchY = null, wheelTimer = null;
+    const box = () => document.querySelector('.rw-offline');
+    const scroller = () => {
+      let el = box() && box().parentElement;
+      while (el && el !== document.body) {
+        const oy = getComputedStyle(el).overflowY;
+        if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1) return el;
+        el = el.parentElement;
+      }
+      return document.scrollingElement || document.documentElement;
+    };
+    const atBottom = (el) => el && el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+    const show = (on) => { const b = box(); if (b) b.classList.toggle('is-shown', on); };
+    document.addEventListener('wheel', (e) => {
+      if (!box()) return;
+      if (e.deltaY > 0 && atBottom(scroller())) {
+        pull += e.deltaY;
+        if (pull > 40) show(true);
+        /* the wheel has stopped = let go: spring back */
+        clearTimeout(wheelTimer);
+        wheelTimer = setTimeout(() => { pull = 0; show(false); }, 700);
+      } else if (e.deltaY < 0) { pull = 0; show(false); }
+    }, { passive: true });
+    document.addEventListener('touchstart', (e) => { touchY = e.touches[0] ? e.touches[0].clientY : null; }, { passive: true });
+    document.addEventListener('touchmove', (e) => {
+      if (touchY == null || !box()) return;
+      const dy = touchY - e.touches[0].clientY;   /* > 0: dragging the page up past its end */
+      /* once it peeks it stays until the finger lifts (showing it makes the
+         page taller, so "at the bottom" stops being true mid-pull) */
+      if (dy > 30 && atBottom(scroller())) show(true);
+      else if (dy < 0) show(false);
+    }, { passive: true });
+    const release = () => { touchY = null; show(false); };
+    document.addEventListener('touchend', release, { passive: true });
+    document.addEventListener('touchcancel', release, { passive: true });
+  })();
+
   /* the "enable alarm sound" banner goes away once the page has been tapped */
-  document.addEventListener('ug:alarm-unlocked', () => { if (S.session) render(); });
+  /* Push alerts are always on: no button to turn them on or off. When the
+     browser already allows notifications the device subscribes by itself;
+     otherwise the browser's own permission prompt opens on the first tap of
+     the session (browsers only allow that prompt from a tap). Blocked stays
+     blocked until the person allows it in the browser settings. */
+  let pushAsked = false, pushBusy = false;
+  async function autoPush(fromTap) {
+    if (pushBusy || !S.session || typeof UG_PWA === 'undefined' || !UG_PWA.pushSupported || typeof Notification === 'undefined') return;
+    if (Notification.permission === 'denied') return;
+    if (Notification.permission !== 'granted') { if (!fromTap || pushAsked) return; pushAsked = true; }
+    pushBusy = true;
+    try {
+      if (!(await UG_PWA.pushSupported()) || (await UG_PWA.pushEnabled())) return;
+      await UG_PWA.enablePush();
+      try { UG.DATA.subscribedDevices = await Repo.subscribedDeviceCount(); } catch (e) { }
+      if (typeof UG_SETTINGS !== 'undefined' && UG_SETTINGS.refreshPushState) UG_SETTINGS.refreshPushState();
+      render();
+    } catch (e) { /* not allowed this time; asked again next session */ }
+    finally { pushBusy = false; }
+  }
+  document.addEventListener('click', () => { autoPush(true); }, true);
+  setTimeout(() => autoPush(false), 4000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') autoPush(false); });
+
+  /* The alarm unlocks on the first pointerdown / touchstart / keydown. Redrawing
+     right then replaced the very field being tapped (the search boxes lost
+     focus and dropped every letter). Wait until the tap has finished, then
+     redraw: by then the field has focus and render() puts the cursor back. */
+  document.addEventListener('ug:alarm-unlocked', () => {
+    if (!S.session) return;
+    let done = false;
+    const go = () => {
+      if (done) return; done = true;
+      document.removeEventListener('click', go, true);
+      document.removeEventListener('keyup', go, true);
+      setTimeout(() => render(), 0);
+    };
+    document.addEventListener('click', go, true);
+    document.addEventListener('keyup', go, true);
+    setTimeout(go, 700);
+  });
 
   /* Live refreshes rebuild #ug-root, so hold one back while that would cost
      the user something: a field they are typing in, an open dropdown, or a

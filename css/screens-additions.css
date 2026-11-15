@@ -7,20 +7,20 @@
 .ug-ico-btn{position:relative}
 .ug-bell-badge{
   position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;padding:0 4px;
-  border-radius:9px;background:#EF4444;color:#fff;font-family:var(--ug-mono);
-  font-size:9.5px;font-weight:700;line-height:17px;text-align:center;
+  border-radius:9px;background:#EF4444;color:#fff;font-family:var(--ug-font);
+  font-size:11px;font-weight:700;line-height:17px;text-align:center;
   border:2px solid var(--ug-surface);box-shadow:0 2px 6px -1px rgba(239,68,68,.55);
 }
-.ug-bell-badge.is-many{padding:0 3px;font-size:9px}
+.ug-bell-badge.is-many{padding:0 3px;font-size:11px}
 .ug-tab .t-badge{
   position:absolute;right:6px;top:4px;min-width:15px;height:15px;padding:0 3px;
-  border-radius:8px;background:#EF4444;color:#fff;font-family:var(--ug-mono);
-  font-size:9px;font-weight:700;line-height:15px;text-align:center;
+  border-radius:8px;background:#EF4444;color:#fff;font-family:var(--ug-font);
+  font-size:11px;font-weight:700;line-height:15px;text-align:center;
   border:1.5px solid var(--ug-surface);
 }
 .ug-wdot{
   position:relative;display:inline-grid;place-items:center;min-width:16px;height:16px;padding:0 4px;
-  border-radius:9px;background:#EF4444;color:#fff;font-family:var(--ug-mono);font-size:9.5px;
+  border-radius:9px;background:#EF4444;color:#fff;font-family:var(--ug-font);font-size:11px;
   font-weight:700;margin-left:6px;line-height:1;
 }
 .ug-wdot.is-many{padding:0 3px}
@@ -68,7 +68,7 @@
 .ug-sos-fab:active{transform:scale(.97)}
 .ug-sos-fab:focus-visible{outline:2px solid #fff;outline-offset:3px}
 .ug-sos-fab .sos-ico{display:flex}
-.ug-sos-fab .sos-label{font-family:var(--ug-display);font-weight:700;font-size:10.5px;letter-spacing:.1em}
+.ug-sos-fab .sos-label{font-family:var(--ug-font);font-weight:700;font-size:11px;letter-spacing:.1em}
 @keyframes ugSosPulse{
   0%,100%{box-shadow:0 18px 36px -10px rgba(239,68,68,.65), 0 0 0 4px rgba(239,68,68,.18)}
   50%{box-shadow:0 18px 36px -10px rgba(239,68,68,.85), 0 0 0 10px rgba(239,68,68,.08)}
@@ -100,7 +100,7 @@
 .ug-sos-kind:hover{transform:translateY(-1px);filter:brightness(1.05)}
 .ug-sos-kind:focus-visible{outline:3px solid var(--ug-ink, #fff);outline-offset:3px}
 .ug-sos-kind:disabled{opacity:.6;cursor:progress;transform:none}
-.ug-sos-kind .k-l{font-size:15px;font-weight:800;line-height:1.2}
+.ug-sos-kind .k-l{font-size:14px;font-weight:800;line-height:1.2}
 .ug-sos-kind .k-t{font-size:11px;font-weight:600;opacity:.92}
 .ug-sos-kind.kind-medical{background:#B91C1C}
 .ug-sos-kind.kind-fire{background:#C2410C}
@@ -127,8 +127,8 @@
   background:rgba(239,68,68,.18);color:var(--ug-tx-red, #FCA5A5);border:1px solid rgba(239,68,68,.4);
   animation:ugSosPulse 1.4s ease-in-out infinite;
 }
-.ug-urgent-kicker{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ug-tx-red, #FCA5A5);font-weight:700}
-.ug-urgent-title{font-family:var(--ug-display);font-size:18px;font-weight:700;margin:3px 0 0;color:var(--ug-ink, #FFF)}
+.ug-urgent-kicker{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ug-tx-red, #FCA5A5);font-weight:700}
+.ug-urgent-title{font-family:var(--ug-font);font-size:18px;font-weight:700;margin:3px 0 0;color:var(--ug-ink, #FFF)}
 .ug-urgent-close{margin-left:auto;background:none;border:0;width:30px;height:30px;cursor:pointer;
   color:var(--ug-ink-3);border-radius:8px;position:relative}
 .ug-urgent-close::before,.ug-urgent-close::after{
@@ -141,7 +141,7 @@
 .ug-urgent-actions .ug-btn{flex:1}
 @media (max-width:560px){
   .ug-urgent-body{padding:14px}
-  .ug-urgent-title{font-size:15px}
+  .ug-urgent-title{font-size:14px}
   .ug-urgent-text{font-size:12px}
 }
 
@@ -154,7 +154,7 @@
 }
 .ug-faq summary::-webkit-details-marker{display:none}
 .ug-faq summary::before{
-  content:"+";color:var(--ug-signal);font-family:var(--ug-mono);font-weight:700;font-size:14px;
+  content:"+";color:var(--ug-signal);font-family:var(--ug-font);font-weight:700;font-size:14px;
   width:18px;flex:none;
 }
 .ug-faq[open] summary::before{content:"–"}
@@ -181,7 +181,7 @@
 .ug-layer-toggle .swatch.shape-octagon{clip-path:polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%)}
 
 /* ================= Road status legend ================= */
-.ug-road-legend{display:flex;gap:11px;flex-wrap:wrap;padding:6px 8px;font-size:10.5px;color:var(--ug-ink-3)}
+.ug-road-legend{display:flex;gap:11px;flex-wrap:wrap;padding:6px 8px;font-size:11px;color:var(--ug-ink-3)}
 .ug-road-legend span{display:flex;align-items:center;gap:5px}
 .ug-road-legend i{width:8px;height:8px;border-radius:50%;display:inline-block}
 
@@ -220,9 +220,9 @@
 }
 .ug-history li:last-child{padding-bottom:0}
 .ug-history li:last-child::after{display:none}
-.ug-history .h-t{font-weight:600;color:var(--ug-ink);font-size:12.5px}
+.ug-history .h-t{font-weight:600;color:var(--ug-ink);font-size:13px}
 .ug-history .h-d{color:var(--ug-ink-3);font-size:11px;margin-top:2px;line-height:1.5}
-.ug-history .h-time{font-family:var(--ug-mono);font-size:10.5px;color:var(--ug-ink-3);margin-top:2px}
+.ug-history .h-time{font-family:var(--ug-font);font-size:11px;color:var(--ug-ink-3);margin-top:2px}
 
 /* ================= "Others" review table ================= */
 .ug-table tr.is-promoted{background:rgba(34,197,94,.05)}
@@ -230,26 +230,26 @@
 /* ================= Map road-status markers ================= */
 .ug-marker.road-blocked{
   background:#EF4444;color:#fff;border-radius:3px;
-  display:grid;place-items:center;font-family:var(--ug-mono);font-size:9px;font-weight:700;
+  display:grid;place-items:center;font-family:var(--ug-font);font-size:11px;font-weight:700;
 }
 .ug-marker.road-caution{
   background:#F59E0B;color:#1A1206;border-radius:3px;
-  display:grid;place-items:center;font-family:var(--ug-mono);font-size:9px;font-weight:700;
+  display:grid;place-items:center;font-family:var(--ug-font);font-size:11px;font-weight:700;
 }
 .ug-marker.road-passable{
   background:#22C55E;color:#06210F;border-radius:50%;
 }
 .ug-marker.relief-marker{
   background:#8B5CF6;color:#fff;border-radius:3px;
-  display:grid;place-items:center;font-family:var(--ug-mono);font-size:9px;font-weight:700;
+  display:grid;place-items:center;font-family:var(--ug-font);font-size:11px;font-weight:700;
 }
 
 /* ================= Report tracker (citizen) ================= */
 .ug-tracker{display:flex;gap:6px;align-items:stretch}
 .ug-tracker .step{flex:1;display:flex;flex-direction:column;gap:5px;align-items:center;text-align:center;padding:9px 4px;border-radius:10px;background:rgba(var(--ug-tint, 255,255,255),.03);border:1px solid var(--ug-line)}
 .ug-tracker .step .dot{width:14px;height:14px;border-radius:50%;background:rgba(var(--ug-tint, 255,255,255),.08);border:2px solid var(--ug-line-strong)}
-.ug-tracker .step .lab{font-size:10px;color:var(--ug-ink-3);line-height:1.25}
-.ug-tracker .step .time{font-family:var(--ug-mono);font-size:9.5px;color:var(--ug-ink-3);line-height:1.3}
+.ug-tracker .step .lab{font-size:11px;color:var(--ug-ink-3);line-height:1.25}
+.ug-tracker .step .time{font-family:var(--ug-font);font-size:11px;color:var(--ug-ink-3);line-height:1.3}
 .ug-tracker .step.done{border-color:rgba(47,208,138,.4);background:rgba(47,208,138,.08)}
 .ug-tracker .step.done .dot{background:var(--ug-prepared);border-color:var(--ug-prepared)}
 .ug-tracker .step.done .lab{color:var(--ug-prepared)}
@@ -379,7 +379,7 @@
   display:flex;align-items:center;justify-content:space-between;gap:10px;
   width:100%;background:transparent;border:0;color:var(--ug-ink-2);
   padding:10px 11px;border-radius:8px;cursor:pointer;
-  font-family:inherit;font-size:13.5px;line-height:1.45;text-align:left;
+  font-family:inherit;font-size:14px;line-height:1.45;text-align:left;
   transition:background .12s, color .12s;
 }
 .ug-combo-option:hover{background:rgba(var(--ug-signal-rgb, 52,214,240),.10);color:var(--ug-ink)}
@@ -399,7 +399,7 @@
 .ug-combo-option.is-selected .ug-combo-opt-check{display:inline-flex}
 
 .ug-combo-empty{
-  padding:18px 14px;text-align:center;font-size:12.5px;color:var(--ug-ink-3);
+  padding:18px 14px;text-align:center;font-size:13px;color:var(--ug-ink-3);
   font-style:italic;line-height:1.5;
 }
 
@@ -408,7 +408,7 @@
    stays inline with the field, the panel just sits below it. */
 @media (max-width:560px){
   .ug-combo-panel{max-height:min(48vh, 380px)}
-  .ug-combo-option{padding:11px 12px;font-size:13.5px}
+  .ug-combo-option{padding:11px 12px;font-size:14px}
 }
 
 /* When the panel would render off the bottom of the viewport (e.g. on the
@@ -548,7 +548,7 @@
 .ug-wmore-panel[hidden]{ display:none; }
 .ug-wmore-item{
   display:flex; align-items:center; gap:9px; padding:9px 11px; border:0;
-  background:none; color:var(--ug-ink-2); font-size:12.5px; font-weight:600;
+  background:none; color:var(--ug-ink-2); font-size:13px; font-weight:600;
   border-radius:8px; cursor:pointer; text-align:left; font-family:inherit;
 }
 .ug-wmore-item:hover{ background:rgba(var(--ug-tint, 255,255,255),.05); color:var(--ug-ink); }
@@ -596,7 +596,7 @@
   background:rgba(var(--ug-signal-rgb, 52,214,240),.08); color:var(--ug-signal);
   border:1px solid rgba(var(--ug-signal-rgb, 52,214,240),.22);
   display:inline-flex; align-items:center; gap:4px;
-  padding:3px 8px; border-radius:99px; font-size:10.5px; font-weight:600;
+  padding:3px 8px; border-radius:99px; font-size:11px; font-weight:600;
   white-space:nowrap;
 }
 .ug-chip--soft svg{ opacity:.85; }
@@ -618,7 +618,7 @@
 
 .ug-inv-table{ width:100%; border-collapse:collapse; font-size:12px; }
 .ug-inv-table th{
-  text-align:left; padding:10px 12px; font-size:10.5px; font-weight:600;
+  text-align:left; padding:10px 12px; font-size:11px; font-weight:600;
   letter-spacing:.04em; text-transform:uppercase; color:var(--ug-ink-3);
   border-bottom:1px solid var(--ug-line); background:var(--ug-surface-2);
   white-space:nowrap;
@@ -648,7 +648,7 @@
    ========================================================================= */
 .ug-ladder-chip{
   display:inline-flex; align-items:center; gap:6px;
-  padding:5px 11px; border-radius:99px; font-size:11.5px; font-weight:600;
+  padding:5px 11px; border-radius:99px; font-size:12px; font-weight:600;
   border:1px solid var(--ug-line); background:var(--ug-surface-2);
   color:var(--ug-ink-2); cursor:pointer;
   transition:background .12s, border-color .12s, color .12s;
@@ -694,12 +694,12 @@
 .ug-tpl-card .ug-card-b{ padding:14px; }
 .ug-tpl-cat{
   display:inline-flex; align-items:center; gap:5px;
-  padding:3px 9px; border-radius:99px; font-size:10px; font-weight:600;
+  padding:3px 9px; border-radius:99px; font-size:11px; font-weight:600;
   letter-spacing:.02em; text-transform:uppercase;
 }
 .ug-tpl-ph{ display:flex; flex-wrap:wrap; gap:5px; margin-top:auto; }
 .ug-tpl-ph code{
-  font-family:var(--ug-mono); font-size:10px; padding:2px 6px;
+  font-family:var(--ug-font); font-size:11px; padding:2px 6px;
   background:rgba(var(--ug-tint, 255,255,255),.04); border:1px solid var(--ug-line-soft);
   border-radius:4px; color:var(--ug-signal);
 }
@@ -736,7 +736,7 @@
   background:rgba(var(--ug-signal-rgb, 52,214,240),.14); border-color:var(--ug-signal); color:var(--ug-signal);
 }
 .ug-lang-flag{
-  font-family:var(--ug-mono); font-size:10px; font-weight:700;
+  font-family:var(--ug-font); font-size:11px; font-weight:700;
   letter-spacing:.06em; padding:2px 6px; border-radius:4px;
   background:rgba(var(--ug-tint, 255,255,255),.06); color:var(--ug-ink-3);
 }
@@ -802,7 +802,7 @@
 /* Dispatch response: equipment as tick boxes (was a Ctrl / Cmd multi-select) */
 .ug-eq-list { display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto;
   border: 1px solid var(--ug-line); border-radius: 12px; padding: 6px; }
-.ug-eq-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; cursor: pointer; font-size: 12.5px; }
+.ug-eq-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; cursor: pointer; font-size: 13px; }
 .ug-eq-item:hover { background: rgba(var(--ug-tint, 255,255,255), .05); }
 .ug-eq-item input { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--ug-signal); }
 .ug-eq-name { font-weight: 600; }
@@ -823,7 +823,7 @@
 .ug-guide-sum { font-size: 13px; line-height: 1.55; color: var(--ug-ink-2); margin: 0; }
 .ug-guide-intro,
 .ug-guide-note {
-  margin: 0; font-size: 12.5px; line-height: 1.6; font-weight: 600; letter-spacing: .01em;
+  margin: 0; font-size: 13px; line-height: 1.6; font-weight: 600; letter-spacing: .01em;
   color: var(--ug-ink-2); white-space: pre-line; overflow-wrap: anywhere;
 }
 .ug-guide-intro { padding: 10px 12px; border-left: 3px solid var(--ug-signal); background: var(--ug-surface-2); border-radius: var(--ug-r-sm); }
@@ -839,11 +839,11 @@
   display: inline-flex; align-items: center; justify-content: center;
   width: 36px; height: 28px; border-radius: var(--ug-r-sm);
   background: var(--ug-signal-dim); color: var(--ug-tx-signal, var(--ug-signal));
-  font-family: var(--ug-mono, ui-monospace, monospace); font-size: 12.5px; font-weight: 700;
+  font-family: var(--ug-font); font-size: 13px; font-weight: 700;
   font-variant-numeric: tabular-nums; line-height: 1;
 }
 .ug-gstep-t {
-  min-width: 0; font-size: 13.5px; line-height: 1.6; color: var(--ug-ink);
+  min-width: 0; font-size: 14px; line-height: 1.6; color: var(--ug-ink);
   padding-top: 3px; white-space: pre-line; overflow-wrap: anywhere;
 }
 .ug-vh { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

@@ -49,6 +49,14 @@ const Repo = (function () {
   const online = () => !!client();
 
   function fail(error) {
+    /* an update or delete that row security refused comes back as "no rows";
+       say what that means instead of the raw PostgREST text */
+    const code = error && error.code;
+    if (code === 'PGRST116' || /JSON object requested, multiple \(or no\) rows returned|contains 0 rows/i.test((error && error.message) || '')) {
+      error = new Error('This change could not be saved. Your account may not have permission, or the item no longer exists.');
+    } else if (code === '42501' || /row-level security|permission denied/i.test((error && error.message) || '')) {
+      error = new Error('Your account is not allowed to make this change.');
+    }
     state.error = (error && error.message) ? error.message : String(error || 'Request failed');
     state.loading = false;
     emit();
@@ -110,7 +118,10 @@ const Repo = (function () {
       verified_by_name: r.verified_by_name || '',
       verified_by_role: r.verified_by_role || '',
       verified_at: r.verified_at || null,
-      resolved_at: r.resolved_at || null
+      resolved_at: r.resolved_at || null,
+      /* closed automatically after 3 days unverified (migration 067) */
+      expired_at: r.expired_at || null,
+      expired: !!r.expired_at
     };
   }
 
@@ -178,6 +189,11 @@ const Repo = (function () {
       barangay: s.barangay, lat: s.lat, lng: s.lng, accuracy: s.accuracy,
       note: s.note, status: s.status || 'sent', kind: s.kind || 'other', report_id: s.report_id || null,
       created_at: s.created_at,
+      /* who answered it (migration 064) */
+      acknowledged_by_name: s.acknowledged_by_name || '', acknowledged_by_office: s.acknowledged_by_office || '',
+      acknowledged_at: s.acknowledged_at || null, resolved_by_name: s.resolved_by_name || '', resolved_at: s.resolved_at || null,
+      /* closed automatically after 12 h with no answer (migration 067) */
+      expired_at: s.expired_at || null, expired: !!s.expired_at,
       time: UG_UTIL.relTime(s)
     };
   }
@@ -447,6 +463,14 @@ const Repo = (function () {
       /* load change requests in parallel — the Super Admin hotlines page and
          the LGU/BO "your pending requests" section both read this. */
       try { await loadChangeRequests(); } catch (e) {}
+      /* reports this account confirmed (migration 061), so the button shows
+         "Confirmed" on every device; ignored if 061 is not applied yet */
+      try {
+        const mc = await c.rpc('my_corroborations');
+        if (mc && !mc.error && Array.isArray(mc.data)) {
+          UG.DATA.myCorroborations = mc.data.map((x) => (x && typeof x === 'object') ? (x.my_corroborations || x.report_id || Object.values(x)[0]) : x).filter(Boolean);
+        }
+      } catch (e) {}
 
       if (reports.error) throw reports.error;
 
@@ -566,7 +590,9 @@ const Repo = (function () {
      runs on the next poll, focus change or visibility change. */
   const WATCHED = ['reports', 'report_corroborations', 'report_assignments', 'advisories', 'notifications',
     'evacuation_centers', 'relief_distributions', 'authorized_beneficiaries', 'preparedness_guides', 'faqs',
-    'road_work_posts', 'road_status', 'sos_log', 'change_requests', 'report_dispatches', 'report_ratings'];
+    'road_work_posts', 'road_status', 'sos_log', 'change_requests', 'report_dispatches', 'report_ratings',
+    /* hotline edits by the Super Admin reach every portal live (published in 001) */
+    'emergency_hotlines'];
   let refreshTimer = null;
   let refreshPending = false;
   const channels = {};       /* table -> its realtime channel */
@@ -614,7 +640,12 @@ const Repo = (function () {
     if (!c || !subscribed) return;
     try {
       const ch = c.channel('ug-' + t)
-        .on('postgres_changes', { event: '*', schema: 'public', table: t }, () => scheduleRefresh());
+        .on('postgres_changes', { event: '*', schema: 'public', table: t }, (payload) => {
+          /* the page can ring the alarm from the new row itself, before the
+             refresh lands (js/app.js listens for ug:realtime) */
+          try { document.dispatchEvent(new CustomEvent('ug:realtime', { detail: { table: t, type: payload && payload.eventType, row: payload && payload.new } })); } catch (e) { }
+          scheduleRefresh(/^(notifications|sos_log|reports)$/.test(t) ? 0 : undefined);
+        });
       channels[t] = ch;
       ch.subscribe((status) => {
         if (channels[t] !== ch) return;   /* an old channel we already replaced */
@@ -896,11 +927,18 @@ const Repo = (function () {
     }).select('*').single();
     if (error) fail(error);
 
+    /* the advisory is saved; anything that fails from here is reported back
+       (data.notifyWarning) instead of silently leaving residents un-notified */
     if (input.barangayIds && input.barangayIds.length) {
-      await c.from('advisory_targets').insert(input.barangayIds.map((b) => ({ advisory_id: data.id, barangay_id: b })));
+      const { error: tErr } = await c.from('advisory_targets').insert(input.barangayIds.map((b) => ({ advisory_id: data.id, barangay_id: b })));
+      if (tErr) data.notifyWarning = 'The advisory was saved, but its barangay could not be set (' + tErr.message + '), so no one was notified.';
     }
     /* fan out the in-app notification to targeted residents */
-    await c.rpc('fanout_advisory', { p_advisory_id: data.id });
+    if (!data.notifyWarning) {
+      const { data: reached, error: fErr } = await c.rpc('fanout_advisory', { p_advisory_id: data.id });
+      if (fErr) data.notifyWarning = 'The advisory was saved, but residents could not be notified: ' + fErr.message;
+      else data.reached = typeof reached === 'number' ? reached : null;
+    }
 
     /* Web Push — sent ONLY when the duty officer picked "push" delivery.
        The DOCX asks for a choice: emergency advisories push, informational
@@ -914,6 +952,9 @@ const Repo = (function () {
             body: input.body,
             severity: input.severity || 'advisory',
             advisoryId: data.id,
+            /* the barangays the advisory is aimed at, so the push reaches only
+               them (and a barangay official's push is allowed) */
+            barangayIds: (input.barangayIds && input.barangayIds.length) ? input.barangayIds : undefined,
             area: input.affected_area || UG_GEO.PLACE.areaAll,
             url: './index.html#/advisory-detail'
           }
@@ -979,7 +1020,8 @@ const Repo = (function () {
   async function deleteHotline(id) {
     const c = client();
     if (!c) { UG.DATA.hotlines = (UG.DATA.hotlines || []).filter((h) => !(h.uuid === id || h.id === id)); emit(); return; }
-    const { error } = await c.from('emergency_hotlines').delete().eq('id', id);
+    const { data: gone, error } = await c.from('emergency_hotlines').delete().eq('id', id).select('id');
+    if (!error && (!gone || !gone.length)) throw new Error('This hotline could not be deleted. Your account may not have permission.');
     if (error) fail(error);
     await loadAll();
   }
@@ -1034,7 +1076,7 @@ const Repo = (function () {
     if (!c) return { local: true, devices: 0, notified: 0 };
     const title = (payload && payload.title) || 'Emergency declaration: municipality-wide response activated';
     const body = (payload && payload.body) ||
-      'The Municipal DRRMO has declared a municipality-wide emergency. Follow official instructions, move to the nearest open evacuation center if advised, and keep monitoring UniGuard advisories.';
+      'The Lingayen LDRRMO has declared a municipality-wide emergency. Follow official instructions, move to the nearest open evacuation center if advised, and keep monitoring UniGuard advisories.';
     const area = (payload && payload.area) || UG_GEO.PLACE.areaAll;
     const { data, error } = await c.rpc('declare_emergency', { p_title: title, p_body: body, p_area: area });
     if (error) fail(error);
@@ -1480,7 +1522,8 @@ const Repo = (function () {
   async function deleteBeneficiary(id) {
     const c = client();
     if (!c) { UG.DATA.beneficiaries = (UG.DATA.beneficiaries || []).filter((b) => b.id !== id); emit(); return; }
-    const { error } = await c.from('authorized_beneficiaries').delete().eq('id', id);
+    const { data: gone, error } = await c.from('authorized_beneficiaries').delete().eq('id', id).select('id');
+    if (!error && (!gone || !gone.length)) throw new Error('This beneficiary could not be deleted. Your account may not have permission.');
     if (error) fail(error);
     await loadAll();
   }
@@ -1517,7 +1560,8 @@ const Repo = (function () {
   async function deleteFaq(id) {
     const c = client();
     if (!c) { UG.DATA.faqs = (UG.DATA.faqs || []).filter((f) => f.id !== id); emit(); return; }
-    const { error } = await c.from('faqs').delete().eq('id', id);
+    const { data: gone, error } = await c.from('faqs').delete().eq('id', id).select('id');
+    if (!error && (!gone || !gone.length)) throw new Error('This FAQ could not be deleted. Your account may not have permission.');
     if (error) fail(error);
     await loadAll();
   }
@@ -1582,7 +1626,8 @@ const Repo = (function () {
   async function deleteRoadStatus(id) {
     const c = client();
     if (!c) { UG.DATA.roadStatus = (UG.DATA.roadStatus || []).filter((r) => r.id !== id); emit(); return; }
-    const { error } = await c.from('road_status').delete().eq('id', id);
+    const { data: gone, error } = await c.from('road_status').delete().eq('id', id).select('id');
+    if (!error && (!gone || !gone.length)) throw new Error('This road status could not be deleted. Your account may not have permission.');
     if (error) fail(error);
     await loadAll();
   }

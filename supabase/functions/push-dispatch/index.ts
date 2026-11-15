@@ -16,7 +16,9 @@
 //                        VAPID_SUBJECT=mailto:drrmo@example.gov.ph
 //
 // Only an authenticated LGU / LDRRMC account may broadcast municipality-wide.
-// A barangay_official may call this with their own barangayId as the audience.
+// A barangay_official may call this with their own barangay as the audience.
+// Residents and dispatch teams are refused. `barangayIds` (an array) narrows
+// the audience to several barangays at once.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
@@ -53,9 +55,15 @@ Deno.serve(async (req: Request) => {
   if (userErr || !userData?.user) return json({ error: 'Not signed in' }, 401);
 
   const { data: profile } = await asCaller
-    .from('profiles').select('role, barangay_id, dispatch_unit_id').eq('id', userData.user.id).maybeSingle();
+    .from('profiles').select('role, barangay_id, dispatch_unit_id, disabled').eq('id', userData.user.id).maybeSingle();
 
   if (!profile) return json({ error: 'Profile not found' }, 403);
+  // only LGU / LDRRMC (Super Admin included) and barangay officials send
+  // alerts; residents and dispatch teams never can
+  if (profile.disabled) return json({ error: 'This account is disabled' }, 403);
+  if (profile.role !== 'lgu_ldrrmc' && profile.role !== 'barangay_official') {
+    return json({ error: 'Only LGU / LDRRMC and barangay officials can send alerts' }, 403);
+  }
 
   // ---- read the request ---------------------------------------------------
   let body: Record<string, unknown> = {};
@@ -69,20 +77,22 @@ Deno.serve(async (req: Request) => {
   const urlTarget = String(body.url || './index.html');
   const barangayId = (body.barangayId as string) || null;
   const unitId = (body.unitId as string) || null;
+  // several barangays at once (an advisory aimed at more than one)
+  const barangayIds: string[] = Array.isArray(body.barangayIds)
+    ? (body.barangayIds as unknown[]).map(String).filter(Boolean)
+    : (barangayId ? [barangayId] : []);
 
   // audience authorisation
   //   · LGU can broadcast municipality-wide (no audience) OR target any
   //     barangay or unit.
   //   · barangay_official can ONLY target their own barangay.
   //   · dispatch_team cannot broadcast through this function.
-  if (profile.role === 'dispatch_team') {
-    return json({ error: 'Dispatch teams cannot broadcast through this function' }, 403);
-  }
-  if (barangayId && profile.role === 'barangay_official' && profile.barangay_id !== barangayId) {
-    return json({ error: 'You can only target your own barangay' }, 403);
-  }
-  if (!barangayId && !unitId && profile.role !== 'lgu_ldrrmc') {
-    return json({ error: 'Only LGU / LDRRMC can broadcast municipality-wide' }, 403);
+  if (profile.role === 'barangay_official') {
+    if (unitId) return json({ error: 'Only LGU / LDRRMC can alert a dispatch unit' }, 403);
+    if (!barangayIds.length) return json({ error: 'Only LGU / LDRRMC can broadcast municipality-wide' }, 403);
+    if (barangayIds.some((b) => b !== profile.barangay_id)) {
+      return json({ error: 'You can only target your own barangay' }, 403);
+    }
   }
 
   const payload = JSON.stringify({
@@ -98,9 +108,9 @@ Deno.serve(async (req: Request) => {
   // subscriptions. This way a barangay audience never reaches another
   // barangay's devices, and a unit audience never reaches another unit.
   let targetUserIds: string[] | null = null;
-  if (barangayId) {
+  if (barangayIds.length) {
     const { data: rows } = await admin.from('profiles')
-      .select('id').eq('barangay_id', barangayId).eq('disabled', false);
+      .select('id').in('barangay_id', barangayIds).eq('disabled', false);
     targetUserIds = (rows ?? []).map((r: { id: string }) => r.id);
   } else if (unitId) {
     const { data: rows } = await admin.from('profiles')
@@ -147,8 +157,9 @@ Deno.serve(async (req: Request) => {
   let smsQueued = 0;
   if (body.alsoSms !== false) {
     try {
+      // sms-fallback only accepts this function (service key) as its caller
       const { data: smsResult } = await admin.functions.invoke('sms-fallback', {
-        body: { title, message, severity, area, advisoryId, barangayId, unitId }
+        body: { title, message, severity, area, advisoryId, barangayIds, unitId }
       }) as { data: { queued?: number } | null };
       smsQueued = smsResult?.queued ?? 0;
     } catch {
@@ -160,7 +171,7 @@ Deno.serve(async (req: Request) => {
     action: 'push.dispatched',
     entity: 'advisories',
     entity_id: advisoryId,
-    meta: { sent, failed, removed, smsQueued, area, severity, barangayId, unitId, by: userData.user.id }
+    meta: { sent, failed, removed, smsQueued, area, severity, barangayIds, unitId, by: userData.user.id }
   });
 
   return json({ ok: true, sent, failed, removed, smsQueued });
