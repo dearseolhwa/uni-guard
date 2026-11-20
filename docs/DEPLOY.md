@@ -40,6 +40,20 @@ SOS alerts. The first acknowledgment updates the shared incident and notifies
 the sender. Unanswered SOS alerts stay open for staff follow-up. Dispatch units
 receive assignment alerts for their own units.
 
+## Dispatch alarms and resident response tracking upgrade
+
+Apply `migrations/070_resident_response_tracking.sql` after 069, then publish the
+static files. Keep the dispatch console open with audio enabled. A new assignment
+rings on its assigned unit's console until the crew acknowledges it or the
+assignment is declined or rerouted.
+
+On the responding phone, open the assignment, acknowledge it, and choose
+**Share location for this response**. Allow location access and keep UniGuard
+open. Residents can open **My Reports → report details** or use the SOS tracker
+to see the incident pin, the latest shared team positions, status, and the
+dispatcher-provided ETA. Test with an actual dispatch handset and an independent
+resident device on the deployed site.
+
 ## 1. Database
 
 Run the migrations in order in the Supabase SQL editor, or with the CLI.

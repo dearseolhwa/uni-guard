@@ -242,6 +242,7 @@
     S.offline = !UG_PWA.state.online || Repo.state.source === 'offline';
     UG.DATA.queueCount = UG_PWA.state.queued;
 
+    const responseMap = q('[data-response-report]');
     if (!S.session) {
       root.innerHTML = '<div class="ug-stage ug-stage--auth">' + UG_AUTH.authScreen(S) + '</div>';
     } else {
@@ -249,6 +250,10 @@
       const stage = (S.session.role === 'citizen' && !isWide()) ? 'ug-stage ug-stage--m' : 'ug-stage ug-stage--d';
       root.innerHTML = '<div class="' + stage + '">' + UG_SCREENS.frame(st) + '</div>';
     }
+
+    const nextResponseMap = q('[data-response-report]');
+    if (responseMap && nextResponseMap && responseMap.dataset.responseReport === nextResponseMap.dataset.responseReport &&
+        MapView.owns(responseMap)) nextResponseMap.replaceWith(responseMap);
 
     /* keep the address bar on the screen being shown (one history entry
        per screen), and remember which item a detail screen showed so
@@ -381,6 +386,7 @@
     const incs = only ? [only] : (UG.DATA.incidents || []);
     const out = [];
     incs.forEach((i) => {
+      if (['resolved', 'rejected'].includes(i.status)) return;
       (byReport[i.uuid] || []).forEach((d) => {
         if (d.last_lat == null || d.last_lng == null) return;
         if (d.dispatch_status === 'done' || d.dispatch_status === 'declined') return;
@@ -417,6 +423,14 @@
     } catch (e) { }
   }
 
+  function fitResponseMap(incident) {
+    const map = MapView.getMap();
+    if (!map || !incident) return;
+    const points = [incident, ...respondingUnits(incident)].filter((point) =>
+      Number.isFinite(point.lat) && Number.isFinite(point.lng)).map((point) => [point.lat, point.lng]);
+    if (points.length) map.fitBounds(points, { padding: [36, 36], maxZoom: 16 });
+  }
+
   async function mountMaps() {
     const live = q('[data-map="live"]');
     const detail = q('[data-map="detail"]');
@@ -427,7 +441,7 @@
     if (live) targets.push({ el: live, key: 'live', centers: true });
     if (detail && S.openId) {
       const inc = (UG.DATA.incidents || []).find((i) => i.id === S.openId || i.uuid === S.openId);
-      targets.push({ el: detail, key: 'detail:' + S.openId + ':' + (S.offline ? 'o' : 'n'), only: inc });
+      if (inc) targets.push({ el: detail, key: 'detail:' + inc.uuid, only: inc, tracking: !!detail.dataset.responseReport });
     }
     if (report) {
       /* the citizen report form's mini drag-to-adjust pin */
@@ -456,7 +470,14 @@
       if (t.only) {
         if (t.el.dataset.mounted === t.key) {
           /* already showing: move the responding teams in place */
-          if (MapView.owns(t.el)) MapView.setUnits(respondingUnits(t.only));
+          if (MapView.owns(t.el)) {
+            const teams = respondingUnits(t.only);
+            MapView.setUnits(teams);
+            if (t.tracking && teams.length && t.el.dataset.hasTeamFix !== 'true') {
+              t.el.dataset.hasTeamFix = 'true';
+              fitResponseMap(t.only);
+            }
+          }
           continue;
         }
         t.el.dataset.mounted = t.key;
@@ -464,10 +485,12 @@
         await MapView.mount(t.el, {
           incidents: [t.only],
           units: t.only ? respondingUnits(t.only) : [],
-          relief: UG.DATA.relief || [],
-          roadStatus: UG.DATA.roadStatus || [],
+          relief: t.tracking ? [] : UG.DATA.relief || [],
+          roadStatus: t.tracking ? [] : UG.DATA.roadStatus || [],
+          fit: t.tracking,
           zoom: 15
         });
+        if (t.tracking && respondingUnits(t.only).length) t.el.dataset.hasTeamFix = 'true';
         MapView.invalidate();
         continue;
       }
@@ -1592,6 +1615,10 @@
     },
     'open-advisory': (d) => { S.openId = d.id; S.route = 'advisory-detail'; render(); },
     'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); loadDispatchesFor(d.id); },
+    'response-fit-map': () => {
+      const el = q('[data-response-report]');
+      if (el && MapView.owns(el)) fitResponseMap((UG.DATA.incidents || []).find((i) => i.uuid === el.dataset.responseReport));
+    },
     'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); loadDispatchesFor(d.id); },
     'open-sos-detail': (d) => { UG_SOS.sosDetailModal(S, d.id); },
     'sos-filter': (d) => { S.sosFilter = d.v; render(); },
@@ -5835,6 +5862,11 @@
 
   document.addEventListener('ug:realtime', (e) => {
     const d = e.detail || {};
+    if (d.table === 'report_dispatches' && d.row && S.session && S.session.role === 'citizen' &&
+        S.route === 'report-detail' && (UG.DATA.incidents || []).some((i) => i.uuid === d.row.report_id &&
+          (S.openId === i.id || S.openId === i.uuid))) {
+      Repo.loadDispatches(d.row.report_id).catch(() => {});
+    }
     if (d.type === 'INSERT') instantAlarm(d.table, d.row);
     if (d.table === 'sos_log' && d.type === 'INSERT' && S.session && d.row && d.row.requires_staff_receipt &&
         d.row.status === 'sent' && d.row.user_id !== S.session.id) {
@@ -6000,8 +6032,7 @@
   /* the dispatch team reads its own dataset (UG_DISPATCH), not Repo's */
   Repo.setRefreshGate(() => S.session && S.session.role !== 'dispatch_team' && liveRefreshAllowed());
 
-  /* The dispatch portal has no Realtime feed of its own; refresh it on the
-     same cadence, under the same rule, so new assignments show up unprompted. */
+  /* Poll as a fallback when the dispatch portal misses a Realtime event. */
   let dispatchRefreshing = false;
   async function refreshDispatch() {
     if (dispatchRefreshing || !S.session || S.session.role !== 'dispatch_team') return;
@@ -6012,8 +6043,6 @@
     try { await UG_DISPATCH.loadAll({ silent: true }); } catch (e) { }
     dispatchRefreshing = false;
   }
-  /* js/dispatch.js calls this when Realtime reports a new assignment */
-  window.UG_DISPATCH_REFRESH = refreshDispatch;
   setInterval(refreshDispatch, UG_CONFIG.LIVE_REFRESH_MS || 20000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshDispatch(); });
   UG_PWA.onChange(() => { if (S.session) render(); });

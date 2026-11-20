@@ -153,7 +153,7 @@ const UG_SOS = (function () {
                 (me.acknowledged_at ? ' · ' + esc(UG_UTIL.relTime({ created_at: me.acknowledged_at })) : '') + '</span></p>';
         })() +
         (rows || '<p class="ug-dim" style="font-size:12px;line-height:1.5">Your SOS is with the duty officer. The responding team will appear here as soon as it is sent.</p>') +
-        (inc ? '<button class="ug-btn ug-btn--signal ug-btn--block" style="margin-top:4px"' + A('open-incident', attr({ id: inc.id })) + '>' + I('pin', 15) + 'Track on the map</button>' : '') +
+        (inc ? '<button class="ug-btn ug-btn--signal ug-btn--block" style="margin-top:4px"' + A('open-incident', attr({ id: inc.id })) + '>' + I('pin', 15) + 'Track response team</button>' : '') +
       '</div></div>';
   }
 
