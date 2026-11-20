@@ -187,7 +187,7 @@ const Repo = (function () {
     return {
       id: s.id, user_id: s.user_id, profile_name: s.profile_name, profile_phone: s.profile_phone,
       barangay: s.barangay, lat: s.lat, lng: s.lng, accuracy: s.accuracy,
-      note: s.note, status: s.status || 'sent', kind: s.kind || 'other', report_id: s.report_id || null,
+      note: s.note, needs_receipt: s.needs_receipt === true, status: s.status || 'sent', kind: s.kind || 'other', report_id: s.report_id || null,
       created_at: s.created_at,
       /* who answered it (migration 064) */
       acknowledged_by_name: s.acknowledged_by_name || '', acknowledged_by_office: s.acknowledged_by_office || '',
@@ -435,7 +435,7 @@ const Repo = (function () {
       let reportsQuery = c.from('reports_feed').select('*').order('created_at', { ascending: false }).limit(300);
 
       const [reports, advisories, centers, hotlines, notifications, subscriptions, assignments, relief, beneficiaries, guides, faqs, roadWork, roadStatus,
-             dispatches, units, ratings, sos] = await Promise.all([
+             dispatches, units, ratings, sos, municipalRequests, stock] = await Promise.all([
         reportsQuery,
         c.from('advisories').select('*').order('published_at', { ascending: false }).limit(100),
         c.from('evacuation_centers').select('*').order('name'),
@@ -458,7 +458,9 @@ const Repo = (function () {
         /* the SOS log rides the same refresh, so a new SOS shows on the LGU and
            barangay consoles (and rings) the moment Realtime reports it; RLS
            limits officials to their barangay and residents to their own */
-        c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100)
+        fetchSosInbox(c),
+        c.from('barangay_dispatch_requests').select('*').order('requested_at', { ascending: false }),
+        ['lgu_ldrrmc','barangay_official'].includes(role) ? c.rpc('read_relief_stock') : Promise.resolve({ data: null })
       ]);
       /* load change requests in parallel — the Super Admin hotlines page and
          the LGU/BO "your pending requests" section both read this. */
@@ -475,7 +477,7 @@ const Repo = (function () {
       if (reports.error) throw reports.error;
 
       const sig = JSON.stringify([reports, advisories, centers, hotlines, notifications, subscriptions, assignments,
-        relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings, sos]
+        relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings, sos, municipalRequests, stock]
         .map((r) => r && (r.error ? 'error' : [r.data, r.count]))
         .concat([UG.DATA.changeRequests || null]));
       if (opts.silent && sig === lastDataSig && state.hasSynced && state.source === 'supabase') {
@@ -498,6 +500,12 @@ const Repo = (function () {
         row.rating = ratingOf[r.id] || null;
         return row;
       });
+      UG.DATA.reliefInventoryReady = !!stock.data && !stock.error;
+      if (stock.data && !stock.error) {
+        UG.DATA.inventory = stock.data.inventory || [];
+        UG.DATA.distributionLog = stock.data.records || [];
+      }
+      if (!municipalRequests.error) UG.DATA.municipalDispatchRequests = municipalRequests.data || [];
       if (sos && !sos.error) UG.DATA.sosLog = (sos.data || []).map(toSos);
       if (dispatches && !dispatches.error) {
         const byReport = {};
@@ -589,8 +597,8 @@ const Repo = (function () {
      refresh back while someone is typing (setRefreshGate); the held refresh
      runs on the next poll, focus change or visibility change. */
   const WATCHED = ['reports', 'report_corroborations', 'report_assignments', 'advisories', 'notifications',
-    'evacuation_centers', 'relief_distributions', 'authorized_beneficiaries', 'preparedness_guides', 'faqs',
-    'road_work_posts', 'road_status', 'sos_log', 'change_requests', 'report_dispatches', 'report_ratings',
+    'evacuation_centers', 'relief_distributions', 'relief_inventory', 'relief_distribution_log', 'authorized_beneficiaries', 'preparedness_guides', 'faqs',
+    'road_work_posts', 'road_status', 'sos_log', 'sos_staff_receipts', 'barangay_dispatch_requests', 'change_requests', 'report_dispatches', 'report_ratings',
     /* hotline edits by the Super Admin reach every portal live (published in 001) */
     'emergency_hotlines'];
   let refreshTimer = null;
@@ -644,7 +652,7 @@ const Repo = (function () {
           /* the page can ring the alarm from the new row itself, before the
              refresh lands (js/app.js listens for ug:realtime) */
           try { document.dispatchEvent(new CustomEvent('ug:realtime', { detail: { table: t, type: payload && payload.eventType, row: payload && payload.new } })); } catch (e) { }
-          scheduleRefresh(/^(notifications|sos_log|reports)$/.test(t) ? 0 : undefined);
+          scheduleRefresh(/^(notifications|sos_log|sos_staff_receipts|reports)$/.test(t) ? 0 : undefined);
         });
       channels[t] = ch;
       ch.subscribe((status) => {
@@ -1203,12 +1211,38 @@ const Repo = (function () {
   }
 
   /* -------------------------------------------------------------- admin ops */
+  async function writeReliefStock(operation, parameters) {
+    const c = client();
+    if (!c) throw new Error('Connect to Supabase to update the relief ledger');
+    const { error } = await c.rpc(operation, parameters);
+    if (error) fail(error);
+    await loadAll({ silent: true });
+  }
+
   async function listUsers() {
     const c = client();
     if (!c) return [];
-    const { data, error } = await c.from('profiles').select('*').order('created_at', { ascending: false }).limit(200);
+    const { data, error } = await c.from('profiles').select('*').is('removed_at', null).order('created_at', { ascending: false }).limit(200);
     if (error) fail(error);
     return data || [];
+  }
+
+  async function adminAccountDirectory(input) {
+    const c = client();
+    if (!c) return null;
+    const { data, error } = await c.rpc('admin_account_directory', {
+      p_search: input.query, p_role: input.role, p_status: input.status, p_page: input.page
+    });
+    if (error) fail(error);
+    return data;
+  }
+
+  async function adminEditStaffAccount(input) {
+    const c = client();
+    if (!c) throw new Error('Connect to the server to edit accounts');
+    const { data, error } = await c.rpc('admin_edit_staff_account', input);
+    if (error) fail(error);
+    return data;
   }
 
   async function adminUsers(action, payload) {
@@ -1220,7 +1254,7 @@ const Repo = (function () {
        The edge function reads this and forwards it to Supabase Auth's
        inviteUserByEmail(). */
     const body = Object.assign({ action: action }, payload || {});
-    if (action === 'create' || action === 'unit-invite') {
+    if (action === 'create' || action === 'unit-invite' || action === 'resend-invitation') {
       body.redirectUrl = (typeof window !== 'undefined' ? window.location.origin : '') || UG_CONFIG.APP_PUBLIC_URL;
     }
     const { data, error } = await c.functions.invoke('admin-users', { body: body });
@@ -1377,7 +1411,7 @@ const Repo = (function () {
       /* offline preview: behave like the old dispatchReport path */
       return dispatchReport(reportUuid, input);
     }
-    const { data, error } = await c.rpc('dispatch_report_v2', {
+    const params = {
       p_report_id: reportUuid,
       p_team: input.team,
       p_instructions: input.instructions,
@@ -1385,7 +1419,10 @@ const Repo = (function () {
       p_unit_id: input.unit_id || null,
       p_target_barangay_id: input.target_barangay_id || null,
       p_equipment_ids: input.equipment_ids || null
-    });
+    };
+    if (input.supportRequestId) params.p_request_id = input.supportRequestId;
+    const { data, error } = await c.rpc(input.supportRequestId ? 'dispatch_requested_support' : 'dispatch_report_v2', params);
+    if (input.supportRequestId && !error) await loadDispatchDirectory();
     if (error) fail(error);
     await loadAll();
     await loadDispatches(reportUuid);
@@ -1649,11 +1686,22 @@ const Repo = (function () {
     loadAll({ silent: true }).catch(() => { });
     return data;
   }
+  async function fetchSosInbox(c) {
+    const [latest, pending] = await Promise.all([
+      c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100),
+      c.rpc('list_pending_sos_receipts')
+    ]);
+    if (pending.error) return pending;
+    const rows = new Map((latest.data || []).map((row) => [row.id, row]));
+    for (const row of pending.data || []) rows.set(row.id, { ...row, needs_receipt: true });
+    return { data: Array.from(rows.values()), error: null };
+  }
+
   async function listSos() {
     const c = client();
     if (!c) return [];
-    const { data, error } = await c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100);
-    if (error) return [];
+    const { data, error } = await fetchSosInbox(c);
+    if (error) fail(error);
     return (data || []).map(toSos);
   }
 
@@ -1669,7 +1717,14 @@ const Repo = (function () {
     }
     const { data, error } = await c.rpc('update_sos_status', { p_sos_id: sosId, p_status: status });
     if (error) fail(error);
-    UG.DATA.sosLog = await listSos();
+    if (status === 'acknowledged') {
+      const row = (UG.DATA.sosLog || []).find((s) => s.id === sosId);
+      if (row) {
+        row.needs_receipt = false;
+        row.status = data.status;
+      }
+    }
+    try { UG.DATA.sosLog = await listSos(); } catch (e) { }
     emit();
     return data;
   }
@@ -1794,7 +1849,7 @@ const Repo = (function () {
     createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,
     markRead, markAllRead, listBarangays,
     declareEmergency, subscribedDeviceCount,
-    analytics, analyticsFromViews, listUsers, adminUsers, listAudit, listResponders, assignResponder,
+    analytics, analyticsFromViews, writeReliefStock, listUsers, adminUsers, adminAccountDirectory, adminEditStaffAccount, listAudit, listResponders, assignResponder,
     dispatchReport, dispatchReportV2, loadDispatches, loadDispatchDirectory,
     /* change request workflow (master prompt · Emergency Hotlines approval) */
     loadChangeRequests, submitChangeRequest, approveChangeRequest, rejectChangeRequest,
@@ -1806,7 +1861,7 @@ const Repo = (function () {
     submitSos, listSos, updateSosStatus, listOthersReview,
     listLguEscalationQueue, lguVerifyOverdueReport,
     logClientError,
-    toIncident, toAdvisory, toCenter, toHotline, toNotification, posFrom,
+    toIncident, toAdvisory, toCenter, toHotline, toNotification, toSos, posFrom,
     toRelief, toBeneficiary, toGuide, toFaq, toRoadWork, toRoadStatus
   };
 })();

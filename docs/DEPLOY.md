@@ -13,51 +13,94 @@ plain HTML, CSS and classic scripts.
 HTTPS is required, not optional: service workers, geolocation and web push are all
 restricted to secure origins. `localhost` is treated as secure for testing.
 
+## Dispatch staff and response assignments upgrade
+
+For an existing project with migrations through 067, apply
+`migrations/068_dispatch_staff_and_assignments.sql`, deploy the updated
+`admin-users` Edge Function, then publish the updated static files.
+
+Use **Operations → Dispatch units** to create units independently of staff
+invitations. Then use **Accounts → New account** to assign staff access. Each
+barangay already represents its own response team through its barangay ID.
+Hospitals can accept patient notices independently of ambulance deployment.
+
+The first assignment on an incident is labeled **Lead** and additional
+assignments are labeled **Support**. For a request from a deployed team, open
+**Dispatch help requests**, acknowledge it, then choose **Assign backup**.
+For an SOS without a linked report, confirm the location and link the matching
+incident before assigning teams.
+
+## Persistent SOS alerts upgrade
+
+Apply `migrations/069_persistent_sos_acknowledgements.sql` after 068, then publish
+the updated static files. Open an LGU or barangay console and enable browser
+audio. An eligible staff account's SOS alarm repeats every five seconds while
+the console can play audio, until that account acknowledges all its pending
+SOS alerts. The first acknowledgment updates the shared incident and notifies
+the sender. Unanswered SOS alerts stay open for staff follow-up. Dispatch units
+receive assignment alerts for their own units.
+
+## Dispatch alarms and resident response tracking upgrade
+
+Apply `migrations/070_resident_response_tracking.sql` after 069, then publish the
+static files. Keep the dispatch console open with audio enabled. A new assignment
+rings on its assigned unit's console until the crew acknowledges it or the
+assignment is declined or rerouted.
+
+On the responding phone, open the assignment, acknowledge it, and choose
+**Share location for this response**. Allow location access and keep UniGuard
+open. Residents can open **My Reports → report details** or use the SOS tracker
+to see the incident pin, the latest shared team positions, status, and the
+dispatcher-provided ETA. Test with an actual dispatch handset and an independent
+resident device on the deployed site.
+
+## Super Admin account reliability upgrade
+
+Apply `072_super_admin_account_reliability.sql` after 071. Deploy the updated
+`admin-users` Edge Function before publishing the new static files. Verify the
+PostgREST pre-request hook is `public.enforce_account_session`. If the project
+already uses a custom hook, call this function from it before rollout.
+
+Disabling a staff account revokes stored sessions and blocks their old access
+tokens at the API. Re-enabling lets the person sign in again. Test from two
+separate browser sessions and verify the account can sign in fresh after being
+enabled. Search for an older account and check that pagination and status filters
+match. Pending invitations can send a fresh password setup link through the
+Supabase password recovery flow. Verify the SMTP provider, allowed redirect URL,
+email arrival and acceptance using a staging account.
+
+## Dispatch authority upgrade
+
+Apply `073_dispatch_authority_hierarchy.sql` after 072, then publish the matching
+static files. Barangay officials can send their own Barangay Response Team or
+request a municipal unit from an incident. MDRRMO duty staff review requests in
+**Dispatch Units → Municipal dispatch requests** and dispatch from the linked
+incident. Manual municipal assignment and incident response decisions belong to
+duty staff. The Super Admin manages accounts, configuration, and oversight.
+Existing automatic SOS response rules continue to run.
+
+## Shared relief inventory
+
+Apply `074_shared_relief_inventory.sql` after 073 and publish the updated site.
+MDRRMO duty staff can maintain shared stock and void incorrect distributions.
+Barangay officials can record distributions for their own barangay. A void
+restores stock and preserves the original record for audit. Existing database
+records are preserved. Browser preview stock is sample data and is not imported.
+
 ## 1. Database
 
-Run the migrations in order in the Supabase SQL editor, or with the CLI.
+For a fresh database, run the files in `migrations/` in filename order, from
+`001_align_core_tables.sql` through `074_shared_relief_inventory.sql`.
+`000_inspect_current_schema.sql` is an optional read-only inspection. Use the SQL
+editor and keep a record of the **full filename** applied. Enable `pg_trgm` before
+011. Both `045_*` files
+must run separately. Before running 043, create the first Super Admin account
+and make sure its email matches the bootstrap email in that migration.
 
-```bash
-# SQL editor: paste each file in turn
-#   migrations/000_inspect_current_schema.sql   (read only)
-#   migrations/001_align_core_tables.sql
-#   migrations/002_report_workflow.sql
-#   migrations/003_notifications_audit.sql
-#   migrations/004_rls_policies.sql
-#   migrations/005_storage_bucket.sql
-#   migrations/006_auth_profile_and_roles.sql
-#   migrations/007_report_rpcs.sql
-#   migrations/008_analytics_views.sql
-#   migrations/009_hardening.sql
-#   migrations/010_hazard_types.sql
-#   migrations/011_relief_assistance.sql
-#   migrations/012_road_works.sql
-#   migrations/013_faqs.sql
-#   migrations/014_preparedness_guides.sql
-#   migrations/015_urgent_alert_acks.sql
-#   migrations/016_sos_log.sql
-#   migrations/017_road_status.sql
-#   migrations/018_others_review.sql
-#   migrations/019_beneficiaries_privacy.sql
-#   migrations/020_report_barangay_pick.sql
-#   migrations/021_allow_backend_profile_ch*.sql   (use the full file name in your repo)
-#   migrations/022_auto_verify_on_report.sql
-#   migrations/023_reports_feed_is_mine.sql
-#   migrations/024_analytics_invoker.sql
-#   migrations/025_corroboration_radius.sql
-#   migrations/026_scope_reads_by_barangay.sql
-#   migrations/027_report_edit_guard.sql
-#   migrations/028_status_flow.sql
-#   migrations/029_barangay_scoping.sql
-#   migrations/030_barangay_routing.sql
-#   migrations/031_road_status_full.sql
-#   migrations/032_guides_v2.sql
-#   migrations/033_audit_coverage.sql
-
-# or with the CLI (copy migrations into supabase/migrations first)
-supabase link --project-ref <your-project-ref>
-supabase db push
-```
+For an existing database, confirm the last applied full filename and apply
+only later files. For an installation at 070, apply 071. Deploy the relevant
+Edge Functions and their secrets before publishing the matching static files.
+The SQL editor sequence avoids the duplicate version prefix in legacy files.
 
 Then, in development or staging only:
 
@@ -165,20 +208,43 @@ Rate limit buckets are pruned by `public.cleanup_rate_limits()`. Call it nightly
 select cron.schedule('uniguard-cleanup', '0 4 * * *', $$select public.cleanup_rate_limits()$$);
 ```
 
-## 7. Optional: database webhook for push
+## 7. Background SOS and dispatch delivery
 
-Instead of the app calling `push-dispatch`, wire it to the database so every
-advisory triggers a push regardless of which client published it.
+Deploy the queue worker with its own bearer secret.
 
-Dashboard → Database → Webhooks → Create:
+```bash
+supabase secrets set EMERGENCY_WORKER_SECRET='<a-long-random-secret>'
+supabase functions deploy emergency-delivery --no-verify-jwt
+```
 
-| Field    | Value                  |
-| -------- | ---------------------- |
-| Table    | `notifications`        |
-| Events   | `insert`               |
-| Type     | Supabase Edge Function |
-| Function | `push-dispatch`        |
-| Method   | POST                   |
+Configure the existing VAPID keys and SMS gateway secrets for the worker.
+The SMS provider must accept the JSON contract in the Edge Function and should
+honor the Idempotency-Key header. Staff need a push subscription or a valid
+phone number. Providers accepting a message does not establish acknowledgment.
+
+Enable Supabase Cron, pg_net, and Vault in the project. Store the full worker
+URL as `uniguard_emergency_worker_url` and the same bearer secret as
+`uniguard_emergency_worker_secret` in Vault, then schedule the following in
+the SQL editor. Keep the cron job active on the deployed environment.
+
+```sql
+select cron.schedule('uniguard-emergency-delivery', '* * * * *', $job$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'uniguard_emergency_worker_url'),
+    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' ||
+      (select decrypted_secret from vault.decrypted_secrets where name = 'uniguard_emergency_worker_secret')),
+    body := '{}'::jsonb
+  );
+$job$);
+```
+
+In-app alerting remains immediate. Background delivery starts on the next
+worker run and may be delayed by queue volume or provider availability. Only
+new SOS and dispatch events enter the queue. Failed deliveries appear in the
+LGU notification inbox for duty-phone or radio follow-up. In staging, check
+that the provider accepts a push with the device app closed, check SMS on a
+staff account without working push, and check the failure alert with neither
+channel configured. Verify acknowledgment separately in UniGuard.
 
 ## 8. Verification after deploy
 

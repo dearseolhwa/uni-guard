@@ -62,10 +62,10 @@ const UG_RELIEF = (function () {
   ];
 
   function ensureInventory() {
+    if (typeof Repo !== 'undefined' && Repo.client()) return;
     if (!UG.DATA.inventory) UG.DATA.inventory = JSON.parse(JSON.stringify(DEFAULT_INVENTORY));
     if (!UG.DATA.distributionLog) UG.DATA.distributionLog = JSON.parse(JSON.stringify(DEFAULT_DISTRIBUTIONS_LOG));
   }
-  ensureInventory();
 
   /* low-stock = stock <= reorder. Pre-computed so the dashboard and the alert
      banner can both read the same source without re-filtering everywhere. */
@@ -238,6 +238,10 @@ const UG_RELIEF = (function () {
       U.badge(authorized ? 'open' : 'id', authorized ? 'Self' : 'Rep') + '</div>';
   }
     /* officials only manage their own barangay; LGU sees everything */
+  function canManageStock(session) {
+    return !!(UG.DATA.reliefInventoryReady && session && session.role === 'lgu_ldrrmc' && !session.superAdmin);
+  }
+
   function scopedBrgy(st) {
     const s = st.session;
     return s && s.role === 'barangay_official' ? (s.barangay || '__none__') : null;
@@ -266,18 +270,16 @@ const UG_RELIEF = (function () {
   function visibleInventory(st) {
     ensureInventory();
     const mine = scopedBrgy(st);
-    const all = (UG.DATA.inventory || []).filter((i) => !mine || (i.barangay || 'LDRRMO Warehouse') === mine || !i.barangay);
+    const all = UG.DATA.inventory || [];
     const cat = st.invCatFilter || 'all';
     const q = (st.invSearch || '').trim().toLowerCase();
-    const brgyFilter = mine ? mine : (st.invBrgyFilter || 'All');
     const list = all.filter((i) => cat === 'all' || i.category === cat)
       .filter((i) => !q ||
         (i.name || '').toLowerCase().indexOf(q) >= 0 ||
         (i.id || '').toLowerCase().indexOf(q) >= 0 ||
         (i.location || '').toLowerCase().indexOf(q) >= 0 ||
-        (i.supplier || '').toLowerCase().indexOf(q) >= 0)
-      .filter((i) => mine || brgyFilter === 'All' || (i.barangay || '') === brgyFilter);
-    return { all: all, list: list, cat: cat, q: q, brgyFilter: brgyFilter, mine: mine };
+        (i.supplier || '').toLowerCase().indexOf(q) >= 0);
+    return { all: all, list: list, cat: cat, q: q, mine: mine };
   }
   function visibleRecords(st) {
     ensureInventory();
@@ -309,11 +311,12 @@ const UG_RELIEF = (function () {
     const tab = st.reliefTab || 'distributions';
     const mine = scopedBrgy(st);
     const low = lowStockItems();
+    const canRecord = UG.DATA.reliefInventoryReady && st.session && !st.session.superAdmin;
     const sub = mine ? 'Distribution schedules, beneficiaries, relief stock and what was handed out in Barangay ' + mine + '.'
       : 'Manage distributions, track stock levels, and record every pack handed out per barangay and family.';
     const main = tab === 'distributions' ? '<button class="ug-btn ug-btn--signal rl-main"' + A('relief-add') + '>' + I('plus', 15) + 'Add Distribution</button>'
-      : tab === 'inventory' ? '<button class="ug-btn ug-btn--signal rl-main"' + A('inv-add') + '>' + I('plus', 15) + 'Add item</button>'
-      : '<button class="ug-btn ug-btn--signal rl-main"' + A('rec-add') + '>' + I('plus', 15) + 'Record distribution</button>';
+      : tab === 'inventory' ? (canManageStock(st.session) ? '<button class="ug-btn ug-btn--signal rl-main"' + A('inv-add') + '>' + I('plus', 15) + 'Add item</button>' : '')
+      : canRecord ? '<button class="ug-btn ug-btn--signal rl-main"' + A('rec-add') + '>' + I('plus', 15) + 'Record distribution</button>' : '';
     const lowLine = low.length
       ? U.note('relief-low', low.map((i) => i.id + ':' + i.stock).join(','), 'alert', low.length + ' ' + (low.length === 1 ? 'item is' : 'items are') + ' at or below the reorder point',
           low.slice(0, 3).map((i) => esc(i.name) + ' (' + i.stock + ' ' + esc(i.unit) + ')').join(' · ') + (low.length > 3 ? ' · +' + (low.length - 3) + ' more' : ''),
@@ -408,6 +411,12 @@ const UG_RELIEF = (function () {
      figures, category pills with counts + search, the low-stock note, then
      the items grouped by category, each with a stock bar against its
      reorder point and Distribute / Restock / Edit. */
+  function stockSourceNote() {
+    if (UG.DATA.reliefInventoryReady && navigator.onLine !== false) return '';
+    return '<p class="ug-note">' + (Repo.client() ? 'Shared ledger unavailable or offline. Stock shown may be outdated.' :
+      'Preview data. Connect to Supabase to use the shared ledger.') + '</p>';
+  }
+
   function dInventory(st) {
     const vis = visibleInventory(st);
     const all = vis.all, cat = vis.cat, list = vis.list, mine = vis.mine, q = vis.q;
@@ -415,11 +424,9 @@ const UG_RELIEF = (function () {
     const totalUnits = all.reduce((n, i) => n + (i.stock || 0), 0);
     const cats = [['all', 'All', all.length]].concat(INV_CATEGORIES.map((c) => [c, c, all.filter((i) => i.category === c).length]).filter((c) => c[2] > 0));
     const groups = INV_CATEGORIES.concat(['Other']).map((c) => ({ c: c, items: list.filter((i) => (INV_CATEGORIES.indexOf(i.category) >= 0 ? i.category : 'Other') === c) })).filter((g) => g.items.length);
-    return '<section class="rl-card">' +
+    return stockSourceNote() + '<section class="rl-card">' +
       '<div class="rl-ch"><h2>' + I('layers', 15) + 'Resource Inventory</h2><div class="rl-ch-r">' +
-        (mine ? '<span class="rl-count">' + I('pin', 12) + esc(mine) + '</span>'
-          : '<select class="rl-in rl-sel rl-sel--sm" data-field="invBrgyFilter" aria-label="Filter by barangay"><option value="All">All barangays</option>' +
-              (U.DATA.barangays || []).map((b) => '<option value="' + esc(b) + '"' + (st.invBrgyFilter === b ? ' selected' : '') + '>Brgy. ' + esc(b) + '</option>').join('') + '</select>') +
+        '<span class="rl-count">Shared warehouse stock</span>' +
         '<button class="rl-ghost"' + A('inv-download') + (all.length ? '' : ' disabled') + '>' + I('download', 13) + 'CSV</button>' +
       '</div></div>' +
       '<div class="rl-body">' +
@@ -449,12 +456,12 @@ const UG_RELIEF = (function () {
             { tone: 'glass' }) : '') +
         (!all.length ? '<p class="rl-muted">No items yet. Add the goods the LDRRMO keeps in its warehouses.</p>'
           : !groups.length ? '<p class="rl-muted">No items match. Try another category or search.</p>'
-          : groups.map((g) => '<div class="rl-group"><h3>' + esc(g.c) + '</h3><ul>' + g.items.map(invRow).join('') + '</ul></div>').join('')) +
+          : groups.map((g) => '<div class="rl-group"><h3>' + esc(g.c) + '</h3><ul>' + g.items.map((item) => invRow(item, st.session)).join('') + '</ul></div>').join('')) +
       '</div>' +
     '</section>';
   }
 
-  function invRow(i) {
+  function invRow(i, session) {
     const isLow = (i.stock || 0) <= (i.reorder || 0);
     const pct = i.reorder > 0 ? Math.min(100, Math.round((i.stock || 0) / (i.reorder * 2) * 100)) : 100;
     return '<li class="rl-inv' + (isLow ? ' is-low' : '') + '">' +
@@ -463,9 +470,9 @@ const UG_RELIEF = (function () {
         '<div class="rl-bar"><i style="width:' + Math.max(pct, (i.stock || 0) > 0 ? 4 : 0) + '%"></i></div></div>' +
       '<div class="rl-inv-r"><span class="rl-mono rl-qty">' + (i.stock || 0).toLocaleString() + ' ' + esc(i.unit || '') + '<em>/ reorder ' + (i.reorder || 0) + '</em></span>' +
         '<div class="rl-acts">' +
-          '<button class="rl-ghost" data-act="rec-add" data-item="' + esc(i.id) + '"' + ((i.stock || 0) <= 0 ? ' disabled' : '') + ' title="Record goods handed out">' + I('download', 12) + 'Distribute</button>' +
-          '<button class="rl-ghost" data-act="inv-restock" data-id="' + esc(i.id) + '">' + I('plus', 12) + 'Restock</button>' +
-          '<button class="rl-icon" data-act="inv-edit" data-id="' + esc(i.id) + '" title="Edit" aria-label="Edit ' + esc(i.name) + '">' + I('settings', 13) + '</button>' +
+          (UG.DATA.reliefInventoryReady && session && !session.superAdmin ? '<button class="rl-ghost" data-act="rec-add" data-item="' + esc(i.id) + '"' + ((i.stock || 0) <= 0 ? ' disabled' : '') + ' title="Record goods handed out">' + I('download', 12) + 'Distribute</button>' : '') +
+          (canManageStock(session) ? '<button class="rl-ghost" data-act="inv-restock" data-id="' + esc(i.id) + '">' + I('plus', 12) + 'Restock</button>' +
+          '<button class="rl-icon" data-act="inv-edit" data-id="' + esc(i.id) + '" title="Edit" aria-label="Edit ' + esc(i.name) + '">' + I('settings', 13) + '</button>' : '') +
         '</div></div>' +
     '</li>';
   }
@@ -511,8 +518,8 @@ const UG_RELIEF = (function () {
         '</div>',
       footer:
         '<button class="ug-btn" data-modal-close>Close</button>' +
-        '<button class="ug-btn ug-btn--ghost" data-act="inv-restock" data-id="' + esc(i.id) + '">' + I('plus', 13) + 'Restock</button>' +
-        '<button class="ug-btn ug-btn--signal" data-act="inv-edit" data-id="' + esc(i.id) + '">' + I('settings', 13) + 'Edit</button>'
+        (canManageStock(typeof Auth !== 'undefined' && Auth.state.session) ? '<button class="ug-btn ug-btn--ghost" data-act="inv-restock" data-id="' + esc(i.id) + '">' + I('plus', 13) + 'Restock</button>' +
+        '<button class="ug-btn ug-btn--signal" data-act="inv-edit" data-id="' + esc(i.id) + '">' + I('settings', 13) + 'Edit</button>' : '')
     });
   }
 
@@ -571,7 +578,7 @@ const UG_RELIEF = (function () {
     const perRows = Object.keys(per).sort((x, y) => per[y] - per[x]);
     const max = perRows.length ? per[perRows[0]] : 1;
     const total = filtered.reduce((n, r) => n + (r.qty || 0), 0);
-    return '<section class="rl-card">' +
+    return stockSourceNote() + '<section class="rl-card">' +
       '<div class="rl-ch"><h2>' + I('doc', 15) + 'Distribution Records</h2><div class="rl-ch-r">' +
         (mine ? '<span class="rl-count">' + I('pin', 12) + esc(mine) + '</span>'
           : '<select class="rl-in rl-sel rl-sel--sm" data-field="recBrgyFilter" aria-label="Filter by barangay">' + barangays.map((b) => '<option value="' + esc(b) + '"' + (brgyFilter === b ? ' selected' : '') + '>' + (b === 'All' ? 'All barangays' : 'Brgy. ' + esc(b)) + '</option>').join('') + '</select>') +
@@ -582,16 +589,16 @@ const UG_RELIEF = (function () {
           (perRows.length ? '<ul class="rl-per">' + perRows.map((b) => '<li><div><span>' + esc(b) + '</span><b class="rl-mono">' + per[b].toLocaleString() + '</b></div><div class="rl-bar"><i style="width:' + Math.max(4, Math.round(per[b] / max * 100)) + '%"></i></div></li>').join('') + '</ul>'
             : '<p class="rl-muted">No distributions recorded yet.</p>') + '</div>' +
         '<div><h3 class="rl-h3">Goods handed out<em>' + filtered.length + ' records</em></h3>' +
-          (filtered.length ? '<ul class="rl-log">' + filtered.map(recRow).join('') + '</ul>' : '<p class="rl-muted">No distribution records.</p>') + '</div>' +
+          (filtered.length ? '<ul class="rl-log">' + filtered.map((record) => recRow(record, st.session)).join('') + '</ul>' : '<p class="rl-muted">No distribution records.</p>') + '</div>' +
       '</div>' +
     '</section>';
   }
 
-  function recRow(r) {
+  function recRow(r, session) {
     return '<li><div class="rl-log-t"><b>' + (r.qty || 0).toLocaleString() + ' × ' + esc(r.item_name || 'Removed item') + '</b>' +
       '<small>' + esc(r.family || '—') + ' · Brgy. ' + esc(r.barangay || '—') + '</small>' +
       '<small class="rl-faint">' + esc(fmtDateTime(r.distributed_at)) + (r.distributed_by ? ' · ' + esc(r.distributed_by) : '') + '</small></div>' +
-      '<button class="rl-icon" data-act="rec-del" data-id="' + esc(r.id) + '" title="Remove record" aria-label="Remove record">' + I('x', 13) + '</button></li>';
+      (canManageStock(session) ? '<button class="rl-icon" data-act="rec-del" data-id="' + esc(r.id) + '" title="Void record" aria-label="Void record">' + I('x', 13) + '</button>' : '') + '</li>';
   }
 
   function head(title, sub, actions) {

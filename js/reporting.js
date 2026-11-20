@@ -319,7 +319,7 @@ const UG_REPORTING = (function () {
   const columnsOf = (s) => s.head.map((h, i) => ({ label: h, type: (s.types || [])[i] || 'text', width: (s.widths || [])[i] }));
   const periodText = () => X().periodLabel(state.from, state.to) || 'All dates';
   const DEVICE_NOTICE = 'Damage assessments and the situation report register in this document are saved on this device only (migration 044 not yet applied). They are not shared with other devices.';
-  const STOCK_NOTICE = 'Relief stock on hand and the distribution log are kept in this browser session (they are not yet stored in the database). Treat those figures as a working record, not an official inventory.';
+  const STOCK_NOTICE = 'Relief stock and distribution data could not be refreshed. Verify the shared ledger before using these figures.';
 
   function guardRole() {
     return X().validateScope({ roles: ['lgu_ldrrmc', 'barangay_official'] });
@@ -359,7 +359,7 @@ const UG_REPORTING = (function () {
     if (state.remarks.trim()) sections.push({ key: 'remarks', name: 'XII. Remarks and actions taken', note: 'As entered by the preparer.', head: ['Remarks'], types: ['longtext'], widths: [110], rows: [[state.remarks.trim()]] });
     const total = built.counts.incidents;
     const notices = [ref.note, 'Undated records are always included; a record is otherwise included when its date falls within the reporting period. Evacuation centers, stock and road status are as of the time of export.',
-      state.dnaMode === 'server' ? '' : DEVICE_NOTICE, STOCK_NOTICE];
+      state.dnaMode === 'server' ? '' : DEVICE_NOTICE, UG.DATA.reliefInventoryReady && navigator.onLine !== false ? '' : STOCK_NOTICE];
     const meta = X().buildMetadata({
       title: ref.title, kind: 'Situation Report', module: 'Reports and Documentation \u00b7 Situation Report', reference: ref.reference,
       scope: scopeLabel(), from: state.from, to: state.to, period: periodText(),

@@ -61,7 +61,7 @@
     reliefFilter: 'All', benSearch: '', benSearchLgu: '', benBarangayFilter: 'All',
     /* inventory search box (module E) + LGU barangay filter on the
        inventory tab (barangay_official is locked to their own barangay) */
-    invSearch: '', invBrgyFilter: 'All',
+    invSearch: '',
     /* search boxes for other admin modules (dispatch units, users, shelters, road status) */
     unitSearch: '', userSearch: '', shelterSearch: '', rsSearch: '',
     /* audit log filters: extra fields for the enhanced Activity Log */
@@ -242,6 +242,7 @@
     S.offline = !UG_PWA.state.online || Repo.state.source === 'offline';
     UG.DATA.queueCount = UG_PWA.state.queued;
 
+    const responseMap = q('[data-response-report]');
     if (!S.session) {
       root.innerHTML = '<div class="ug-stage ug-stage--auth">' + UG_AUTH.authScreen(S) + '</div>';
     } else {
@@ -249,6 +250,10 @@
       const stage = (S.session.role === 'citizen' && !isWide()) ? 'ug-stage ug-stage--m' : 'ug-stage ug-stage--d';
       root.innerHTML = '<div class="' + stage + '">' + UG_SCREENS.frame(st) + '</div>';
     }
+
+    const nextResponseMap = q('[data-response-report]');
+    if (responseMap && nextResponseMap && responseMap.dataset.responseReport === nextResponseMap.dataset.responseReport &&
+        MapView.owns(responseMap)) nextResponseMap.replaceWith(responseMap);
 
     /* keep the address bar on the screen being shown (one history entry
        per screen), and remember which item a detail screen showed so
@@ -381,6 +386,7 @@
     const incs = only ? [only] : (UG.DATA.incidents || []);
     const out = [];
     incs.forEach((i) => {
+      if (['resolved', 'rejected'].includes(i.status)) return;
       (byReport[i.uuid] || []).forEach((d) => {
         if (d.last_lat == null || d.last_lng == null) return;
         if (d.dispatch_status === 'done' || d.dispatch_status === 'declined') return;
@@ -417,6 +423,14 @@
     } catch (e) { }
   }
 
+  function fitResponseMap(incident) {
+    const map = MapView.getMap();
+    if (!map || !incident) return;
+    const points = [incident, ...respondingUnits(incident)].filter((point) =>
+      Number.isFinite(point.lat) && Number.isFinite(point.lng)).map((point) => [point.lat, point.lng]);
+    if (points.length) map.fitBounds(points, { padding: [36, 36], maxZoom: 16 });
+  }
+
   async function mountMaps() {
     const live = q('[data-map="live"]');
     const detail = q('[data-map="detail"]');
@@ -427,7 +441,7 @@
     if (live) targets.push({ el: live, key: 'live', centers: true });
     if (detail && S.openId) {
       const inc = (UG.DATA.incidents || []).find((i) => i.id === S.openId || i.uuid === S.openId);
-      targets.push({ el: detail, key: 'detail:' + S.openId + ':' + (S.offline ? 'o' : 'n'), only: inc });
+      if (inc) targets.push({ el: detail, key: 'detail:' + inc.uuid, only: inc, tracking: !!detail.dataset.responseReport });
     }
     if (report) {
       /* the citizen report form's mini drag-to-adjust pin */
@@ -456,7 +470,14 @@
       if (t.only) {
         if (t.el.dataset.mounted === t.key) {
           /* already showing: move the responding teams in place */
-          if (MapView.owns(t.el)) MapView.setUnits(respondingUnits(t.only));
+          if (MapView.owns(t.el)) {
+            const teams = respondingUnits(t.only);
+            MapView.setUnits(teams);
+            if (t.tracking && teams.length && t.el.dataset.hasTeamFix !== 'true') {
+              t.el.dataset.hasTeamFix = 'true';
+              fitResponseMap(t.only);
+            }
+          }
           continue;
         }
         t.el.dataset.mounted = t.key;
@@ -464,10 +485,12 @@
         await MapView.mount(t.el, {
           incidents: [t.only],
           units: t.only ? respondingUnits(t.only) : [],
-          relief: UG.DATA.relief || [],
-          roadStatus: UG.DATA.roadStatus || [],
+          relief: t.tracking ? [] : UG.DATA.relief || [],
+          roadStatus: t.tracking ? [] : UG.DATA.roadStatus || [],
+          fit: t.tracking,
           zoom: 15
         });
+        if (t.tracking && respondingUnits(t.only).length) t.el.dataset.hasTeamFix = 'true';
         MapView.invalidate();
         continue;
       }
@@ -606,7 +629,7 @@
     }
     if (route === 'sos') {
       /* the LGU console SOS screen reads the recent SOS log; refresh on entry */
-      try { UG.DATA.sosLog = await Repo.listSos(); } catch (e) { UG.DATA.sosLog = []; }
+      try { UG.DATA.sosLog = await Repo.listSos(); } catch (e) { }
       render();
       return;
     }
@@ -712,6 +735,13 @@
     ? UG_SUPERADMIN.ROUTE
     : ((S.session && UG_WEB.ROLE_INFO[S.session.role].home) || 'home');
   function enterApp(session, message) {
+    if (!S.session || S.session.id !== session.id) {
+      UG.DATA.sosLog = [];
+      UG.DATA.inventory = [];
+      UG.DATA.distributionLog = [];
+      UG.DATA.reliefInventoryReady = false;
+      UG_ALARM.stopPendingSos();
+    }
     S.session = session;
     S.screen = 'app';
     if (session.barangay && UG_GEO.BARANGAYS.indexOf(session.barangay) !== -1) {
@@ -1318,7 +1348,8 @@
      form showed no units and "(no equipment available)". Load them first;
      the flag keeps a double click to one form. */
   let dispatchOpening = false;
-  function dispatchModal(inc) {
+  function dispatchModal(inc, supportRequestId) {
+    if (isSuperAdmin()) { toast('MDRRMO duty staff coordinate dispatch', 'warning'); return; }
     if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can dispatch a response', 'warning'); return; }
     if (inc.status !== 'verified' && inc.status !== 'dispatched') {
       toast('Verify the report before dispatching a response', 'warning'); return;
@@ -1327,9 +1358,73 @@
     dispatchOpening = true;
     Promise.resolve(Repo.loadDispatchDirectory ? Repo.loadDispatchDirectory() : null)
       .catch(() => { })
-      .then(() => { dispatchOpening = false; openDispatchModal(inc); });
+      .then(() => { dispatchOpening = false; openDispatchModal(inc, supportRequestId); });
   }
-  function openDispatchModal(inc) {
+  async function openUnitSetup(unit, deactivate) {
+    if (!isSuperAdmin()) { toast('Only the Super Admin can manage unit setup', 'warning'); return; }
+    if (deactivate && !unit) { toast('Dispatch unit not found', 'warning'); return; }
+    const c = Repo.client();
+    if (!c) { toast('Connect to the server to manage dispatch units', 'warning'); return; }
+    const esc = UG_UTIL.esc;
+    const record = unit || {};
+    let receiving = false;
+    if (record.unit_type === 'Hospital') {
+      const { data, error } = await c.from('hospital_capacity').select('accepting').eq('unit_id', unit.id).maybeSingle();
+      if (error) { toast(error.message, 'warning'); return; }
+      receiving = !!(data && data.accepting);
+    }
+    const typeOptions = ['BFP', 'PNP', 'Rescue', 'Hospital'].map((type) =>
+      '<option value="' + type + '"' + (record.unit_type === type ? ' selected' : '') + '>' +
+      (type === 'Rescue' ? 'LGU Rescue' : type) + '</option>').join('');
+    const field = (label, key, value) => '<label class="ug-field"><span class="ug-lab">' +
+      label + '</span><input class="ug-in" data-unit-' + key + ' value="' + esc(value || '') + '"></label>';
+    const checkbox = (label, key, value) => '<label class="ug-field"><input type="checkbox" data-unit-' +
+      key + (value ? ' checked' : '') + '> ' + label + '</label>';
+    UG_FEATURES.modal({
+      title: unit ? 'Edit dispatch unit · ' + unit.name : 'Create dispatch unit',
+      body: field('Unit name', 'name', record.name) +
+        '<label class="ug-field"><span class="ug-lab">Unit type</span><select class="ug-sel" data-unit-type' +
+        (unit ? ' disabled' : '') + '>' + typeOptions + '</select></label>' +
+        field('Contact number', 'contact', record.contact_number) + field('Address', 'address', record.address) +
+        field('Response capabilities', 'capabilities', record.response_capabilities) +
+        '<div data-unit-hospital>' + checkbox('Accept incoming patients', 'accepting', receiving) +
+        checkbox('Ambulance available for deployment', 'ambulance', record.ambulance_available) + '</div>' +
+        (unit ? checkbox('Active', 'active', !deactivate && record.active) : ''),
+      footer: '<button class="ug-btn" data-modal-close>Cancel</button>' +
+        '<button class="ug-btn ug-btn--signal" data-unit-save>' + (unit ? 'Save' : 'Create unit') + '</button>',
+      onMount: (wrap, close) => {
+        const field = (key) => wrap.querySelector('[data-unit-' + key + ']');
+        const refresh = () => { field('hospital').hidden = field('type').value !== 'Hospital'; };
+        field('type').addEventListener('change', refresh);
+        refresh();
+        field('save').addEventListener('click', async () => {
+          const name = field('name').value.trim();
+          if (!name) { toast('Enter a unit name', 'warning'); return; }
+          field('save').disabled = true;
+          try {
+            const { error } = await c.rpc('save_dispatch_unit', {
+              p_id: record.id || null, p_name: name, p_type: field('type').value,
+              p_contact: field('contact').value.trim(), p_address: field('address').value.trim(),
+              p_active: unit ? field('active').checked : true,
+              p_capabilities: field('capabilities').value,
+              p_ambulance: field('ambulance').checked,
+              p_accepting: field('type').value === 'Hospital' ? field('accepting').checked : null
+            });
+            if (error) throw error;
+            await Repo.loadDispatchDirectory();
+            close();
+            render();
+            toast(unit ? 'Dispatch unit updated' : 'Dispatch unit created', 'prepared');
+          } catch (e) {
+            field('save').disabled = false;
+            toast(e.message, 'warning');
+          }
+        });
+      }
+    });
+  }
+
+  function openDispatchModal(inc, supportRequestId) {
     const me = S.session;
     const roleLabel = (UG_WEB.ROLE_INFO[me.role] || {}).label || '';
     const esc = UG_UTIL.esc;
@@ -1339,13 +1434,20 @@
        For the barangay Response Team there is no unit_id — the team IS the
        report's barangay's own team. */
     const units = UG.DATA.dispatchUnits || [];
-    const unitByType = (type) => units.filter((u) => u.unit_type === type && u.active);
+    const hazard = String(inc.hazard_type || inc.hazard || '').toLowerCase();
+    const capabilityMatch = (unit) => hazard.split(/[^a-z]+/).some((term) =>
+      term.length >= 4 && String(unit.response_capabilities || '').toLowerCase().includes(term));
+    const availableUnits = units.filter((u) => u.active !== false &&
+      (u.unit_type !== 'Hospital' || u.ambulance_available !== false))
+      .sort((a, b) => Number(capabilityMatch(b)) - Number(capabilityMatch(a)) || a.name.localeCompare(b.name));
     /* A3: suggested teams for this hazard, sorted first with a "Suggested"
        badge in the option text. All teams remain pickable. */
     const suggested = (typeof UG_HAZARDS !== 'undefined' && UG_HAZARDS.suggestedTeams)
       ? UG_HAZARDS.suggestedTeams(inc.hazard_type || inc.hazard)
       : [];
-    const sortedTeams = DISPATCH_TEAMS.slice().sort((a, b) => {
+    const sortedTeams = DISPATCH_TEAMS.filter((team) => me.role === 'barangay_official'
+      ? team === 'Barangay Response Team'
+      : team !== 'Barangay Response Team' || inc.brgy_id || inc.barangay_id).sort((a, b) => {
       const ai = suggested.indexOf(a); const bi = suggested.indexOf(b);
       const an = ai === -1 ? 99 : ai; const bn = bi === -1 ? 99 : bi;
       return an - bn;
@@ -1391,13 +1493,15 @@
     };
 
     UG_FEATURES.modal({
-      title: (inc.status === 'dispatched' ? 'Add another team · ' : 'Dispatch response · ') + inc.id,
+      title: (inc.status === 'dispatched' ? 'Add supporting team · ' : 'Dispatch response · ') + inc.id,
       body:
         '<div class="ug-field"><label class="ug-lab">Responder or team</label>' +
           '<select class="ug-sel" data-dp-team>' + teamOpts + '</select></div>' +
         '<div class="ug-field" data-dp-unit-field hidden><label class="ug-lab">Unit (municipality-wide)</label>' +
           '<select class="ug-sel" data-dp-unit><option value="">Select a unit</option>' +
-          units.filter((u) => u.active !== false).map((u) => '<option value="' + esc(u.id) + '" data-type="' + esc(u.unit_type) + '">' + esc(u.name) + ' · ' + esc(u.unit_type) + '</option>').join('') +
+          availableUnits.map((u) => '<option value="' + esc(u.id) + '" data-type="' + esc(u.unit_type) + '">' +
+            esc(u.name + (capabilityMatch(u) ? ' (Suggested)' : '') +
+              (u.response_capabilities ? ' · ' + u.response_capabilities : '')) + '</option>').join('') +
           '</select></div>' +
         '<div class="ug-field"><label class="ug-lab">Equipment to deploy (optional)</label>' +
           '<div class="ug-eq-list" data-dp-equipment>' + equipmentList('Barangay Response Team', null) + '</div>' +
@@ -1447,11 +1551,11 @@
               : team === 'Ambulance' ? 'Hospital' : null;
             Array.prototype.forEach.call(unitSel.options, (o) => {
               if (!o.value) { o.hidden = false; return; }
-              o.hidden = type && o.getAttribute('data-type') !== type;
+              o.disabled = o.hidden = o.getAttribute('data-type') !== type;
             });
             // default-select the first matching unit
             const firstMatch = Array.prototype.find.call(unitSel.options, (o) => o.value && !o.hidden);
-            if (firstMatch && !unitSel.value) unitSel.value = firstMatch.value;
+            if (!unitSel.value || unitSel.selectedOptions[0].disabled) unitSel.value = firstMatch ? firstMatch.value : '';
           }
           refreshEquipment();
         };
@@ -1480,7 +1584,7 @@
           try {
             await Repo.dispatchReportV2(inc.uuid || inc.id, {
               team: team, instructions: instructions, eta: eta.toISOString(),
-              unit_id: unitId, equipment_ids: eqIds.length ? eqIds : null
+              unit_id: unitId, equipment_ids: eqIds.length ? eqIds : null, supportRequestId
             });
             toast(team + ' dispatched to ' + inc.id, 'prepared');
             try {
@@ -1506,6 +1610,19 @@
     });
   }
   /* ------------------------------------------------------------- app actions */
+  async function saveReliefStock(operation, params, message, button, close) {
+    if (button) button.disabled = true;
+    try {
+      await Repo.writeReliefStock(operation, params);
+      if (close) close();
+      toast(message, 'prepared');
+      render();
+    } catch (error) {
+      if (button) button.disabled = false;
+      toast(error.message, 'warning');
+    }
+  }
+
   const APP_ACTIONS = {
     nav: (d) => {
       S.bgMenu = false;   /* the staff phone menu closes after a choice */
@@ -1517,6 +1634,10 @@
     },
     'open-advisory': (d) => { S.openId = d.id; S.route = 'advisory-detail'; render(); },
     'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); loadDispatchesFor(d.id); },
+    'response-fit-map': () => {
+      const el = q('[data-response-report]');
+      if (el && MapView.owns(el)) fitResponseMap((UG.DATA.incidents || []).find((i) => i.uuid === el.dataset.responseReport));
+    },
     'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); loadDispatchesFor(d.id); },
     'open-sos-detail': (d) => { UG_SOS.sosDetailModal(S, d.id); },
     'sos-filter': (d) => { S.sosFilter = d.v; render(); },
@@ -1542,7 +1663,26 @@
     'alarm-sound-help': () => { try { UG_ALARM.soundHelp(); } catch (e) { } },
     'alarm-unlock': () => { UG_ALARM.unlock(); try { UG_ALARM.play('sos', { force: true }); } catch (e) { } render(); },
     'history-all': (d) => { S.historyAll = S.historyAll === d.id ? null : d.id; render(); },
+    'request-municipal-dispatch': async (d) => {
+      if (!requireRole(['barangay_official'])) return;
+      const c = Repo.client();
+      if (!c) { toast('Connect to the server to request municipal dispatch', 'warning'); return; }
+      const reason = await UG_FEATURES.prompt({
+        title: 'Request municipal dispatch',
+        label: 'What help is needed? Include the requested service and any urgent details.',
+        required: true
+      });
+      if (reason === null) return;
+      try {
+        const { error } = await c.rpc('request_municipal_dispatch', { p_report_id: d.id, p_details: reason });
+        if (error) throw error;
+        await Repo.loadAll({ silent: true });
+        toast('Request sent to the MDRRMO', 'prepared');
+        render();
+      } catch (error) { toast(error.message, 'warning'); }
+    },
     'auto-dispatch': async (d) => {
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
       try {
         const res = await Repo.autoDispatch(d.id);
         const n = (res && res.dispatched) || 0;
@@ -2119,6 +2259,7 @@
     },
 
     reject: async (d) => {
+      if (isSuperAdmin()) { toast('Only duty staff can reject an incident', 'warning'); return; }
       if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can reject a report', 'warning'); return; }
       const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
       if (!inc) return;
@@ -2141,6 +2282,94 @@
     'incident-add-team': (d) => {
       const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
       if (inc) dispatchModal(inc);
+    },
+
+    'dispatch-request-backup': async (d) => {
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
+      const c = Repo.client();
+      if (!c) { toast('Connect to the server to assign backup', 'warning'); return; }
+      const { data, error } = await c.from('report_dispatches').select('report_id').eq('id', d.dispatch).single();
+      if (error) { toast(error.message, 'warning'); return; }
+      const incident = (UG.DATA.incidents || []).find((i) => (i.uuid || i.id) === data.report_id);
+      if (!incident) { toast('Open the linked incident before assigning backup', 'warning'); return; }
+      dispatchModal(incident, d.id);
+    },
+
+    'sos-link-report': (d) => {
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
+      const c = Repo.client();
+      if (!c) { toast('Connect to the server to link an incident report', 'warning'); return; }
+      const incidentOptions = (UG.DATA.incidents || []).filter((i) =>
+        i.uuid && ['reported', 'verified', 'dispatched'].includes(i.status));
+      if (!incidentOptions.length) { toast('Create an incident report after confirming the SOS location', 'warning'); return; }
+      const esc = UG_UTIL.esc;
+      UG_FEATURES.modal({
+        title: 'Link SOS to an incident',
+        body: '<label class="ug-field"><span class="ug-lab">Matching incident</span><select class="ug-sel" data-sos-report>' +
+          '<option value="">Choose a report</option>' + incidentOptions.map((i) =>
+            '<option value="' + esc(i.uuid) + '">' + esc(i.id + ' · ' + i.hazard + ' · ' + i.brgy) + '</option>').join('') +
+          '</select></label>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-sos-link>Link report</button>',
+        onMount: (wrap, close) => {
+          const save = wrap.querySelector('[data-sos-link]');
+          save.addEventListener('click', async () => {
+            const report = wrap.querySelector('[data-sos-report]').value;
+            if (!report) { toast('Choose the matching incident report', 'warning'); return; }
+            save.disabled = true;
+            try {
+              const { error } = await c.rpc('link_sos_response_report', { p_sos_id: d.id, p_report_id: report });
+              if (error) throw error;
+              await Repo.loadAll();
+              close();
+              APP_ACTIONS['open-incident']({ id: report });
+              toast('SOS linked to incident', 'prepared');
+            } catch (e) {
+              save.disabled = false;
+              toast(e.message, 'warning');
+            }
+          });
+        }
+      });
+    },
+
+    'incident-notify-hospital': async (d) => {
+      if (!requireRole(['lgu_ldrrmc'])) return;
+      const c = Repo.client();
+      if (!c) { toast('Connect to the server to send a patient notice', 'warning'); return; }
+      const { data, error } = await c.from('dispatch_units').select('id,name,hospital_capacity!inner(accepting)')
+        .eq('unit_type', 'Hospital').eq('active', true).eq('hospital_capacity.accepting', true).order('name');
+      if (error) { toast(error.message, 'warning'); return; }
+      if (!data.length) { toast('No active hospitals are accepting patients', 'warning'); return; }
+      const esc = UG_UTIL.esc;
+      UG_FEATURES.modal({
+        title: 'Notify receiving hospital',
+        body: '<label class="ug-field"><span class="ug-lab">Hospital</span><select class="ug-sel" data-patient-hospital>' +
+          data.map((h) => '<option value="' + esc(h.id) + '">' + esc(h.name) + '</option>').join('') + '</select></label>' +
+          '<label class="ug-field"><span class="ug-lab">Patients</span><input class="ug-in" type="number" min="1" value="1" data-patient-count></label>' +
+          '<label class="ug-field"><span class="ug-lab">Condition and estimated arrival</span><textarea class="ug-ta" maxlength="240" data-patient-condition></textarea></label>',
+        footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-patient-send>Send notice</button>',
+        onMount: (wrap, close) => {
+          const send = wrap.querySelector('[data-patient-send]');
+          send.addEventListener('click', async () => {
+            const count = wrap.querySelector('[data-patient-count]').valueAsNumber;
+            if (!Number.isInteger(count) || count < 1) { toast('Enter a valid patient count', 'warning'); return; }
+            send.disabled = true;
+            try {
+              const { error } = await c.rpc('send_patient_notice', {
+                p_unit_id: wrap.querySelector('[data-patient-hospital]').value,
+                p_report_id: d.id, p_patients: count,
+                p_condition: wrap.querySelector('[data-patient-condition]').value.trim()
+              });
+              if (error) throw error;
+              close();
+              toast('Patient notice sent', 'prepared');
+            } catch (e) {
+              send.disabled = false;
+              toast(e.message, 'warning');
+            }
+          });
+        }
+      });
     },
 
     /* LGU-only second verification path (migration 036 + migration 047 for
@@ -3237,106 +3466,8 @@
       render();
     },
 
-    /* ----------------------------------------------- dispatch unit CRUD (LGU)
-     * The "New unit" button on the Dispatch Units screen opens a modal that
-     * creates the dispatch_units row (create_dispatch_unit RPC) AND invites
-     * the first unit_admin through the admin-users edge function in one go.
-     * Without the admin email the unit exists but no one can sign in to
-     * manage it.
-     */
-    'admin-create-unit': async () => {
-      if (!isSuperAdmin()) { toast('Only the Super Admin can create a dispatch unit and invite its admin', 'warning'); return; }
-      const esc = UG_UTIL.esc;
-      const typeOpts = ['BFP', 'PNP', 'Rescue', 'Hospital']
-        .map((t) => '<option value="' + t + '">' + t + '</option>').join('');
-
-      UG_FEATURES.modal({
-        title: 'Create a dispatch unit',
-        body:
-          '<div class="ug-field"><label class="ug-lab">Unit name</label>' +
-            '<input class="ug-in" type="text" data-u-name placeholder="e.g. Lingayen BFP" autocomplete="off"></div>' +
-          '<div class="ug-field"><label class="ug-lab">Unit type</label>' +
-            '<select class="ug-sel" data-u-type>' + typeOpts + '</select>' +
-            '<div class="ug-help">BFP = fire, PNP = police, Rescue = search and rescue, Hospital = ambulance + ER/ICU capacity.</div></div>' +
-          '<div class="ug-field"><label class="ug-lab">Contact number</label>' +
-            '<input class="ug-in" type="text" data-u-contact placeholder="(075) 632-2333"></div>' +
-          '<div class="ug-field"><label class="ug-lab">Address</label>' +
-            '<input class="ug-in" type="text" data-u-address placeholder="Poblacion, Lingayen"></div>' +
-          '<div class="ug-field"><label class="ug-lab">First unit admin email</label>' +
-            '<input class="ug-in" type="email" data-u-email placeholder="bfp.admin@lingayen.gov.ph">' +
-            '<div class="ug-help">This person receives the invitation email, sets a password, then signs in to manage the unit. They can invite further members themselves.</div></div>',
-        footer:
-          '<button class="ug-btn" data-modal-close>Cancel</button>' +
-          '<button class="ug-btn ug-btn--signal" data-u-save>Create unit + invite admin</button>',
-        onMount: (wrap, close) => {
-          const nameEl = wrap.querySelector('[data-u-name]');
-          const typeEl = wrap.querySelector('[data-u-type]');
-          const contactEl = wrap.querySelector('[data-u-contact]');
-          const addressEl = wrap.querySelector('[data-u-address]');
-          const emailEl = wrap.querySelector('[data-u-email]');
-          const saveBtn = wrap.querySelector('[data-u-save]');
-          setTimeout(() => nameEl.focus(), 30);
-
-          saveBtn.addEventListener('click', async () => {
-            const name = nameEl.value.trim();
-            const type = typeEl.value;
-            const contact = contactEl.value.trim();
-            const address = addressEl.value.trim();
-            const email = emailEl.value.trim();
-            if (!name) { toast('Enter a unit name', 'warning'); return; }
-            if (!type) { toast('Pick a unit type', 'warning'); return; }
-            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email for the first unit admin', 'warning'); return; }
-
-            saveBtn.disabled = true;
-            try {
-              /* 1. create the dispatch_units row (dedup: if a unit with this
-                 name already exists, the RPC returns its id + already_exists=true
-                 instead of creating a duplicate) */
-              const c = Repo.client();
-              if (!c) throw new Error('Connect Supabase first — dispatch units cannot be created without a database.');
-              const { data: unitData, error: unitErr } = await c.rpc('create_dispatch_unit', {
-                p_name: name, p_unit_type: type, p_contact_number: contact,
-                p_address: address, p_lat: null, p_lng: null
-              });
-              if (unitErr) throw new Error(unitErr.message);
-              const unitId = (unitData && unitData.id) || unitData;
-              const alreadyExists = !!(unitData && unitData.already_exists);
-
-              /* 2. invite the first unit_admin into the unit. This calls the
-                 admin-users edge function, which calls Supabase Auth's
-                 inviteUserByEmail. If the email doesn't arrive, the cause is
-                 almost always one of:
-                   a) the admin-users edge function isn't deployed — run
-                      `supabase functions deploy admin-users`
-                   b) the SUPABASE_SERVICE_ROLE_KEY secret isn't set on the
-                      function — check Dashboard → Edge Functions → admin-users
-                   c) Supabase Auth email sending is rate-limited or SMTP is
-                      not configured — check Dashboard → Authentication →
-                      Email Templates
-                 The edge function returns its error in the body; the catch
-                 block below surfaces it. */
-              await Repo.adminUsers('create', {
-                email: email, role: 'dispatch_team',
-                unitId: unitId, unitRole: 'unit_admin'
-              });
-
-              toast((alreadyExists
-                ? 'Unit "' + name + '" already exists. '
-                : 'Unit "' + name + '" created. ')
-                + 'Invitation sent to ' + email + '. '
-                + 'If the email doesn\'t arrive within a few minutes, check the Edge Function is deployed and Auth email is configured.', 'prepared');
-              /* refresh the directory so the new unit appears in the list */
-              try { await Repo.loadDispatchDirectory(); } catch (e) {}
-              close();
-              render();
-            } catch (e) {
-              saveBtn.disabled = false;
-              toast(e.message || 'Could not create the unit', 'warning');
-            }
-          });
-        }
-      });
-    },
+    'admin-create-unit': () => openUnitSetup(),
+    'admin-deactivate-unit': (d) => openUnitSetup((UG.DATA.dispatchUnits || []).find((u) => u.id === d.id), true),
 
     /* Section 9: open a unit's full details. Shows team name, assigned unit,
        personnel, contact, status and other stored fields. Includes a
@@ -3365,7 +3496,8 @@
           '</div></div>' +
           '<div style="margin-top:14px">' +
             kv('Unit name', unit.name) +
-            kv('Unit type', unit.unit_type) +
+            kv('Unit type', unit.unit_type === 'Rescue' ? 'LGU Rescue' : unit.unit_type) +
+            kv('Response capabilities', unit.response_capabilities) +
             kv('Contact number', unit.contact_number) +
             kv('Address', unit.address) +
             kv('Status', unit.status) +
@@ -3630,6 +3762,7 @@
     'admin-edit-unit': async (d) => {
       const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
       if (!unit) { toast('That unit no longer exists', 'warning'); return; }
+      if (isSuperAdmin()) return openUnitSetup(unit);
       const esc = UG_UTIL.esc;
       UG_FEATURES.modal({
         title: 'Edit unit · ' + unit.name,
@@ -3667,37 +3800,6 @@
           });
         }
       });
-    },
-
-    /* ------------------------------------------- delete a dispatch unit (Super Admin) */
-    'admin-delete-unit': async (d) => {
-      if (!isSuperAdmin()) { toast('Only the Super Admin can delete a dispatch unit', 'warning'); return; }
-      const unit = (UG.DATA.dispatchUnits || []).find((u) => u.id === d.id);
-      if (!unit) { toast('That unit no longer exists', 'warning'); return; }
-      const ok = await UG_FEATURES.confirm({
-        title: 'Delete this dispatch unit?',
-        message: 'Unit "' + unit.name + '" will be permanently removed, together with its equipment list, roster, shifts and requests. Member accounts stay (they are no longer linked to a unit) and past dispatches keep their record. This cannot be undone. To keep its history, mark the unit Inactive instead.',
-        danger: true,
-        confirmLabel: 'Delete'
-      });
-      if (!ok) return;
-      try {
-        const c = Repo.client();
-        if (!c) { throw new Error('Connect Supabase first — units cannot be deleted without a database.'); }
-        /* the server re-checks the caller and refuses while the unit is out
-           on an open dispatch (migration 062). No direct-delete fallback:
-           row security refuses it silently, which used to report success. */
-        const { error } = await c.rpc('delete_dispatch_unit', { p_unit_id: d.id });
-        if (error) {
-          if (/Could not find|does not exist|42883|PGRST202/i.test(error.message)) {
-            throw new Error('Deleting units needs migration 062 on the database. Ask your admin to run it.');
-          }
-          throw new Error(error.message);
-        }
-        toast('Unit deleted', 'prepared');
-        try { await Repo.loadDispatchDirectory(); } catch (e) {}
-        render();
-      } catch (e) { toast(e.message || 'Could not delete the unit', 'warning'); }
     },
 
     /* --------------------------------------- invite a member into a unit (unit_admin / LGU) */
@@ -3863,13 +3965,15 @@
       /* a quick confirmation, so a stray tap does not tell the sender help has seen it */
       const ok = await UG_FEATURES.confirm({
         title: 'Acknowledge this SOS?',
-        message: (x.profile_name || 'The sender') + ' will be told their SOS was received by you and that help is being arranged. This cannot be undone.',
+        message: x.status === 'sent'
+          ? (x.profile_name || 'The sender') + ' will be told their SOS was received and that help is being arranged.'
+          : 'Record that you have seen this SOS and stop its alarm for your account.',
         confirmLabel: 'Acknowledge'
       });
       if (!ok) return;
       try {
         const res = await Repo.updateSosStatus(d.id, 'acknowledged');
-        if (res && res.already) toast('Already acknowledged' + (res.by ? ' by ' + res.by : '') + (res.office ? ' (' + res.office + ')' : '') + '.', 'info');
+        if (res && res.already) toast('Your acknowledgment was recorded', 'prepared');
         else toast('SOS acknowledged — ' + (x.profile_name || 'the sender') + ' has been told help is on it', 'prepared');
       }
       catch (e) { toast(e.message, 'warning'); }
@@ -4125,6 +4229,7 @@
           p_id: d.id, p_status: d.next
         });
         if (error) throw error;
+        await Repo.loadDispatchDirectory();
         toast('Help request ' + d.next, 'prepared');
         render();
       } catch (e) { toast(e.message || 'Could not update', 'warning'); }
@@ -4462,10 +4567,7 @@
       render();
     },
 
-    /* ============================================== MODULE E: inventory + records
-       All three Relief tabs share one action namespace. The inventory actions
-       mutate UG.DATA.inventory in place (offline-first); when Supabase is
-       reachable they would hit Repo methods that mirror the change server-side. */
+    /* Relief inventory and distribution records share the server ledger. */
 
     'relief-tab': (d) => { S.reliefTab = d.v; render(); },
     'du-type': (d) => { S.unitType = d.v; render(); },
@@ -4474,7 +4576,7 @@
     'inv-detail': (d) => { if (typeof UG_RELIEF !== 'undefined' && UG_RELIEF.invDetailModal) UG_RELIEF.invDetailModal(d.id); },
 
     'inv-add': () => {
-      if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can manage inventory', 'warning'); return; }
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) { toast('Only MDRRMO staff can manage warehouse stock', 'warning'); return; }
       const cats = UG_RELIEF.INV_CATEGORIES.map((c) => '<option>' + c + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Add a stock item',
@@ -4495,35 +4597,32 @@
           '</div>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Add Item</button>',
         onMount: (wrap, close) => {
-          wrap.querySelector('[data-save]').addEventListener('click', () => {
+          const operation = crypto.randomUUID();
+          const button = wrap.querySelector('[data-save]');
+          button.addEventListener('click', () => {
             const name = wrap.querySelector('[data-inv-name]').value.trim();
-            const stock = parseInt(wrap.querySelector('[data-inv-stock]').value || '0', 10) || 0;
+            const stock = Number(wrap.querySelector('[data-inv-stock]').value || '0');
             if (!name) { toast('An item name is required', 'warning'); return; }
-            const item = {
-              id: 'INV-' + String(Date.now()).slice(-6),
-              name: name,
-              category: wrap.querySelector('[data-inv-cat]').value,
-              unit: wrap.querySelector('[data-inv-unit]').value.trim() || 'units',
-              stock: stock,
-              reorder: parseInt(wrap.querySelector('[data-inv-reorder]').value || '0', 10) || 0,
-              location: wrap.querySelector('[data-inv-loc]').value.trim(),
-              supplier: wrap.querySelector('[data-inv-sup]').value.trim()
-            };
-            UG.DATA.inventory = UG.DATA.inventory || [];
-            UG.DATA.inventory.push(item);
-            /* low-stock check at add time so the duty officer is warned even
-               when they enter a starting stock that is already below reorder. */
-            if (item.stock <= item.reorder) toast('Item added — already at or below reorder point', 'warning');
-            else toast('Stock item added', 'prepared');
-            close(); render();
+            const reorder = Number(wrap.querySelector('[data-inv-reorder]').value || '0');
+            if (!Number.isInteger(stock) || stock < 0 || !Number.isInteger(reorder) || reorder < 0) {
+              toast('Use whole, non-negative quantities', 'warning'); return;
+            }
+            saveReliefStock('save_relief_item', {
+              p_id: operation, p_name: name, p_category: wrap.querySelector('[data-inv-cat]').value,
+              p_unit: wrap.querySelector('[data-inv-unit]').value.trim(),
+              p_stock: stock, p_reorder: reorder,
+              p_location: wrap.querySelector('[data-inv-loc]').value.trim(),
+              p_supplier: wrap.querySelector('[data-inv-sup]').value.trim(), p_version: null
+            }, 'Stock item added', button, close);
           });
         }
       });
     },
 
     'inv-edit': (d) => {
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
       const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
-      if (!i) return;
+      if (!i || !i.updated_at) return;
       const cats = UG_RELIEF.INV_CATEGORIES.map((c) => '<option' + (i.category === c ? ' selected' : '') + '>' + c + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Edit stock item · ' + i.name,
@@ -4543,60 +4642,57 @@
           '</div>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Save</button>',
         onMount: (wrap, close) => {
-          wrap.querySelector('[data-save]').addEventListener('click', () => {
-            i.name = wrap.querySelector('[data-inv-name]').value.trim() || i.name;
-            i.category = wrap.querySelector('[data-inv-cat]').value;
-            i.unit = wrap.querySelector('[data-inv-unit]').value.trim() || i.unit;
-            i.stock = parseInt(wrap.querySelector('[data-inv-stock]').value || '0', 10) || 0;
-            i.reorder = parseInt(wrap.querySelector('[data-inv-reorder]').value || '0', 10) || 0;
-            i.location = wrap.querySelector('[data-inv-loc]').value.trim();
-            i.supplier = wrap.querySelector('[data-inv-sup]').value.trim();
-            toast('Stock item updated', 'prepared');
-            close(); render();
+          const button = wrap.querySelector('[data-save]');
+          button.addEventListener('click', () => {
+            const stock = Number(wrap.querySelector('[data-inv-stock]').value || '0');
+            const reorder = Number(wrap.querySelector('[data-inv-reorder]').value || '0');
+            if (!Number.isInteger(stock) || stock < 0 || !Number.isInteger(reorder) || reorder < 0) {
+              toast('Use whole, non-negative quantities', 'warning'); return;
+            }
+            saveReliefStock('save_relief_item', {
+              p_id: i.id, p_name: wrap.querySelector('[data-inv-name]').value.trim(),
+              p_category: wrap.querySelector('[data-inv-cat]').value, p_unit: wrap.querySelector('[data-inv-unit]').value.trim(),
+              p_stock: stock, p_reorder: reorder, p_location: wrap.querySelector('[data-inv-loc]').value.trim(),
+              p_supplier: wrap.querySelector('[data-inv-sup]').value.trim(), p_version: i.updated_at
+            }, 'Stock item updated', button, close);
           });
         }
       });
     },
 
     'inv-restock': (d) => {
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
       const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
       if (!i) return;
       UG_FEATURES.modal({
         title: 'Restock ' + i.name,
-        body: '<div class="ug-field"><label class="ug-lab">Add to stock (' + (i.unit || 'units') + ')</label>' +
+        body: '<div class="ug-field"><label class="ug-lab">Add to stock (' + UG_UTIL.esc(i.unit || 'units') + ')</label>' +
           '<input class="ug-in" data-inv-add placeholder="e.g. 100" inputmode="numeric" autofocus>' +
           '<div class="ug-help">Current stock: ' + i.stock + ' · Reorder at: ' + i.reorder + '</div></div>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Restock</button>',
         onMount: (wrap, close) => {
-          wrap.querySelector('[data-save]').addEventListener('click', () => {
+          const operation = crypto.randomUUID();
+          const button = wrap.querySelector('[data-save]');
+          button.addEventListener('click', () => {
             const add = parseInt(wrap.querySelector('[data-inv-add"]').value || '0', 10) || 0;
-            if (add <= 0) { toast('Enter a positive quantity', 'warning'); return; }
-            i.stock = (i.stock || 0) + add;
-            toast('+' + add + ' ' + i.unit + ' · new stock ' + i.stock + (i.stock <= i.reorder ? ' (still below reorder)' : ''), 'prepared');
-            close(); render();
+            if (!Number.isInteger(add) || add <= 0) { toast('Enter a positive quantity', 'warning'); return; }
+            saveReliefStock('adjust_relief_stock', { p_id: i.id, p_delta: add, p_operation: operation },
+              'Stock replenished', button, close);
           });
         }
       });
     },
 
-    'inv-adjust': (d) => {
-      const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
-      if (!i) return;
-      const delta = parseInt(d.d, 10) || 0;
-      i.stock = Math.max(0, (i.stock || 0) + delta);
-      toast(i.name + ' stock adjusted to ' + i.stock + ' ' + i.unit, i.stock <= i.reorder ? 'warning' : 'info');
-      render();
-    },
-
     'inv-download': () => UG_EXPORTS.run('inv-download'),
 
     'rec-add': (d) => {
-      if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can record distributions', 'warning'); return; }
-      UG_RELIEF.ensureInventory();
+      if (!requireRole(['lgu_ldrrmc', 'barangay_official']) || isSuperAdmin()) { toast('Only officials can record distributions', 'warning'); return; }
+      if (!UG.DATA.reliefInventoryReady) { toast('Connect to the shared ledger first', 'warning'); return; }
+      if (!(UG.DATA.inventory || []).length) { toast('Add a stock item first', 'warning'); return; }
       const pre = (d && d.item) || '';
       const own = (S.session && S.session.role === 'barangay_official' && S.session.barangay) || '';
-      const items = (UG.DATA.inventory || []).map((i) => '<option value="' + i.id + '"' + (i.id === pre ? ' selected' : '') + '>' + UG_UTIL.esc(i.name + ' (' + (i.stock || 0) + ' ' + i.unit + ' in stock)') + '</option>').join('');
-      const brgys = UG.DATA.barangays.map((b) => '<option' + (b === own ? ' selected' : '') + '>' + UG_UTIL.esc(b) + '</option>').join('');
+      const items = (UG.DATA.inventory || []).map((i) => '<option value="' + UG_UTIL.esc(i.id) + '"' + (i.id === pre ? ' selected' : '') + '>' + UG_UTIL.esc(i.name + ' (' + (i.stock || 0) + ' ' + i.unit + ' in stock)') + '</option>').join('');
+      const brgys = (own ? [own] : UG.DATA.barangays).map((b) => '<option' + (b === own ? ' selected' : '') + '>' + UG_UTIL.esc(b) + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Record a distribution',
         cls: 'rf-modal',
@@ -4607,52 +4703,37 @@
             '<div class="ug-field" style="flex:1"><label class="ug-lab">Barangay</label><select class="ug-sel" data-rec-brgy>' + brgys + '</select></div>' +
           '</div>' +
           '<div class="ug-field"><label class="ug-lab">Family / recipient</label><input class="ug-in" data-rec-family placeholder="e.g. Aquino household"></div>' +
-          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Distributed by</label><input class="ug-in" data-rec-by value="' + UG_UTIL.esc((S.session && S.session.name) || '') + '"></div>',
+          '<p class="ug-help">Records are saved under your signed-in account.</p>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Record</button>',
         onMount: (wrap, close) => {
-          wrap.querySelector('[data-save]').addEventListener('click', () => {
+          const operation = crypto.randomUUID();
+          const button = wrap.querySelector('[data-save]');
+          button.addEventListener('click', () => {
             const itemId = wrap.querySelector('[data-rec-item]').value;
-            const item = (UG.DATA.inventory || []).find((x) => x.id === itemId);
-            const qty = parseInt(wrap.querySelector('[data-rec-qty]').value || '0', 10) || 0;
+            const qty = Number(wrap.querySelector('[data-rec-qty]').value);
             const brgy = wrap.querySelector('[data-rec-brgy]').value;
-            const family = wrap.querySelector('[data-rec-family]').value.trim();
-            const by = wrap.querySelector('[data-rec-by]').value.trim();
-            if (!qty || !brgy) { toast('A quantity and a barangay are required', 'warning'); return; }
-            if (item && qty > (item.stock || 0)) {
-              toast('Only ' + item.stock + ' ' + item.unit + ' of ' + item.name + ' in stock', 'warning'); return;
+            if (!itemId || !Number.isInteger(qty) || qty <= 0 || !brgy) {
+              toast('Choose an item, a barangay and a positive whole quantity', 'warning'); return;
             }
-            const rec = {
-              id: 'DR-' + String(Date.now()).slice(-6),
-              item_id: itemId,
-              item_name: item ? item.name : 'Item',
-              qty: qty, barangay: brgy, family: family || '—',
-              distributed_by: by || '—',
-              distributed_at: new Date().toISOString()
-            };
-            UG.DATA.distributionLog = UG.DATA.distributionLog || [];
-            UG.DATA.distributionLog.push(rec);
-            /* decrement the inventory in the same action so the stock ledger
-               and the distribution log never drift apart. */
-            if (item) item.stock = Math.max(0, (item.stock || 0) - qty);
-            toast(qty + ' ' + (item ? item.unit : 'units') + ' recorded for ' + brgy, 'prepared');
-            close(); render();
+            saveReliefStock('record_relief_stock_distribution', {
+              p_id: operation, p_item: itemId, p_qty: qty, p_barangay: brgy,
+              p_family: wrap.querySelector('[data-rec-family]').value.trim()
+            }, 'Distribution recorded and stock updated', button, close);
           });
         }
       });
     },
 
-    'rec-del': (d) => {
-      const log = UG.DATA.distributionLog || [];
-      const idx = log.findIndex((r) => r.id === d.id);
-      if (idx === -1) return;
-      /* restock the item the record had decremented, so deleting a mistake
-         doesn't leave the inventory permanently short. */
-      const rec = log[idx];
-      const item = (UG.DATA.inventory || []).find((x) => x.id === rec.item_id);
-      if (item) item.stock = (item.stock || 0) + (rec.qty || 0);
-      log.splice(idx, 1);
-      toast('Distribution record removed · ' + (rec.qty || 0) + ' ' + (item ? item.unit : '') + ' returned to stock', 'warning');
-      render();
+    'rec-del': async (d) => {
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
+      const record = (UG.DATA.distributionLog || []).find((r) => r.id === d.id);
+      if (!record) return;
+      const ok = await UG_FEATURES.confirm({
+        title: 'Void this distribution?',
+        message: 'Void only incorrect entries. ' + record.qty + ' will be returned to stock.',
+        confirmLabel: 'Void distribution', danger: true
+      });
+      if (ok) await saveReliefStock('void_relief_stock_distribution', { p_id: record.id }, 'Distribution voided and stock restored');
     },
 
     'rec-download': () => UG_EXPORTS.run('rec-download'),
@@ -5352,7 +5433,6 @@
     else if (f === 'incBrgyFilter') { S.incBrgyFilter = v; render(); return; }
     else if (f === 'incHazardFilter') { S.incHazardFilter = v; render(); return; }
     else if (f === 'recBrgyFilter') { S.recBrgyFilter = v; render(); return; }
-    else if (f === 'invBrgyFilter') { S.invBrgyFilter = v; render(); return; }
     /* activity log filters */
     else if (f === 'auditEntity' || f === 'auditActor' || f === 'auditFrom' || f === 'auditTo'
           || f === 'auditRole' || f === 'auditAction' || f === 'auditBarangay') { S[f] = v; S.auditPage = 1; render(); return; }
@@ -5648,6 +5728,7 @@
 
   Repo.onChange(() => {
     if (!S.session) return;
+    syncSosAlarm();
     render();
     /* an open report whose history is not loaded yet (opened from a
        notification or a link) or whose status changed: (re)load it */
@@ -5675,7 +5756,7 @@
      opening the app is silent. */
   let alarmSeen = null;
   let alarmSeenFor = '';
-  const NEEDS_DISPATCH = /^(No unit available|Dispatch needed|Auto-dispatch failed)/;
+  const NEEDS_DISPATCH = /^(Municipal dispatch requested|No unit available|Dispatch needed|Auto-dispatch failed|Emergency alert delivery failed)/;
   function alarmOnNew() {
     const role = S.session.role;
     if (role === 'dispatch_team') return;
@@ -5691,10 +5772,6 @@
     if (!alarmSeen || alarmSeenFor !== who) {
       alarmSeen = new Set(keys);
       alarmSeenFor = who;
-      /* staff opening the app while an SOS is still unanswered hear it once */
-      if (role !== 'citizen' && sosRows.some((x) => x.status === 'sent' && x.user_id !== S.session.id)) {
-        try { UG_ALARM.play('sos'); } catch (e) { }
-      }
       return;
     }
     const newInc = inc.filter((i) => i.uuid && !alarmSeen.has('r' + i.uuid) && i.status !== 'resolved' && i.status !== 'rejected');
@@ -5706,7 +5783,7 @@
       x.user_id !== S.session.id);
     keys.forEach((k) => alarmSeen.add(k));
 
-    const sos = role !== 'citizen' && (newN.some((n) => n.type === 'sos') || newSos.length > 0);
+    const sos = role !== 'citizen' && newSos.some((row) => row.needs_receipt);
     const needsDispatch = newN.some((n) => NEEDS_DISPATCH.test(n.title));
     let kind = null;
     if (role === 'citizen') {
@@ -5715,15 +5792,16 @@
         (n.type === 'dispatch' || (n.type === 'dispatch_status' && /on scene/i.test(n.title))));
       if (help) kind = 'help';
     } else if (role === 'barangay_official') {
-      const team = newN.some((n) => n.type === 'dispatch' && /^Barangay Response Team/.test(n.body));
+      const team = newN.some((n) => n.type === 'dispatch');
       kind = sos ? 'sos' : newInc.length ? newInc[0].hazard : team ? 'dispatch' : null;
     } else if (sup) {
       const emergency = newInc.filter((i) => i.sev === 'emergency');
       kind = sos ? 'sos' : emergency.length ? emergency[0].hazard : needsDispatch ? 'attention' : newCr.length ? 'admin' : null;
     } else if (role === 'lgu_ldrrmc') {
-      kind = sos ? 'sos' : newInc.length ? newInc[0].hazard : needsDispatch ? 'attention' : null;
+      kind = sos ? 'sos' : newInc.length ? newInc[0].hazard : needsDispatch ? 'attention' : newN.some((n) => n.type === 'dispatch') ? 'dispatch' : null;
     }
-    if (kind) { try { UG_ALARM.play(kind); } catch (e) { } }
+    if (kind === 'sos') syncSosAlarm();
+    else if (kind) { try { UG_ALARM.play(kind); } catch (e) { } }
   }
   /* Instant alarm: ring as soon as the row arrives over realtime (or a push
      arrives), with the same role rules as alarmOnNew; the row is marked seen
@@ -5742,15 +5820,10 @@
       if (role === 'citizen') {
         const mine = new Set((UG.DATA.incidents || []).filter((i) => i.mine).map((i) => i.uuid));
         if (row.report_id && mine.has(row.report_id) && (type === 'dispatch' || (type === 'dispatch_status' && /on scene/i.test(title)))) kind = 'help';
-      } else if (type === 'sos') kind = 'sos';
+      } else if (type === 'sos') return;
       else if ((role === 'lgu_ldrrmc') && NEEDS_DISPATCH.test(title)) kind = 'attention';
-      else if (role === 'barangay_official' && type === 'dispatch' && /^Barangay Response Team/.test(row.body || '')) kind = 'dispatch';
+      else if (type === 'dispatch') kind = 'dispatch';
       else if (role !== 'citizen' && type === 'report') kind = title;
-    } else if (table === 'sos_log') {
-      key = 's' + row.id;
-      if (role === 'citizen' || alarmSeen.has(key) || row.user_id === S.session.id || row.status === 'resolved') return;
-      if (role === 'barangay_official' && S.session.barangay_id && row.barangay_id && row.barangay_id !== S.session.barangay_id) return;
-      kind = 'sos';
     } else if (table === 'reports') {
       key = 'r' + row.id;
       if (role === 'citizen' || alarmSeen.has(key)) return;
@@ -5777,18 +5850,62 @@
     if (dots) dots.forEach((d, k) => d.classList.toggle('is-on', k === n));
   }, true);
 
-  /* an SOS nobody has answered rings again every 3 minutes while this screen
-     is in view, until someone acknowledges it (staff portals only) */
-  setInterval(() => {
-    if (!S.session || S.session.role === 'citizen' || S.session.role === 'dispatch_team') return;
-    if (document.visibilityState !== 'visible') return;
-    const waiting = (UG.DATA.sosLog || []).some((x) => x.status === 'sent' && x.user_id !== S.session.id &&
-      (!x.created_at || Date.now() - Date.parse(x.created_at) < 24 * 3600000));
-    if (waiting) { try { UG_ALARM.play('sos'); } catch (e) { } }
-  }, 180000);
+  // The pending inbox survives reloads and shared incident resolution.
+  let lastSosAlarmAt = 0;
+  function syncSosAlarm() {
+    const role = S.session && S.session.role;
+    if ((role !== 'lgu_ldrrmc' && role !== 'barangay_official') ||
+        !(UG.DATA.sosLog || []).some((row) => row.needs_receipt)) {
+      UG_ALARM.stopPendingSos();
+      lastSosAlarmAt = 0;
+      return;
+    }
+    if (Date.now() - lastSosAlarmAt < 5000) return;
+    try {
+      if (UG_ALARM.play('sos', { force: true, pendingSos: true })) lastSosAlarmAt = Date.now();
+    } catch (e) { }
+  }
+  setInterval(syncSosAlarm, 1000);
+  document.addEventListener('ug:alarm-unlocked', () => {
+    lastSosAlarmAt = 0;
+    syncSosAlarm();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') syncSosAlarm();
+  });
+
   document.addEventListener('ug:realtime', (e) => {
     const d = e.detail || {};
+    if (d.table === 'report_dispatches' && d.row && S.session && S.session.role === 'citizen' &&
+        S.route === 'report-detail' && (UG.DATA.incidents || []).some((i) => i.uuid === d.row.report_id &&
+          (S.openId === i.id || S.openId === i.uuid))) {
+      Repo.loadDispatches(d.row.report_id).catch(() => {});
+    }
     if (d.type === 'INSERT') instantAlarm(d.table, d.row);
+    if (d.table === 'sos_log' && d.type === 'INSERT' && S.session && d.row && d.row.requires_staff_receipt &&
+        d.row.status === 'sent' && d.row.user_id !== S.session.id) {
+      const staff = S.session;
+      const sameBarangay = d.row.barangay_id
+        ? d.row.barangay_id === staff.barangay_id
+        : d.row.barangay && d.row.barangay === staff.barangay;
+      if (staff.role === 'lgu_ldrrmc' || (staff.role === 'barangay_official' && sameBarangay)) {
+        const inbox = UG.DATA.sosLog || [];
+        if (!inbox.some((row) => row.id === d.row.id)) {
+          UG.DATA.sosLog = [Repo.toSos({ ...d.row, needs_receipt: true }), ...inbox];
+          syncSosAlarm();
+          render();
+        }
+      }
+    }
+    if (d.table === 'sos_staff_receipts' && d.type === 'INSERT' && S.session &&
+        d.row && d.row.staff_id === S.session.id) {
+      const sos = (UG.DATA.sosLog || []).find((row) => row.id === d.row.sos_id);
+      if (sos) {
+        sos.needs_receipt = false;
+        syncSosAlarm();
+        render();
+      }
+    }
     /* an emergency advisory (or emergency declaration) raises the alert
        card and its alarm the moment it is published, every portal but the
        dispatch console, without waiting for the refresh */
@@ -5802,7 +5919,7 @@
       navigator.serviceWorker.addEventListener('message', (e) => {
         if (!e.data || e.data.type !== 'UG_PUSH' || !S.session) return;
         const p = e.data.payload || {};
-        const kind = /sos/i.test(p.title || '') ? 'sos' : ((p.title || '') + ' ' + (p.body || ''));
+        const kind = p.tag && p.tag.startsWith('dispatch-') ? 'dispatch' : /sos/i.test(p.title || '') ? 'sos' : ((p.title || '') + ' ' + (p.body || ''));
         try { UG_ALARM.play(kind, { force: p.severity === 'emergency' || kind === 'sos' }); } catch (err) { }
         if (p.severity === 'emergency' && p.advisory_id && S.session.role !== 'dispatch_team') {
           try { UG_URGENT.fire({ id: p.advisory_id, severity: 'emergency', title: p.title, body: p.body, time: 'just now' }); } catch (err) { }
@@ -5929,8 +6046,7 @@
   /* the dispatch team reads its own dataset (UG_DISPATCH), not Repo's */
   Repo.setRefreshGate(() => S.session && S.session.role !== 'dispatch_team' && liveRefreshAllowed());
 
-  /* The dispatch portal has no Realtime feed of its own; refresh it on the
-     same cadence, under the same rule, so new assignments show up unprompted. */
+  /* Poll as a fallback when the dispatch portal misses a Realtime event. */
   let dispatchRefreshing = false;
   async function refreshDispatch() {
     if (dispatchRefreshing || !S.session || S.session.role !== 'dispatch_team') return;
@@ -5941,8 +6057,6 @@
     try { await UG_DISPATCH.loadAll({ silent: true }); } catch (e) { }
     dispatchRefreshing = false;
   }
-  /* js/dispatch.js calls this when Realtime reports a new assignment */
-  window.UG_DISPATCH_REFRESH = refreshDispatch;
   setInterval(refreshDispatch, UG_CONFIG.LIVE_REFRESH_MS || 20000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshDispatch(); });
   UG_PWA.onChange(() => { if (S.session) render(); });
@@ -5977,6 +6091,8 @@
       const r = await Auth.revalidate();
       if (r && r.signedOut) {
         MapView.destroy();
+        if (typeof UG_DISPATCH !== 'undefined') UG_DISPATCH.signedOut();
+        try { await UG_PWA.clearSnapshot(); } catch (e) { }
         S.session = null;
         S.auth = blankAuth();
         S.auth.notice = T('auth.signInAgain');
@@ -5986,7 +6102,13 @@
     } catch (e) { /* stay as we are; the next reconnection tries again */ }
     revalidating = false;
   }
-  window.addEventListener('online', () => { revalidateSession(); });
+  window.addEventListener('online', revalidateSession);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') revalidateSession();
+  });
+  setInterval(() => {
+    if (document.visibilityState === 'visible') revalidateSession();
+  }, 30000);
 
   /* -------------------------------------------------------------- DEV deep links */
   function applyDevDeepLink() {

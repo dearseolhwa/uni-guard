@@ -97,6 +97,7 @@ const Auth = (function () {
     if (res.error) {
       const err = new Error('Could not read your profile. ' + res.error.message);
       err.network = isNetworkError(res.error);
+      if (res.error.code === '42501' && /account or session has been disabled/i.test(res.error.message)) err.code = 'ACCOUNT_DISABLED';
       throw err;
     }
     if (!res.data) {

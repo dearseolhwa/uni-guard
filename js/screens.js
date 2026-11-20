@@ -821,7 +821,8 @@ const UG_SCREENS = (() => {
 
   function mReportDetail(st){
     const id = st.openId;
-    const i = U.DATA.incidents.find(x => x.id === id || x.uuid === id) || U.DATA.incidents[0];
+    const i = U.DATA.incidents.find(x => x.id === id || x.uuid === id);
+    if (!i) return '<div class="ug-note">This report is unavailable.</div>';
     const corr = st.corr[i.id] != null ? st.corr[i.id] : i.corr;
     /* the server decides verification (061); the screen never promotes a
        report to verified on its own count */
@@ -876,7 +877,7 @@ const UG_SCREENS = (() => {
                 : 'This report was closed as not actionable or a duplicate. Contact your barangay desk if you think this was a mistake.') + '</div></div></div>'
         : '<div class="ug-card"><div class="ug-card-h"><h3>Tracking</h3><span class="ug-dimmer" style="font-size:11px">Processing → Deployed → Resolved</span></div>' +
             '<div class="ug-card-b">' + tracker + U.pipeline(status) + '</div></div>') +
-          dispatchRecords(i) +
+          residentResponseMap(i) + dispatchRecords(i) +
           ratingCard(i, i.mine && i.status === 'resolved', st.rateDraft) +
       /* timestamped history log, newest first */
       historyCard(i, st, true, 'History') +
@@ -896,6 +897,24 @@ const UG_SCREENS = (() => {
       '</div></div>' +
     '</div>';
   }
+  function residentResponseMap(incident) {
+    const linkedSos = (U.DATA.sosLog || []).some((row) => row.report_id === incident.uuid);
+    if ((!incident.mine && !linkedSos) || incident.status !== 'dispatched') return '';
+    const open = ((U.DATA.dispatches || {})[incident.uuid] || []).filter((row) =>
+      !['done', 'declined'].includes(row.dispatch_status));
+    const gps = open.filter((row) => row.last_lat != null && row.last_lng != null && row.last_loc_at);
+    const fresh = gps.some((row) => Date.now() - Date.parse(row.last_loc_at) < 90000);
+    const label = fresh ? 'Live GPS' : gps.length ? 'Last known locations' : 'Waiting for team GPS';
+    return '<section class="ug-card"><div class="ug-card-h"><h3>Track your response team</h3>' +
+      '<span class="ug-badge ug-badge--dispatched">' + label + '</span></div>' +
+      '<div class="ug-map" data-map="detail" data-response-report="' + esc(incident.uuid) +
+      '" aria-label="Map of your incident and responding teams" style="height:clamp(240px,38vh,380px);border:0;border-radius:0">' + U.mapSVG({}) + '</div>' +
+      '<div class="ug-card-b"><p class="ug-dim" style="font-size:12px">' +
+      (gps.length ? 'The map shows the incident and each team’s latest shared position.' :
+        'The incident pin is shown now. Team markers appear when responders share a GPS location.') +
+      '</p><button class="ug-btn ug-btn--sm" data-act="response-fit-map">' + I('map', 14) + 'Show incident and teams</button></div></section>';
+  }
+
     /* dispatch records for one incident: every team sent (any number), which
        unit it is and how to reach it, its status, a timestamped timeline with
        the response times, and while it is out, where it is now (from the
@@ -906,7 +925,7 @@ const UG_SCREENS = (() => {
     if (!list.length) return '';
     const units = U.DATA.unitsById || {};
     const stepLabel = (s) => ({
-      sent: 'Sent', acknowledged: 'Acknowledged', en_route: 'En route',
+      sent: 'Awaiting acknowledgment', acknowledged: 'Acknowledged', en_route: 'En route',
       on_scene: 'On scene', done: 'Done', declined: 'Declined',
       under_control: 'Under control', fire_out: 'Fire out',
       on_hold: 'On hold', resume: 'Resumed',
@@ -926,11 +945,12 @@ const UG_SCREENS = (() => {
         const toScene = mins(r.dispatched_at, r.on_scene_at);
         const total = mins(r.dispatched_at, r.done_at);
         const sinceReport = mins(i.created_at, r.dispatched_at);
-        const far = (open && r.last_lat != null) ? UG_UTIL.distanceM(r.last_lat, r.last_lng, i.lat, i.lng) : null;
+        const far = (open && i.status !== 'resolved' && r.last_loc_at && r.last_lat != null && i.lat != null) ? UG_UTIL.distanceM(r.last_lat, r.last_lng, i.lat, i.lng) : null;
         return '<div class="ug-col" style="gap:6px;padding-bottom:12px;border-bottom:1px solid var(--ug-line)">' +
           '<div class="ug-rowf ug-between" style="gap:8px;align-items:flex-start"><span style="font-size:13px;font-weight:700">' + I('truck', 14) + ' ' + esc(r.team) +
               (who ? '<span class="ug-dim" style="font-weight:600"> · ' + esc(who) + '</span>' : '') + '</span>' +
             '<span class="ug-rowf ug-gap6 ug-wrap" style="gap:6px;align-items:center;justify-content:flex-end">' +
+              (r.assignment_role ? '<span class="ug-badge ug-badge--id">' + (r.assignment_role === 'lead' ? (r.dispatch_status === 'declined' ? 'Former lead' : 'Lead') : 'Support') + '</span>' : '') +
               (r.auto_dispatched ? '<span class="ug-badge ug-badge--id">Auto</span>' : '') +
               '<span class="ug-badge ug-badge--' + (r.dispatch_status === 'declined' ? 'closed'
                 : r.dispatch_status === 'on_hold' ? 'warning'
@@ -944,7 +964,7 @@ const UG_SCREENS = (() => {
           (far != null
             ? '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:8px;align-items:center;font-size:12px">' +
                 '<span style="font-weight:600;color:var(--ug-st-dispatched)">' + I('radar', 12) + ' ' + esc(UG_UTIL.fmtDistance(far)) + ' from the scene</span>' +
-                '<span class="ug-dimmer">updated ' + esc(UG_UTIL.relTime({ created_at: r.last_loc_at })) + '</span>' +
+                '<span class="ug-dimmer">' + (Date.now() - Date.parse(r.last_loc_at) >= 90000 ? 'Last known · ' : 'Updated ') + esc(UG_UTIL.relTime({ created_at: r.last_loc_at })) + '</span>' +
                 '<a class="ug-waze-btn" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.last_lat, r.last_lng) + '">' + I('route', 12) + ' Map</a>' +
               '</div>'
             : '') +
@@ -1615,7 +1635,8 @@ const UG_SCREENS = (() => {
     const quickAction = (i) => {
       if (isSuper) return '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('edit-report', attr({ id: i.id })) + '>' + I('settings', 14) + 'Edit</button>';
       if (i.status === 'verified')   return '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('truck', 14) + 'Dispatch</button>';
-      if (i.status === 'dispatched') return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>' + I('check', 14) + 'Resolve</button>';
+      if (i.status === 'dispatched' && !(st.session && st.session.role === 'barangay_official' &&
+        ((U.DATA.dispatches || {})[i.uuid] || []).some((d) => d.unit_id && !['done', 'declined'].includes(d.dispatch_status)))) return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>' + I('check', 14) + 'Resolve</button>';
       if (i.status === 'reported')   return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Verify</button>';
       return '';
     };
@@ -1963,7 +1984,14 @@ const UG_SCREENS = (() => {
         return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Verify</button>';
       }
       if (i.status === 'verified') return '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>Dispatch</button>';
-      if (i.status === 'dispatched') return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Resolve</button>';
+      if (i.status === 'dispatched') {
+        const municipalResponse = ((U.DATA.dispatches || {})[i.uuid] || []).some(
+          (d) => d.unit_id && !['done', 'declined'].includes(d.dispatch_status));
+        if (st.session && st.session.role === 'barangay_official' && municipalResponse) {
+          return '<span class="ug-dimmer">MDRRMO coordinating</span>';
+        }
+        return '<button class="ug-btn ug-btn--sm"' + A('advance', attr({ id: i.id })) + '>Resolve</button>';
+      }
       if (i.status === 'rejected') return '<span class="ug-dimmer" style="font-size:11px;display:flex;align-items:center;gap:5px">' + I('x', 13) + 'Rejected</span>';
       return '<span class="ug-dimmer" style="font-size:11px;display:flex;align-items:center;gap:5px">' + I('check', 13) + 'Closed</span>';
     };
@@ -2100,6 +2128,13 @@ const UG_SCREENS = (() => {
             : '')
       : '';
     const isLGU = st.session && st.session.role === 'lgu_ldrrmc';
+    const isBarangay = st.session && st.session.role === 'barangay_official';
+    const request = (U.DATA.municipalDispatchRequests || []).find((row) => row.report_id === i.uuid);
+    const canRequest = isBarangay && ['verified', 'dispatched'].includes(status) && !request;
+    const localTeamAssigned = ((U.DATA.dispatches || {})[i.uuid] || []).some(
+      (row) => row.team === 'Barangay Response Team' && !['done', 'declined'].includes(row.dispatch_status));
+    const municipalTeamAssigned = ((U.DATA.dispatches || {})[i.uuid] || []).some(
+      (row) => row.unit_id && !['done', 'declined'].includes(row.dispatch_status));
     return '<div class="ug-col" style="gap:14px">' +
       '<div class="ug-rowf ug-between ug-wrap" style="gap:12px;align-items:flex-start">' +
         '<div class="ug-rowf ug-gap12" style="gap:12px;align-items:flex-start">' +
@@ -2118,24 +2153,29 @@ const UG_SCREENS = (() => {
           /* "Assign Units" removed — Dispatch Response (and "Add Team" once
              dispatched) already covers assigning a response unit, so the
              separate Assign Units button was redundant clutter. */
-          (isSuperAdminSession(st) ? (
-              (status !== 'resolved' && status !== 'rejected'
-                ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>'
-                : '')
-            ) :
+          (isSuperAdminSession(st) ? '' :
             (status !== 'resolved' && status !== 'rejected' ? (
               /* LDRRMO staff verify through the LGU verification (one button,
                  not "Advance Status" plus a second "LGU-Verify") */
               isLGU && status === 'reported'
                 ? '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('lgu-verify', attr({ id: i.id })) + ' title="Verified by the LDRRMO; an optional note is kept in the activity log">' + I('shield', 15) + 'Verify Report</button>'
-                : '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('advance', attr({ id: i.id })) + '>' + I('check', 15) + (status === 'verified' ? 'Dispatch Response' : 'Advance Status') + '</button>') +
+                : (isBarangay && municipalTeamAssigned ? '' : '<button class="ug-btn ug-btn--sm ug-btn--signal"' +
+                  A('advance', attr({ id: i.id })) + '>' + I('check', 15) + (status === 'verified' ?
+                    (isBarangay ? 'Send Barangay Response Team' : 'Dispatch Response') : 'Advance Status') + '</button>')) +
           /* verified but not sent (auto-verified by residents, or no unit was
              free): one tap sends the hazard's teams (migration 057) */
-          (status === 'verified' && (UG_HAZARDS.suggestedTeams(i.hazard_type).length || i.sev === 'emergency')
+          (isLGU && status === 'verified' && (UG_HAZARDS.suggestedTeams(i.hazard_type).length || i.sev === 'emergency')
             ? '<button class="ug-btn ug-btn--sm"' + A('auto-dispatch', attr({ id: i.uuid || i.id })) + '>' + I('truck', 15) + 'Auto-dispatch</button>' : '') +
-          (status === 'dispatched' ? '<button class="ug-btn ug-btn--sm"' + A('incident-add-team', attr({ id: i.id })) + '>' + I('truck', 15) + 'Add Team</button>' : '') +
+          (isLGU && ['verified', 'dispatched'].includes(status) ? '<button class="ug-btn ug-btn--sm"' +
+            A('incident-notify-hospital', attr({ id: i.uuid || i.id })) + '>' + I('truck', 15) + 'Notify hospital</button>' : '') +
+          (status === 'dispatched' && (isLGU || (isBarangay && !localTeamAssigned)) ?
+            '<button class="ug-btn ug-btn--sm"' + A('incident-add-team', attr({ id: i.id })) + '>' +
+            I('truck', 15) + (isBarangay ? 'Send Barangay Response Team' : 'Add supporting team') + '</button>' : '') +
+          (canRequest ? '<button class="ug-btn ug-btn--sm"' + A('request-municipal-dispatch', attr({ id: i.uuid })) +
+            '>' + I('truck', 15) + 'Request municipal dispatch</button>' : '') +
 
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>' : '')
+          ((!isBarangay || !municipalTeamAssigned) ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' +
+            A('reject', attr({ id: i.id })) + '>' + I('x', 15) + 'Reject</button>' : '') : '')
           ) +
         '</div>' +
       '</div>' +
@@ -2158,6 +2198,8 @@ const UG_SCREENS = (() => {
         '</div>' +
         '<div class="ug-col" style="gap:18px">' +
         '<div class="ug-card"><div class="ug-card-h"><h3>Status Pipeline</h3></div><div class="ug-card-b">' + U.pipeline(status) + '</div></div>' +
+          (request ? '<div class="ug-note"><b>Municipal dispatch ' +
+            (request.assigned_dispatch_id ? 'assigned' : 'requested') + '</b><p>' + esc(request.details) + '</p></div>' : '') +
           dispatchRecords(i) +
           ratingCard(i, false) +
           '<div class="ug-card"><div class="ug-card-h"><h3>Crowd Corroboration</h3>' + U.badge(corr >= 3 ? 'resolved' : 'warning', corr + ' of 3') + '</div>' +
