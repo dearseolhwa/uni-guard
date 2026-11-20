@@ -435,7 +435,7 @@ const Repo = (function () {
       let reportsQuery = c.from('reports_feed').select('*').order('created_at', { ascending: false }).limit(300);
 
       const [reports, advisories, centers, hotlines, notifications, subscriptions, assignments, relief, beneficiaries, guides, faqs, roadWork, roadStatus,
-             dispatches, units, ratings, sos, municipalRequests] = await Promise.all([
+             dispatches, units, ratings, sos, municipalRequests, stock] = await Promise.all([
         reportsQuery,
         c.from('advisories').select('*').order('published_at', { ascending: false }).limit(100),
         c.from('evacuation_centers').select('*').order('name'),
@@ -459,7 +459,8 @@ const Repo = (function () {
            barangay consoles (and rings) the moment Realtime reports it; RLS
            limits officials to their barangay and residents to their own */
         fetchSosInbox(c),
-        c.from('barangay_dispatch_requests').select('*').order('requested_at', { ascending: false })
+        c.from('barangay_dispatch_requests').select('*').order('requested_at', { ascending: false }),
+        ['lgu_ldrrmc','barangay_official'].includes(role) ? c.rpc('read_relief_stock') : Promise.resolve({ data: null })
       ]);
       /* load change requests in parallel — the Super Admin hotlines page and
          the LGU/BO "your pending requests" section both read this. */
@@ -476,7 +477,7 @@ const Repo = (function () {
       if (reports.error) throw reports.error;
 
       const sig = JSON.stringify([reports, advisories, centers, hotlines, notifications, subscriptions, assignments,
-        relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings, sos]
+        relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings, sos, municipalRequests, stock]
         .map((r) => r && (r.error ? 'error' : [r.data, r.count]))
         .concat([UG.DATA.changeRequests || null]));
       if (opts.silent && sig === lastDataSig && state.hasSynced && state.source === 'supabase') {
@@ -499,6 +500,11 @@ const Repo = (function () {
         row.rating = ratingOf[r.id] || null;
         return row;
       });
+      UG.DATA.reliefInventoryReady = !!stock.data && !stock.error;
+      if (stock.data && !stock.error) {
+        UG.DATA.inventory = stock.data.inventory || [];
+        UG.DATA.distributionLog = stock.data.records || [];
+      }
       if (!municipalRequests.error) UG.DATA.municipalDispatchRequests = municipalRequests.data || [];
       if (sos && !sos.error) UG.DATA.sosLog = (sos.data || []).map(toSos);
       if (dispatches && !dispatches.error) {
@@ -591,7 +597,7 @@ const Repo = (function () {
      refresh back while someone is typing (setRefreshGate); the held refresh
      runs on the next poll, focus change or visibility change. */
   const WATCHED = ['reports', 'report_corroborations', 'report_assignments', 'advisories', 'notifications',
-    'evacuation_centers', 'relief_distributions', 'authorized_beneficiaries', 'preparedness_guides', 'faqs',
+    'evacuation_centers', 'relief_distributions', 'relief_inventory', 'relief_distribution_log', 'authorized_beneficiaries', 'preparedness_guides', 'faqs',
     'road_work_posts', 'road_status', 'sos_log', 'sos_staff_receipts', 'barangay_dispatch_requests', 'change_requests', 'report_dispatches', 'report_ratings',
     /* hotline edits by the Super Admin reach every portal live (published in 001) */
     'emergency_hotlines'];
@@ -1205,6 +1211,14 @@ const Repo = (function () {
   }
 
   /* -------------------------------------------------------------- admin ops */
+  async function writeReliefStock(operation, parameters) {
+    const c = client();
+    if (!c) throw new Error('Connect to Supabase to update the relief ledger');
+    const { error } = await c.rpc(operation, parameters);
+    if (error) fail(error);
+    await loadAll({ silent: true });
+  }
+
   async function listUsers() {
     const c = client();
     if (!c) return [];
@@ -1835,7 +1849,7 @@ const Repo = (function () {
     createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,
     markRead, markAllRead, listBarangays,
     declareEmergency, subscribedDeviceCount,
-    analytics, analyticsFromViews, listUsers, adminUsers, adminAccountDirectory, adminEditStaffAccount, listAudit, listResponders, assignResponder,
+    analytics, analyticsFromViews, writeReliefStock, listUsers, adminUsers, adminAccountDirectory, adminEditStaffAccount, listAudit, listResponders, assignResponder,
     dispatchReport, dispatchReportV2, loadDispatches, loadDispatchDirectory,
     /* change request workflow (master prompt · Emergency Hotlines approval) */
     loadChangeRequests, submitChangeRequest, approveChangeRequest, rejectChangeRequest,

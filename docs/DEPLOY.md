@@ -79,10 +79,18 @@ incident. Manual municipal assignment and incident response decisions belong to
 duty staff. The Super Admin manages accounts, configuration, and oversight.
 Existing automatic SOS response rules continue to run.
 
+## Shared relief inventory
+
+Apply `074_shared_relief_inventory.sql` after 073 and publish the updated site.
+MDRRMO duty staff can maintain shared stock and void incorrect distributions.
+Barangay officials can record distributions for their own barangay. A void
+restores stock and preserves the original record for audit. Existing database
+records are preserved. Browser preview stock is sample data and is not imported.
+
 ## 1. Database
 
 For a fresh database, run the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `073_dispatch_authority_hierarchy.sql`.
+`001_align_core_tables.sql` through `074_shared_relief_inventory.sql`.
 `000_inspect_current_schema.sql` is an optional read-only inspection. Use the SQL
 editor and keep a record of the **full filename** applied. Enable `pg_trgm` before
 011. Both `045_*` files

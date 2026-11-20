@@ -61,7 +61,7 @@
     reliefFilter: 'All', benSearch: '', benSearchLgu: '', benBarangayFilter: 'All',
     /* inventory search box (module E) + LGU barangay filter on the
        inventory tab (barangay_official is locked to their own barangay) */
-    invSearch: '', invBrgyFilter: 'All',
+    invSearch: '',
     /* search boxes for other admin modules (dispatch units, users, shelters, road status) */
     unitSearch: '', userSearch: '', shelterSearch: '', rsSearch: '',
     /* audit log filters: extra fields for the enhanced Activity Log */
@@ -737,6 +737,9 @@
   function enterApp(session, message) {
     if (!S.session || S.session.id !== session.id) {
       UG.DATA.sosLog = [];
+      UG.DATA.inventory = [];
+      UG.DATA.distributionLog = [];
+      UG.DATA.reliefInventoryReady = false;
       UG_ALARM.stopPendingSos();
     }
     S.session = session;
@@ -1607,6 +1610,19 @@
     });
   }
   /* ------------------------------------------------------------- app actions */
+  async function saveReliefStock(operation, params, message, button, close) {
+    if (button) button.disabled = true;
+    try {
+      await Repo.writeReliefStock(operation, params);
+      if (close) close();
+      toast(message, 'prepared');
+      render();
+    } catch (error) {
+      if (button) button.disabled = false;
+      toast(error.message, 'warning');
+    }
+  }
+
   const APP_ACTIONS = {
     nav: (d) => {
       S.bgMenu = false;   /* the staff phone menu closes after a choice */
@@ -4551,10 +4567,7 @@
       render();
     },
 
-    /* ============================================== MODULE E: inventory + records
-       All three Relief tabs share one action namespace. The inventory actions
-       mutate UG.DATA.inventory in place (offline-first); when Supabase is
-       reachable they would hit Repo methods that mirror the change server-side. */
+    /* Relief inventory and distribution records share the server ledger. */
 
     'relief-tab': (d) => { S.reliefTab = d.v; render(); },
     'du-type': (d) => { S.unitType = d.v; render(); },
@@ -4563,7 +4576,7 @@
     'inv-detail': (d) => { if (typeof UG_RELIEF !== 'undefined' && UG_RELIEF.invDetailModal) UG_RELIEF.invDetailModal(d.id); },
 
     'inv-add': () => {
-      if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can manage inventory', 'warning'); return; }
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) { toast('Only MDRRMO staff can manage warehouse stock', 'warning'); return; }
       const cats = UG_RELIEF.INV_CATEGORIES.map((c) => '<option>' + c + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Add a stock item',
@@ -4584,35 +4597,32 @@
           '</div>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Add Item</button>',
         onMount: (wrap, close) => {
-          wrap.querySelector('[data-save]').addEventListener('click', () => {
+          const operation = crypto.randomUUID();
+          const button = wrap.querySelector('[data-save]');
+          button.addEventListener('click', () => {
             const name = wrap.querySelector('[data-inv-name]').value.trim();
-            const stock = parseInt(wrap.querySelector('[data-inv-stock]').value || '0', 10) || 0;
+            const stock = Number(wrap.querySelector('[data-inv-stock]').value || '0');
             if (!name) { toast('An item name is required', 'warning'); return; }
-            const item = {
-              id: 'INV-' + String(Date.now()).slice(-6),
-              name: name,
-              category: wrap.querySelector('[data-inv-cat]').value,
-              unit: wrap.querySelector('[data-inv-unit]').value.trim() || 'units',
-              stock: stock,
-              reorder: parseInt(wrap.querySelector('[data-inv-reorder]').value || '0', 10) || 0,
-              location: wrap.querySelector('[data-inv-loc]').value.trim(),
-              supplier: wrap.querySelector('[data-inv-sup]').value.trim()
-            };
-            UG.DATA.inventory = UG.DATA.inventory || [];
-            UG.DATA.inventory.push(item);
-            /* low-stock check at add time so the duty officer is warned even
-               when they enter a starting stock that is already below reorder. */
-            if (item.stock <= item.reorder) toast('Item added — already at or below reorder point', 'warning');
-            else toast('Stock item added', 'prepared');
-            close(); render();
+            const reorder = Number(wrap.querySelector('[data-inv-reorder]').value || '0');
+            if (!Number.isInteger(stock) || stock < 0 || !Number.isInteger(reorder) || reorder < 0) {
+              toast('Use whole, non-negative quantities', 'warning'); return;
+            }
+            saveReliefStock('save_relief_item', {
+              p_id: operation, p_name: name, p_category: wrap.querySelector('[data-inv-cat]').value,
+              p_unit: wrap.querySelector('[data-inv-unit]').value.trim(),
+              p_stock: stock, p_reorder: reorder,
+              p_location: wrap.querySelector('[data-inv-loc]').value.trim(),
+              p_supplier: wrap.querySelector('[data-inv-sup]').value.trim(), p_version: null
+            }, 'Stock item added', button, close);
           });
         }
       });
     },
 
     'inv-edit': (d) => {
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
       const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
-      if (!i) return;
+      if (!i || !i.updated_at) return;
       const cats = UG_RELIEF.INV_CATEGORIES.map((c) => '<option' + (i.category === c ? ' selected' : '') + '>' + c + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Edit stock item · ' + i.name,
@@ -4632,60 +4642,57 @@
           '</div>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Save</button>',
         onMount: (wrap, close) => {
-          wrap.querySelector('[data-save]').addEventListener('click', () => {
-            i.name = wrap.querySelector('[data-inv-name]').value.trim() || i.name;
-            i.category = wrap.querySelector('[data-inv-cat]').value;
-            i.unit = wrap.querySelector('[data-inv-unit]').value.trim() || i.unit;
-            i.stock = parseInt(wrap.querySelector('[data-inv-stock]').value || '0', 10) || 0;
-            i.reorder = parseInt(wrap.querySelector('[data-inv-reorder]').value || '0', 10) || 0;
-            i.location = wrap.querySelector('[data-inv-loc]').value.trim();
-            i.supplier = wrap.querySelector('[data-inv-sup]').value.trim();
-            toast('Stock item updated', 'prepared');
-            close(); render();
+          const button = wrap.querySelector('[data-save]');
+          button.addEventListener('click', () => {
+            const stock = Number(wrap.querySelector('[data-inv-stock]').value || '0');
+            const reorder = Number(wrap.querySelector('[data-inv-reorder]').value || '0');
+            if (!Number.isInteger(stock) || stock < 0 || !Number.isInteger(reorder) || reorder < 0) {
+              toast('Use whole, non-negative quantities', 'warning'); return;
+            }
+            saveReliefStock('save_relief_item', {
+              p_id: i.id, p_name: wrap.querySelector('[data-inv-name]').value.trim(),
+              p_category: wrap.querySelector('[data-inv-cat]').value, p_unit: wrap.querySelector('[data-inv-unit]').value.trim(),
+              p_stock: stock, p_reorder: reorder, p_location: wrap.querySelector('[data-inv-loc]').value.trim(),
+              p_supplier: wrap.querySelector('[data-inv-sup]').value.trim(), p_version: i.updated_at
+            }, 'Stock item updated', button, close);
           });
         }
       });
     },
 
     'inv-restock': (d) => {
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
       const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
       if (!i) return;
       UG_FEATURES.modal({
         title: 'Restock ' + i.name,
-        body: '<div class="ug-field"><label class="ug-lab">Add to stock (' + (i.unit || 'units') + ')</label>' +
+        body: '<div class="ug-field"><label class="ug-lab">Add to stock (' + UG_UTIL.esc(i.unit || 'units') + ')</label>' +
           '<input class="ug-in" data-inv-add placeholder="e.g. 100" inputmode="numeric" autofocus>' +
           '<div class="ug-help">Current stock: ' + i.stock + ' · Reorder at: ' + i.reorder + '</div></div>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Restock</button>',
         onMount: (wrap, close) => {
-          wrap.querySelector('[data-save]').addEventListener('click', () => {
+          const operation = crypto.randomUUID();
+          const button = wrap.querySelector('[data-save]');
+          button.addEventListener('click', () => {
             const add = parseInt(wrap.querySelector('[data-inv-add"]').value || '0', 10) || 0;
-            if (add <= 0) { toast('Enter a positive quantity', 'warning'); return; }
-            i.stock = (i.stock || 0) + add;
-            toast('+' + add + ' ' + i.unit + ' · new stock ' + i.stock + (i.stock <= i.reorder ? ' (still below reorder)' : ''), 'prepared');
-            close(); render();
+            if (!Number.isInteger(add) || add <= 0) { toast('Enter a positive quantity', 'warning'); return; }
+            saveReliefStock('adjust_relief_stock', { p_id: i.id, p_delta: add, p_operation: operation },
+              'Stock replenished', button, close);
           });
         }
       });
     },
 
-    'inv-adjust': (d) => {
-      const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
-      if (!i) return;
-      const delta = parseInt(d.d, 10) || 0;
-      i.stock = Math.max(0, (i.stock || 0) + delta);
-      toast(i.name + ' stock adjusted to ' + i.stock + ' ' + i.unit, i.stock <= i.reorder ? 'warning' : 'info');
-      render();
-    },
-
     'inv-download': () => UG_EXPORTS.run('inv-download'),
 
     'rec-add': (d) => {
-      if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can record distributions', 'warning'); return; }
-      UG_RELIEF.ensureInventory();
+      if (!requireRole(['lgu_ldrrmc', 'barangay_official']) || isSuperAdmin()) { toast('Only officials can record distributions', 'warning'); return; }
+      if (!UG.DATA.reliefInventoryReady) { toast('Connect to the shared ledger first', 'warning'); return; }
+      if (!(UG.DATA.inventory || []).length) { toast('Add a stock item first', 'warning'); return; }
       const pre = (d && d.item) || '';
       const own = (S.session && S.session.role === 'barangay_official' && S.session.barangay) || '';
-      const items = (UG.DATA.inventory || []).map((i) => '<option value="' + i.id + '"' + (i.id === pre ? ' selected' : '') + '>' + UG_UTIL.esc(i.name + ' (' + (i.stock || 0) + ' ' + i.unit + ' in stock)') + '</option>').join('');
-      const brgys = UG.DATA.barangays.map((b) => '<option' + (b === own ? ' selected' : '') + '>' + UG_UTIL.esc(b) + '</option>').join('');
+      const items = (UG.DATA.inventory || []).map((i) => '<option value="' + UG_UTIL.esc(i.id) + '"' + (i.id === pre ? ' selected' : '') + '>' + UG_UTIL.esc(i.name + ' (' + (i.stock || 0) + ' ' + i.unit + ' in stock)') + '</option>').join('');
+      const brgys = (own ? [own] : UG.DATA.barangays).map((b) => '<option' + (b === own ? ' selected' : '') + '>' + UG_UTIL.esc(b) + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Record a distribution',
         cls: 'rf-modal',
@@ -4696,52 +4703,37 @@
             '<div class="ug-field" style="flex:1"><label class="ug-lab">Barangay</label><select class="ug-sel" data-rec-brgy>' + brgys + '</select></div>' +
           '</div>' +
           '<div class="ug-field"><label class="ug-lab">Family / recipient</label><input class="ug-in" data-rec-family placeholder="e.g. Aquino household"></div>' +
-          '<div class="ug-field" style="margin-bottom:0"><label class="ug-lab">Distributed by</label><input class="ug-in" data-rec-by value="' + UG_UTIL.esc((S.session && S.session.name) || '') + '"></div>',
+          '<p class="ug-help">Records are saved under your signed-in account.</p>',
         footer: '<button class="ug-btn" data-modal-close>Cancel</button><button class="ug-btn ug-btn--signal" data-save>Record</button>',
         onMount: (wrap, close) => {
-          wrap.querySelector('[data-save]').addEventListener('click', () => {
+          const operation = crypto.randomUUID();
+          const button = wrap.querySelector('[data-save]');
+          button.addEventListener('click', () => {
             const itemId = wrap.querySelector('[data-rec-item]').value;
-            const item = (UG.DATA.inventory || []).find((x) => x.id === itemId);
-            const qty = parseInt(wrap.querySelector('[data-rec-qty]').value || '0', 10) || 0;
+            const qty = Number(wrap.querySelector('[data-rec-qty]').value);
             const brgy = wrap.querySelector('[data-rec-brgy]').value;
-            const family = wrap.querySelector('[data-rec-family]').value.trim();
-            const by = wrap.querySelector('[data-rec-by]').value.trim();
-            if (!qty || !brgy) { toast('A quantity and a barangay are required', 'warning'); return; }
-            if (item && qty > (item.stock || 0)) {
-              toast('Only ' + item.stock + ' ' + item.unit + ' of ' + item.name + ' in stock', 'warning'); return;
+            if (!itemId || !Number.isInteger(qty) || qty <= 0 || !brgy) {
+              toast('Choose an item, a barangay and a positive whole quantity', 'warning'); return;
             }
-            const rec = {
-              id: 'DR-' + String(Date.now()).slice(-6),
-              item_id: itemId,
-              item_name: item ? item.name : 'Item',
-              qty: qty, barangay: brgy, family: family || '—',
-              distributed_by: by || '—',
-              distributed_at: new Date().toISOString()
-            };
-            UG.DATA.distributionLog = UG.DATA.distributionLog || [];
-            UG.DATA.distributionLog.push(rec);
-            /* decrement the inventory in the same action so the stock ledger
-               and the distribution log never drift apart. */
-            if (item) item.stock = Math.max(0, (item.stock || 0) - qty);
-            toast(qty + ' ' + (item ? item.unit : 'units') + ' recorded for ' + brgy, 'prepared');
-            close(); render();
+            saveReliefStock('record_relief_stock_distribution', {
+              p_id: operation, p_item: itemId, p_qty: qty, p_barangay: brgy,
+              p_family: wrap.querySelector('[data-rec-family]').value.trim()
+            }, 'Distribution recorded and stock updated', button, close);
           });
         }
       });
     },
 
-    'rec-del': (d) => {
-      const log = UG.DATA.distributionLog || [];
-      const idx = log.findIndex((r) => r.id === d.id);
-      if (idx === -1) return;
-      /* restock the item the record had decremented, so deleting a mistake
-         doesn't leave the inventory permanently short. */
-      const rec = log[idx];
-      const item = (UG.DATA.inventory || []).find((x) => x.id === rec.item_id);
-      if (item) item.stock = (item.stock || 0) + (rec.qty || 0);
-      log.splice(idx, 1);
-      toast('Distribution record removed · ' + (rec.qty || 0) + ' ' + (item ? item.unit : '') + ' returned to stock', 'warning');
-      render();
+    'rec-del': async (d) => {
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
+      const record = (UG.DATA.distributionLog || []).find((r) => r.id === d.id);
+      if (!record) return;
+      const ok = await UG_FEATURES.confirm({
+        title: 'Void this distribution?',
+        message: 'Void only incorrect entries. ' + record.qty + ' will be returned to stock.',
+        confirmLabel: 'Void distribution', danger: true
+      });
+      if (ok) await saveReliefStock('void_relief_stock_distribution', { p_id: record.id }, 'Distribution voided and stock restored');
     },
 
     'rec-download': () => UG_EXPORTS.run('rec-download'),
@@ -5441,7 +5433,6 @@
     else if (f === 'incBrgyFilter') { S.incBrgyFilter = v; render(); return; }
     else if (f === 'incHazardFilter') { S.incHazardFilter = v; render(); return; }
     else if (f === 'recBrgyFilter') { S.recBrgyFilter = v; render(); return; }
-    else if (f === 'invBrgyFilter') { S.invBrgyFilter = v; render(); return; }
     /* activity log filters */
     else if (f === 'auditEntity' || f === 'auditActor' || f === 'auditFrom' || f === 'auditTo'
           || f === 'auditRole' || f === 'auditAction' || f === 'auditBarangay') { S[f] = v; S.auditPage = 1; render(); return; }
