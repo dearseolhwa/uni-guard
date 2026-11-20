@@ -950,7 +950,7 @@ const UG_SCREENS = (() => {
           '<div class="ug-rowf ug-between" style="gap:8px;align-items:flex-start"><span style="font-size:13px;font-weight:700">' + I('truck', 14) + ' ' + esc(r.team) +
               (who ? '<span class="ug-dim" style="font-weight:600"> · ' + esc(who) + '</span>' : '') + '</span>' +
             '<span class="ug-rowf ug-gap6 ug-wrap" style="gap:6px;align-items:center;justify-content:flex-end">' +
-              (r.assignment_role ? '<span class="ug-badge ug-badge--id">' + (r.assignment_role === 'lead' ? 'Lead' : 'Support') + '</span>' : '') +
+              (r.assignment_role ? '<span class="ug-badge ug-badge--id">' + (r.assignment_role === 'lead' ? (r.dispatch_status === 'declined' ? 'Former lead' : 'Lead') : 'Support') + '</span>' : '') +
               (r.auto_dispatched ? '<span class="ug-badge ug-badge--id">Auto</span>' : '') +
               '<span class="ug-badge ug-badge--' + (r.dispatch_status === 'declined' ? 'closed'
                 : r.dispatch_status === 'on_hold' ? 'warning'

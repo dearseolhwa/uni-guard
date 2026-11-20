@@ -5742,7 +5742,7 @@
      opening the app is silent. */
   let alarmSeen = null;
   let alarmSeenFor = '';
-  const NEEDS_DISPATCH = /^(No unit available|Dispatch needed|Auto-dispatch failed)/;
+  const NEEDS_DISPATCH = /^(No unit available|Dispatch needed|Auto-dispatch failed|Emergency alert delivery failed)/;
   function alarmOnNew() {
     const role = S.session.role;
     if (role === 'dispatch_team') return;
@@ -5905,7 +5905,7 @@
       navigator.serviceWorker.addEventListener('message', (e) => {
         if (!e.data || e.data.type !== 'UG_PUSH' || !S.session) return;
         const p = e.data.payload || {};
-        const kind = /sos/i.test(p.title || '') ? 'sos' : ((p.title || '') + ' ' + (p.body || ''));
+        const kind = p.tag && p.tag.startsWith('dispatch-') ? 'dispatch' : /sos/i.test(p.title || '') ? 'sos' : ((p.title || '') + ' ' + (p.body || ''));
         try { UG_ALARM.play(kind, { force: p.severity === 'emergency' || kind === 'sos' }); } catch (err) { }
         if (p.severity === 'emergency' && p.advisory_id && S.session.role !== 'dispatch_team') {
           try { UG_URGENT.fire({ id: p.advisory_id, severity: 'emergency', title: p.title, body: p.body, time: 'just now' }); } catch (err) { }
