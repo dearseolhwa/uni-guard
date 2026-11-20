@@ -1,0 +1,25 @@
+{
+  "name": "UniGuard · Unified Disaster Risk Reduction and Management System",
+  "short_name": "UniGuard",
+  "description": "Report hazards, follow official advisories and find open evacuation centres. Works offline for cached hotlines, shelters and critical advisories.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "/uniguard",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#050910",
+  "theme_color": "#050910",
+  "lang": "en",
+  "categories": ["government", "utilities", "news"],
+  "icons": [
+    { "src": "icons-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Report a hazard", "short_name": "Report", "url": "./index.html#report" },
+    { "name": "Nearest shelters", "short_name": "Shelters", "url": "./index.html#centers" },
+    { "name": "Emergency hotlines", "short_name": "Hotlines", "url": "./index.html#hotlines" }
+  ]
+}

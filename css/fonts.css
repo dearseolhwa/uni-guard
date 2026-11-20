@@ -1,0 +1,20 @@
+/* UniGuard · one typeface (Nov 2026)
+   Every interface uses Inter, the usual typeface for app UIs, loaded from
+   Google Fonts in index.html with the system UI font as fallback. The old
+   display / body / mono variables all point at it, so no other font is drawn
+   anywhere. Numbers use tabular figures so IDs, times and counts line up. */
+:root {
+  --ug-font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --ug-display: var(--ug-font);
+  --ug-body: var(--ug-font);
+  --ug-mono: var(--ug-font);
+}
+html, body, button, input, select, textarea, optgroup, .ug, .leaflet-container {
+  font-family: var(--ug-font) !important;
+}
+body {
+  font-feature-settings: 'cv11' 1, 'ss01' 1;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
