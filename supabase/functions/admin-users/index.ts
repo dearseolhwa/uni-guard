@@ -143,7 +143,7 @@ Deno.serve(async (req: Request) => {
 
         if (invited?.user) {
           const patch: Record<string, unknown> = {
-            id: invited.user.id, email, role, is_super_admin: wantSuper,
+            id: invited.user.id, email, role, is_super_admin: wantSuper, invite_last_attempt_at: new Date().toISOString(),
             // the name the Super Admin typed; the email prefix only as a fallback
             full_name: String(payload.fullName || '').trim() || email.split('@')[0],
             updated_at: new Date().toISOString()
@@ -197,33 +197,13 @@ Deno.serve(async (req: Request) => {
       }
 
       case 'unit-set-disabled': {
-        // A unit_admin can disable/reactivate a member of their own unit.
-        // The LGU can do the same for any dispatch_team user via set-disabled
-        // (already in the existing 'set-disabled' action).
-        const unitId = String(payload.unitId || '');
-        const userId = String(payload.userId || '');
-        const disabled = payload.disabled === true;
-        if (!isAdminOf(unitId)) {
-          return json({ error: 'You can only manage members of your own unit' }, 403);
-        }
-        if (userId === profile.id) return json({ error: 'You cannot disable your own account' }, 400);
-
-        // confirm the target is in this unit
-        const { data: target } = await admin.from('profiles')
-          .select('id, role, dispatch_unit_id, unit_role').eq('id', userId).maybeSingle();
-        if (!target || target.role !== 'dispatch_team' || target.dispatch_unit_id !== unitId) {
-          return json({ error: 'That account is not a member of your unit' }, 400);
-        }
-        if (target.unit_role === 'unit_admin') {
-          return json({ error: 'A unit_admin can only be disabled by the LGU' }, 400);
-        }
-
-        const { data, error } = await admin.from('profiles')
-          .update({ disabled, updated_at: new Date().toISOString() }).eq('id', userId).select('*').single();
-        if (error) return json({ error: error.message }, 400);
-        if (disabled) await admin.auth.admin.signOut(userId).catch(() => null);
-        await audit(disabled ? 'unit.member_disabled' : 'unit.member_enabled', userId, { unitId });
-        return json({ ok: true, profile: data });
+        const target = String(payload.userId || '');
+        if (typeof payload.disabled !== 'boolean' || !target) return json({ error: 'Select an account and a status' }, 400);
+        const { data, error } = await admin.rpc('admin_change_account_disabled', {
+          p_actor: profile.id, p_target: target, p_disabled: payload.disabled
+        });
+        if (error) return json({ error: error.message }, error.code === '42501' ? 403 : 400);
+        return json({ ok: true, profile: data, sessionsRevoked: payload.disabled });
       }
 
       case 'set-role': {
@@ -298,6 +278,21 @@ Deno.serve(async (req: Request) => {
         return json({ ok: true, profile: data });
       }
 
+      case 'resend-invitation': {
+        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
+        const userId = String(payload.userId || '');
+        const { data: email, error: reserveError } = await asCaller.rpc('admin_reserve_invitation_retry', { p_target: userId });
+        if (reserveError || !email) return json({ error: reserveError?.message || 'Invitation not found' }, 400);
+        // The invited user already exists. A fresh recovery/setup link keeps that account's role and identity.
+        const { error: sendError } = await asCaller.auth.resetPasswordForEmail(email, {
+          redirectTo: typeof payload.redirectUrl === 'string' ? payload.redirectUrl : undefined
+        });
+        const { error: statusError } = await admin.from('profiles').update({ invite_last_failed: !!sendError }).eq('id', userId);
+        await audit(sendError ? 'user.invitation_retry_failed' : 'user.invitation_resent', userId, {});
+        if (sendError) return json({ error: sendError.message }, 400);
+        return json({ ok: true, statusRecorded: !statusError });
+      }
+
       case 'remove': {
         if (!isSuper) return json({ error: SUPER_ONLY }, 403);
         const userId = String(payload.userId || '');
@@ -308,25 +303,13 @@ Deno.serve(async (req: Request) => {
       }
 
       case 'set-disabled': {
-        const userId = String(payload.userId || '');
-        const disabled = payload.disabled === true;
-        if (userId === profile.id) return json({ error: 'You cannot disable your own account' }, 400);
-        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
-        if (disabled) {
-          const { data: target } = await admin.from('profiles')
-            .select('role, is_super_admin').eq('id', userId).maybeSingle();
-          if (target && target.role === 'lgu_ldrrmc' && target.is_super_admin === true) {
-            const { count } = await admin.from('profiles').select('id', { count: 'exact', head: true })
-              .eq('role', 'lgu_ldrrmc').eq('is_super_admin', true).eq('disabled', false);
-            if ((count ?? 0) <= 1) return json({ error: 'This is the last active Super Admin and cannot be disabled.' }, 400);
-          }
-        }
-        const { data, error } = await admin.from('profiles')
-          .update({ disabled, updated_at: new Date().toISOString() }).eq('id', userId).select('*').single();
-        if (error) return json({ error: error.message }, 400);
-        if (disabled) await admin.auth.admin.signOut(userId).catch(() => null);
-        await audit(disabled ? 'user.disabled' : 'user.enabled', userId, { disabled });
-        return json({ ok: true, profile: data });
+        const target = String(payload.userId || '');
+        if (typeof payload.disabled !== 'boolean' || !target) return json({ error: 'Select an account and a status' }, 400);
+        const { data, error } = await admin.rpc('admin_change_account_disabled', {
+          p_actor: profile.id, p_target: target, p_disabled: payload.disabled
+        });
+        if (error) return json({ error: error.message }, error.code === '42501' ? 403 : 400);
+        return json({ ok: true, profile: data, sessionsRevoked: payload.disabled });
       }
 
       default:

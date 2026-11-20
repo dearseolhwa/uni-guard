@@ -54,10 +54,25 @@ to see the incident pin, the latest shared team positions, status, and the
 dispatcher-provided ETA. Test with an actual dispatch handset and an independent
 resident device on the deployed site.
 
+## Super Admin account reliability upgrade
+
+Apply `072_super_admin_account_reliability.sql` after 071. Deploy the updated
+`admin-users` Edge Function before publishing the new static files. Verify the
+PostgREST pre-request hook is `public.enforce_account_session`. If the project
+already uses a custom hook, call this function from it before rollout.
+
+Disabling a staff account revokes stored sessions and blocks their old access
+tokens at the API. Re-enabling lets the person sign in again. Test from two
+separate browser sessions and verify the account can sign in fresh after being
+enabled. Search for an older account and check that pagination and status filters
+match. Pending invitations can send a fresh password setup link through the
+Supabase password recovery flow. Verify the SMTP provider, allowed redirect URL,
+email arrival and acceptance using a staging account.
+
 ## 1. Database
 
 For a fresh database, run the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `071_emergency_delivery_and_lead_handoff.sql`.
+`001_align_core_tables.sql` through `072_super_admin_account_reliability.sql`.
 `000_inspect_current_schema.sql` is an optional read-only inspection. Use the SQL
 editor and keep a record of the **full filename** applied. Enable `pg_trgm` before
 011. Both `045_*` files

@@ -6077,6 +6077,8 @@
       const r = await Auth.revalidate();
       if (r && r.signedOut) {
         MapView.destroy();
+        if (typeof UG_DISPATCH !== 'undefined') UG_DISPATCH.signedOut();
+        try { await UG_PWA.clearSnapshot(); } catch (e) { }
         S.session = null;
         S.auth = blankAuth();
         S.auth.notice = T('auth.signInAgain');
@@ -6086,7 +6088,13 @@
     } catch (e) { /* stay as we are; the next reconnection tries again */ }
     revalidating = false;
   }
-  window.addEventListener('online', () => { revalidateSession(); });
+  window.addEventListener('online', revalidateSession);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') revalidateSession();
+  });
+  setInterval(() => {
+    if (document.visibilityState === 'visible') revalidateSession();
+  }, 30000);
 
   /* -------------------------------------------------------------- DEV deep links */
   function applyDevDeepLink() {

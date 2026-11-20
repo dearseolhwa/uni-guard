@@ -134,6 +134,9 @@ const UG_SUPERADMIN = (function () {
       case 'user.invited': return 'Invited ' + (meta.email || 'an account') + ' as ' + (meta.role || 'official');
       case 'user.role_changed': return 'Role changed to ' + (meta.to || 'unknown');
       case 'user.barangay_changed': return 'Barangay assignment changed to ' + (meta.name || 'none');
+      case 'user.account_updated': return 'Account details updated';
+      case 'user.invitation_resent': return 'Setup email requested again';
+      case 'user.invitation_retry_failed': return 'Setup email retry failed';
       case 'user.removed': return 'Account removed';
       case 'user.disabled': return 'Account disabled';
       case 'user.enabled': return 'Account enabled';
@@ -184,7 +187,7 @@ const UG_SUPERADMIN = (function () {
     return {
       uid: uid, view: 'overview', range: 14,
       month: new Date(now.getFullYear(), now.getMonth(), 1), day: isoDayLocal(now),
-      query: '', accRole: 'all', accStatus: 'all', allAccounts: false,
+      query: '', accRole: 'all', accStatus: 'all', allAccounts: false, accountPage: 1, directory: null, directoryError: '', directoryLoading: false,
       menu: null,              /* 'role' | 'export-accounts' | 'export-activity' */
       newAcct: null, newNote: '', newBusy: false,
       edit: null, editNote: '', editOk: false, saving: false, resetting: false,
@@ -202,7 +205,7 @@ const UG_SUPERADMIN = (function () {
 
   /* ------------------------------------------------------------ data */
   const D = () => UG.DATA || {};
-  const users = () => D().users || [];
+  const users = () => st.directory ? st.directory.rows : (Repo.client() ? [] : D().users || []);
   const audit = () => D().audit || [];
   const reports = () => D().incidents || [];
   const sosLog = () => D().sosLog || [];
@@ -215,7 +218,7 @@ const UG_SUPERADMIN = (function () {
     const s = S();
     st.loadError = null;
     const parts = [
-      Repo.listUsers().then((u) => { s.users = u; UG.DATA.users = u; }),
+      reloadUsers(),
       Repo.listAudit(500).then((a) => { s.audit = a; UG.DATA.audit = a; }),
       Repo.listSos().then((x) => { UG.DATA.sosLog = x; }),
       Repo.loadChangeRequests(),
@@ -232,18 +235,49 @@ const UG_SUPERADMIN = (function () {
     }
     render();
   }
+  let accountRequest = 0;
+  let accountSearchTimer = null;
   async function reloadUsers() {
-    const u = await Repo.listUsers();
-    S().users = u; UG.DATA.users = u;
+    const state = st;
+    const request = ++accountRequest;
+    const params = { query: state.query, role: state.accRole, status: state.accStatus, page: state.accountPage };
+    try {
+      const page = await Repo.adminAccountDirectory(params);
+      if (state !== st || request !== accountRequest) return;
+      const lastPage = Math.max(1, Math.ceil((page?.matched || 0) / PAGE));
+      if (page && state.accountPage > lastPage) {
+        state.accountPage = lastPage;
+        return reloadUsers();
+      }
+      state.directory = page;
+      state.directoryLoading = false;
+      state.directoryError = '';
+      render();
+    } catch (error) {
+      if (state !== st || request !== accountRequest) return;
+      state.directoryLoading = false;
+      state.directoryError = error.message || 'Could not load accounts.';
+      render();
+    }
+  }
+
+  function changeAccountFilters(patch, delay = 0) {
+    clearTimeout(accountSearchTimer);
+    ++accountRequest;
+    const state = st;
+    set({ ...patch, directoryError: '', directoryLoading: !!Repo.client() });
+    accountSearchTimer = setTimeout(() => { if (state === st) reloadUsers(); }, delay);
   }
 
   /* ------------------------------------------------------------ derived */
   function roleCounts() {
+    if (st.directory) return st.directory.counts;
     const c = {};
     users().forEach((u) => { const r = roleKey(u); c[r] = (c[r] || 0) + 1; });
     return c;
   }
   function filteredAccounts() {
+    if (Repo.client()) return users();
     const q = st.query.trim().toLowerCase();
     return users().filter((u) =>
       (st.accRole === 'all' || roleKey(u) === st.accRole) &&
@@ -626,15 +660,15 @@ const UG_SUPERADMIN = (function () {
   }
 
   function accountsView(counts, total) {
-    const list = filteredAccounts();
-    const disabledN = users().filter((u) => u.disabled).length;
-    const shown = st.allAccounts ? list : list.slice(0, SHORT);
+    const list = st.directoryLoading || st.directoryError ? [] : filteredAccounts();
+    const disabledN = st.directory ? st.directory.disabled : users().filter((u) => u.disabled).length;
+    const shown = Repo.client() || st.allAccounts ? list : list.slice(0, SHORT);
     const rows = shown.map((u) => {
       const r = roleKey(u);
       return '<button type="button" class="sa-acc-row"' + btn('sa-open-account', { id: u.id }) + '>' +
         '<span class="sa-acc-who"><span class="sa-av">' + esc(String(u.full_name || u.email || '?').trim().charAt(0).toUpperCase()) + '</span>' +
           '<span class="sa-minw0"><span class="sa-acc-name">' + esc(u.full_name || 'Unnamed') + (u.disabled ? '<span class="sa-disabled-tag">DISABLED</span>' : '') + '</span>' +
-          '<span class="sa-acc-mail">' + esc(u.email || '') + '</span></span></span>' +
+          '<span class="sa-acc-mail">' + esc(u.email || '') + (u.invitation_status ? ' · Invitation ' + esc(u.invitation_status) : '') + '</span></span></span>' +
         '<span><span class="sa-pill ' + ROLE_PILL[r] + '">' + esc(roleLabel(r)) + '</span></span>' +
         '<span class="sa-acc-brgy">' + esc(u.barangay || '—') + '</span>' +
         '<span class="sa-acc-when">' + esc(relTime(u.created_at)) + '</span></button>';
@@ -643,7 +677,7 @@ const UG_SUPERADMIN = (function () {
       '<div class="sa-acc-bar">' +
         '<label class="sa-search">' + li('search', 16, 'sa-muted') +
           '<input data-sa-field="query" value="' + esc(st.query) + '" placeholder="Search name, email or barangay" aria-label="Search accounts"></label>' +
-        '<div class="sa-acc-acts">' + exportMenu('export-accounts', 'accounts', !list.length, 'Only the accounts shown are exported.') +
+        '<div class="sa-acc-acts">' + exportMenu('export-accounts', 'accounts', !list.length, 'Only the current page is exported.') +
           '<button type="button" class="sa-btn-new"' + btn('sa-new') + '>' + li('userPlus', 16) + 'New account</button></div>' +
       '</div>' +
       '<div class="sa-acc-filters">' +
@@ -651,16 +685,23 @@ const UG_SUPERADMIN = (function () {
         '<div class="sa-acc-right"><div class="sa-seg" role="group" aria-label="Show accounts by status">' +
           [['all', 'Any'], ['active', 'Active'], ['disabled', 'Disabled' + (disabledN ? ' ' + disabledN : '')]].map((s) =>
             '<button type="button" class="' + (st.accStatus === s[0] ? 'is-on' : '') + '"' + btn('sa-acc-status', { status: s[0] }) + ' aria-pressed="' + (st.accStatus === s[0]) + '">' + esc(s[1]) + '</button>').join('') +
-          '</div><span class="sa-shown">' + list.length + ' shown</span></div>' +
+          '</div><span class="sa-shown">' + list.length + ' shown' + (st.directory ? ' of ' + st.directory.matched : '') + '</span></div>' +
       '</div>' +
       (st.newNote && !st.newAcct ? '<p class="sa-note-gold">' + esc(st.newNote) + '</p>' : '') +
       (st.newAcct ? newAccountForm() : '') +
       '<div class="sa-card sa-table">' +
         '<div class="sa-thead"><span>Account</span><span>Role</span><span>Barangay</span><span>Joined</span></div>' +
         rows +
-        (!list.length ? '<p class="sa-empty">No accounts match.</p>' : '') +
-        (list.length > SHORT ? '<button type="button" class="sa-more"' + btn('sa-acc-all') + ' aria-expanded="' + st.allAccounts + '">' +
-          (st.allAccounts ? 'Show fewer' : 'Show all ' + list.length + ' accounts') + li('down', 14, st.allAccounts ? 'sa-rot' : '') + '</button>' : '') +
+        (st.directoryLoading ? '<p class="sa-empty" role="status">Loading accounts…</p>' :
+          !list.length && !st.directoryError ? '<p class="sa-empty">No accounts match.</p>' : '') +
+        (st.directoryError ? '<p class="sa-err" role="alert">' + esc(st.directoryError) + '</p>' : '') +
+        (st.directory && !st.directoryLoading && !st.directoryError && st.directory.matched > PAGE ? '<div class="sa-row-end">' +
+          '<button class="sa-btn-ghost"' + btn('sa-account-page', { page: st.accountPage - 1 }) + (st.accountPage <= 1 ? ' disabled' : '') + '>Previous</button>' +
+          '<span>Page ' + st.accountPage + ' of ' + Math.ceil(st.directory.matched / PAGE) + '</span>' +
+          '<button class="sa-btn-ghost"' + btn('sa-account-page', { page: st.accountPage + 1 }) +
+          (st.accountPage * PAGE >= st.directory.matched ? ' disabled' : '') + '>Next</button></div>' : '') +
+        (!Repo.client() && list.length > SHORT ? '<button type="button" class="sa-more"' + btn('sa-acc-all') +
+          '>' + (st.allAccounts ? 'Show fewer' : 'Show all ' + list.length + ' accounts') + '</button>' : '') +
       '</div>' +
     '</div>';
   }
@@ -691,7 +732,11 @@ const UG_SUPERADMIN = (function () {
         '<p class="sa-dlg-meta">' + (u.disabled ? 'Disabled' : 'Active') + ' · joined ' + esc(new Date(u.created_at).toLocaleDateString()) + '</p>' +
         lab('Role') + selectEl('editRole', e.role, [['citizen', 'Resident'], ['barangay_official', 'Barangay official'], ['lgu_ldrrmc', 'LDRRMO staff'], ['dispatch_team', 'Dispatch staff'], ['super_admin', 'Super Admin']], 'sa-ein') +
         roleExtra +
-        (u.email ? '<button type="button" class="sa-reset"' + btn('sa-reset') + ((st.resetting || u.disabled) ? ' disabled' : '') +
+        (u.invitation_status ? '<p class="sa-dlg-meta">Invitation ' + esc(u.invitation_status) + '</p>' : '') +
+        (u.invitation_status === 'pending' || u.invitation_status === 'failed'
+          ? '<button type="button" class="sa-reset"' + btn('sa-resend-invite') + ((st.resetting || u.disabled) ? ' disabled' : '') +
+            '>' + li('key', 14) + (st.resetting ? 'Sending…' : 'Resend setup email') + '</button>'
+          : u.email ? '<button type="button" class="sa-reset"' + btn('sa-reset') + ((st.resetting || u.disabled) ? ' disabled' : '') +
           ' title="' + (u.disabled ? 'Enable the account first' : 'Email them a link to set a new password') + '">' + li('key', 14) + (st.resetting ? 'Sending…' : 'Send password-reset email') + '</button>' : '') +
         (st.editNote ? '<p class="' + (st.editOk ? 'sa-okmsg' : 'sa-err') + '">' + esc(st.editNote) + '</p>' : '') +
         '<div class="sa-dlg-btns">' +
@@ -779,8 +824,8 @@ const UG_SUPERADMIN = (function () {
        console does when it mounts again */
     if (!document.querySelector('.ug-sa')) st = fresh(st.uid);
     const counts = roleCounts();
-    const total = users().length;
-    const disabledN = users().filter((u) => u.disabled).length;
+    const total = st.directory ? st.directory.total : users().length;
+    const disabledN = st.directory ? st.directory.disabled : users().filter((u) => u.disabled).length;
     const body = st.view === 'overview' ? overview() : st.view === 'accounts' ? accountsView(counts, total) : activityView();
     /* a redraw (live data arriving) must not pull the cursor out of a field */
     const ae = document.activeElement;
@@ -861,7 +906,7 @@ const UG_SUPERADMIN = (function () {
 
   /* ================================================================ actions */
   const set = (patch) => { Object.assign(st, patch); render(); };
-  const showRole = (role) => set({ accRole: role, query: '', allAccounts: false, view: 'accounts', menu: null });
+  const showRole = (role) => changeAccountFilters({ accRole: role, query: '', accountPage: 1, allAccounts: false, view: 'accounts', menu: null });
 
   function openAccount(id) {
     const u = users().find((x) => x.id === id);
@@ -881,11 +926,10 @@ const UG_SUPERADMIN = (function () {
     const note = (m) => { st.editNote = m; st.editOk = false; render(); };
     if (e.role === 'barangay_official' && !e.barangayId) return note('Choose the barangay this official serves.');
     if (e.role === 'dispatch_team' && !e.unitId) return note(activeUnits().length ? 'Choose the unit this person belongs to.' : 'Create a dispatch unit first, in Dispatch units.');
-    if (!e.lastName.trim() || !e.firstName.trim()) return note('Enter the last name and first name.');
     const fullName = UG_UTIL.joinName(e.lastName, e.firstName);
+    if (!fullName) return note('Enter the account name.');
     const cur = roleKey(u);
     const roleChanged = e.role !== cur;
-    const unitChanged = e.role === 'dispatch_team' && (e.unitId !== (u.dispatch_unit_id || '') || e.unitRole !== (u.unit_role === 'unit_admin' ? 'unit_admin' : 'member'));
     /* granting full administration is deliberate: confirm it (as the Users screen does) */
     if (roleChanged && e.role === 'super_admin') {
       const ok = await UG_FEATURES.confirm({
@@ -896,35 +940,17 @@ const UG_SUPERADMIN = (function () {
       if (!ok) return;
     }
     st.saving = true; st.editNote = ''; render();
-    let changed = false;
     try {
-      if (fullName !== (u.full_name || '') || e.phone.trim() !== (u.phone || '')) {
-        const c = Repo.client();
-        if (!c) throw new Error('Connect to the server to edit accounts');
-        const { error } = await c.from('profiles').update({ full_name: fullName, phone: e.phone.trim(), updated_at: new Date().toISOString() }).eq('id', u.id);
-        if (error) throw new Error(error.message);
-        changed = true;
-      }
-      if (roleChanged || unitChanged) {
-        await Repo.adminUsers('set-role', e.role === 'dispatch_team'
-          ? { userId: u.id, role: 'dispatch_team', unitId: e.unitId, unitRole: e.unitRole }
-          : { userId: u.id, role: e.role, barangayId: e.role === 'barangay_official' ? e.barangayId : null });
-        changed = true;
-      }
-      if ((e.role === 'barangay_official' && !roleChanged) || e.role === 'citizen') {
-        const target = e.barangayId || null;
-        if (target !== (u.barangay_id || null)) {
-          await Repo.adminUsers('set-barangay', { userId: u.id, barangayId: target });
-          changed = true;
-        }
-      }
-      if (changed) await reloadUsers();
+      await Repo.adminEditStaffAccount({
+        p_target: u.id, p_name: fullName, p_phone: e.phone, p_role: e.role,
+        p_barangay: e.barangayId || null, p_unit: e.unitId || null, p_unit_role: e.unitRole || ''
+      });
       st.saving = false; st.edit = null;
+      await reloadUsers();
       render();
-      if (changed) toast('Account saved', 'prepared');
+      toast('Account saved', 'prepared');
     } catch (err) {
       st.saving = false;
-      if (changed) { try { await reloadUsers(); } catch (e2) { } }
       note((err && err.message) || 'Could not save the account.');
     }
   }
@@ -945,6 +971,7 @@ const UG_SUPERADMIN = (function () {
     }
     st.saving = true; st.editNote = ''; render();
     try {
+      if (!Repo.client()) throw new Error('Connect to the server to change account access');
       await Repo.adminUsers('set-disabled', { userId: u.id, disabled: disable });
       await reloadUsers();
       st.saving = false; st.edit = null;
@@ -984,6 +1011,25 @@ const UG_SUPERADMIN = (function () {
     }
   }
 
+  async function resendInvitation() {
+    const user = st.edit && users().find((u) => u.id === st.edit.id);
+    if (!user || st.resetting || user.disabled) return;
+    st.resetting = true; st.editNote = ''; render();
+    try {
+      if (!Repo.client()) throw new Error('Connect to the server to resend an invitation');
+      const result = await Repo.adminUsers('resend-invitation', { userId: user.id });
+      st.editOk = true;
+      st.editNote = result.statusRecorded ? 'A new setup link was requested.' : 'A new setup link was requested. Status could not be refreshed.';
+    } catch (error) {
+      st.editOk = false;
+      st.editNote = error.message || 'Could not resend the setup email.';
+    } finally {
+      st.resetting = false;
+      await reloadUsers();
+      render();
+    }
+  }
+
   async function sendReset() {
     const e = st.edit;
     if (!e || st.resetting) return;
@@ -1019,6 +1065,7 @@ const UG_SUPERADMIN = (function () {
     }
     st.newBusy = true; st.newNote = ''; render();
     try {
+      if (!Repo.client()) throw new Error('Connect to the server to invite staff');
       await Repo.adminUsers('create', {
         email: n.email.trim(), fullName: UG_UTIL.joinName(n.lastName, n.firstName), role: n.role,
         barangayId: n.role === 'barangay_official' ? n.barangayId : null,
@@ -1050,8 +1097,9 @@ const UG_SUPERADMIN = (function () {
     'sa-day-activity': () => set({ actQ: '', actRole: 'all', actEntity: 'all', actAction: 'all', actActor: 'all', actBarangay: 'all',
       actFrom: st.day, actTo: st.day, actPage: 1, allOnPage: false, view: 'activity' }),
     'sa-menu': (d) => set({ menu: st.menu === d.menu ? null : d.menu }),
-    'sa-acc-role': (d) => set({ accRole: d.value, allAccounts: false, menu: null }),
-    'sa-acc-status': (d) => set({ accStatus: d.status, allAccounts: false }),
+    'sa-acc-role': (d) => changeAccountFilters({ accRole: d.value, accountPage: 1, allAccounts: false, menu: null }),
+    'sa-acc-status': (d) => changeAccountFilters({ accStatus: d.status, accountPage: 1, allAccounts: false }),
+    'sa-account-page': (d) => changeAccountFilters({ accountPage: Math.max(1, Number(d.page) || 1) }),
     'sa-acc-all': () => set({ allAccounts: !st.allAccounts }),
     'sa-new': () => set({ newAcct: { lastName: '', firstName: '', email: '', role: 'barangay_official', barangayId: '', unitId: '', unitRole: 'member' }, newNote: '', menu: null }),
     'sa-new-close': () => set({ newAcct: null, newNote: '' }),
@@ -1060,6 +1108,7 @@ const UG_SUPERADMIN = (function () {
     'sa-edit-close': () => { if (!st.saving) set({ edit: null, editNote: '' }); },
     'sa-save': () => saveAccount(),
     'sa-reset': () => sendReset(),
+    'sa-resend-invite': () => resendInvitation(),
     'sa-remove-account': () => removeAccount(),
     'sa-toggle-disabled': () => toggleDisabled(),
     'sa-export': (d) => {
@@ -1112,7 +1161,7 @@ const UG_SUPERADMIN = (function () {
     const f = el.dataset.saField, v = el.value;
     if (TEXT_RERENDER[f]) {
       if (isChange) return;
-      if (f === 'query') { st.query = v; st.allAccounts = false; }
+      if (f === 'query') { changeAccountFilters({ query: v, accountPage: 1, allAccounts: false }, 220); return; }
       else { st.actQ = v; st.actPage = 1; st.allOnPage = false; }
       render(); /* frame() puts the cursor back */
       return;

@@ -1211,6 +1211,24 @@ const Repo = (function () {
     return data || [];
   }
 
+  async function adminAccountDirectory(input) {
+    const c = client();
+    if (!c) return null;
+    const { data, error } = await c.rpc('admin_account_directory', {
+      p_search: input.query, p_role: input.role, p_status: input.status, p_page: input.page
+    });
+    if (error) fail(error);
+    return data;
+  }
+
+  async function adminEditStaffAccount(input) {
+    const c = client();
+    if (!c) throw new Error('Connect to the server to edit accounts');
+    const { data, error } = await c.rpc('admin_edit_staff_account', input);
+    if (error) fail(error);
+    return data;
+  }
+
   async function adminUsers(action, payload) {
     const c = client();
     if (!c) return { local: true };
@@ -1220,7 +1238,7 @@ const Repo = (function () {
        The edge function reads this and forwards it to Supabase Auth's
        inviteUserByEmail(). */
     const body = Object.assign({ action: action }, payload || {});
-    if (action === 'create' || action === 'unit-invite') {
+    if (action === 'create' || action === 'unit-invite' || action === 'resend-invitation') {
       body.redirectUrl = (typeof window !== 'undefined' ? window.location.origin : '') || UG_CONFIG.APP_PUBLIC_URL;
     }
     const { data, error } = await c.functions.invoke('admin-users', { body: body });
@@ -1815,7 +1833,7 @@ const Repo = (function () {
     createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,
     markRead, markAllRead, listBarangays,
     declareEmergency, subscribedDeviceCount,
-    analytics, analyticsFromViews, listUsers, adminUsers, listAudit, listResponders, assignResponder,
+    analytics, analyticsFromViews, listUsers, adminUsers, adminAccountDirectory, adminEditStaffAccount, listAudit, listResponders, assignResponder,
     dispatchReport, dispatchReportV2, loadDispatches, loadDispatchDirectory,
     /* change request workflow (master prompt · Emergency Hotlines approval) */
     loadChangeRequests, submitChangeRequest, approveChangeRequest, rejectChangeRequest,
