@@ -69,10 +69,20 @@ match. Pending invitations can send a fresh password setup link through the
 Supabase password recovery flow. Verify the SMTP provider, allowed redirect URL,
 email arrival and acceptance using a staging account.
 
+## Dispatch authority upgrade
+
+Apply `073_dispatch_authority_hierarchy.sql` after 072, then publish the matching
+static files. Barangay officials can send their own Barangay Response Team or
+request a municipal unit from an incident. MDRRMO duty staff review requests in
+**Dispatch Units → Municipal dispatch requests** and dispatch from the linked
+incident. Manual municipal assignment and incident response decisions belong to
+duty staff. The Super Admin manages accounts, configuration, and oversight.
+Existing automatic SOS response rules continue to run.
+
 ## 1. Database
 
 For a fresh database, run the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `072_super_admin_account_reliability.sql`.
+`001_align_core_tables.sql` through `073_dispatch_authority_hierarchy.sql`.
 `000_inspect_current_schema.sql` is an optional read-only inspection. Use the SQL
 editor and keep a record of the **full filename** applied. Enable `pg_trgm` before
 011. Both `045_*` files

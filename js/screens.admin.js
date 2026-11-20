@@ -544,9 +544,9 @@ const UG_ADMIN = (function () {
       '<td class="c"><span class="du-pill">' + esc(cap(r.kind)) + '</span></td>' +
       '<td class="du-txt">' + esc(r.details || '—') + '</td>' +
       '<td>' + dot(r.status, r.status === 'pending') + '</td>' +
-      '<td class="r">' + (r.status === 'pending' ? '<div class="du-acts">' +
+      '<td class="r">' + (!superAdmin && r.status === 'pending' ? '<div class="du-acts">' +
         btn('admin-decide-request', T('action.approve'), 'check', ' data-id="' + esc(r.id) + '" data-decision="approved"', 'du-go') +
-        btn('admin-decide-request', T('action.decline'), '', ' data-id="' + esc(r.id) + '" data-decision="declined"') + '</div>' : '<span class="du-done">Decided</span>') + '</td>' +
+        btn('admin-decide-request', T('action.decline'), '', ' data-id="' + esc(r.id) + '" data-decision="declined"') + '</div>' : '<span class="du-done">' + (r.status === 'pending' ? 'Awaiting duty staff' : 'Decided') + '</span>') + '</td>' +
     '</tr>';
     /* A2 row: a dispatch help request */
     const helpRow = (h) => '<tr>' +
@@ -555,11 +555,11 @@ const UG_ADMIN = (function () {
       '<td class="du-txt">' + esc(h.message || '—') + '</td>' +
       '<td>' + dot(h.status || 'sent', (h.status || 'sent') === 'sent') + '</td>' +
       '<td class="r">' +
-        (h.status === 'sent' || !h.status ? btn('help-request-update', 'Acknowledge', 'check', ' data-id="' + esc(h.id) + '" data-next="acknowledged"', 'du-go') : '') +
+        (!superAdmin && (h.status === 'sent' || !h.status) ? btn('help-request-update', 'Acknowledge', 'check', ' data-id="' + esc(h.id) + '" data-next="acknowledged"', 'du-go') : '') +
         (!superAdmin && h.status === 'acknowledged' && !h.support_dispatch_id ? btn('dispatch-request-backup', 'Assign backup', 'truck',
           ' data-id="' + esc(h.id) + '" data-dispatch="' + esc(h.dispatch_id) + '"', 'du-go') : '') +
         (h.support_dispatch_id ? '<span class="du-done">Backup assigned</span>' : '') +
-        (h.status === 'acknowledged' ? btn('help-request-update', 'Resolve', 'check', ' data-id="' + esc(h.id) + '" data-next="resolved"', 'du-go') : '') +
+        (!superAdmin && h.status === 'acknowledged' ? btn('help-request-update', 'Resolve', 'check', ' data-id="' + esc(h.id) + '" data-next="resolved"', 'du-go') : '') +
         (h.status === 'resolved' ? '<span class="du-done">Resolved</span>' : '') +
       '</td>' +
     '</tr>';
@@ -595,6 +595,15 @@ const UG_ADMIN = (function () {
         '</div>' +
         table('<th>' + esc(T('label.name')) + ' / ' + esc(T('label.address')) + '</th><th class="c">' + esc(T('label.type')) + '</th><th>' + esc(T('label.contact')) + '</th><th>' + esc(T('label.status')) + '</th><th class="c">' + esc(T('label.active')) + '</th><th class="r">' + esc(T('label.actions')) + '</th>',
           shown.length ? shown.map(unitRow).join('') : none(6, st.unitSearch ? 'search' : 'truck', st.unitSearch || typeF !== 'All' ? 'No units match this search' : T('admin.noUnits'))) +
+      '</section>' +
+      '<section class="rl-card">' +
+        cardHead('inbox', 'Municipal dispatch requests') +
+        table('<th>When</th><th>Request</th><th>Status</th><th class="r">Action</th>',
+          (UG.DATA.municipalDispatchRequests || []).map((r) => '<tr><td>' +
+            esc(UG_UTIL.absTime(r.requested_at)) + '</td><td>' + esc(r.details) + '</td><td>' +
+            (r.assigned_dispatch_id ? 'Assigned' : 'Awaiting assignment') + '</td><td class="r">' +
+            btn('open-incident', 'Open incident', 'doc', ' data-id="' + esc(r.report_id) + '"') + '</td></tr>').join('') ||
+            none(4, 'inbox', 'No municipal dispatch requests')) +
       '</section>' +
       /* A1 support requests */
       '<section class="rl-card">' +

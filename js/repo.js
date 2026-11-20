@@ -435,7 +435,7 @@ const Repo = (function () {
       let reportsQuery = c.from('reports_feed').select('*').order('created_at', { ascending: false }).limit(300);
 
       const [reports, advisories, centers, hotlines, notifications, subscriptions, assignments, relief, beneficiaries, guides, faqs, roadWork, roadStatus,
-             dispatches, units, ratings, sos] = await Promise.all([
+             dispatches, units, ratings, sos, municipalRequests] = await Promise.all([
         reportsQuery,
         c.from('advisories').select('*').order('published_at', { ascending: false }).limit(100),
         c.from('evacuation_centers').select('*').order('name'),
@@ -458,7 +458,8 @@ const Repo = (function () {
         /* the SOS log rides the same refresh, so a new SOS shows on the LGU and
            barangay consoles (and rings) the moment Realtime reports it; RLS
            limits officials to their barangay and residents to their own */
-        fetchSosInbox(c)
+        fetchSosInbox(c),
+        c.from('barangay_dispatch_requests').select('*').order('requested_at', { ascending: false })
       ]);
       /* load change requests in parallel — the Super Admin hotlines page and
          the LGU/BO "your pending requests" section both read this. */
@@ -498,6 +499,7 @@ const Repo = (function () {
         row.rating = ratingOf[r.id] || null;
         return row;
       });
+      if (!municipalRequests.error) UG.DATA.municipalDispatchRequests = municipalRequests.data || [];
       if (sos && !sos.error) UG.DATA.sosLog = (sos.data || []).map(toSos);
       if (dispatches && !dispatches.error) {
         const byReport = {};
@@ -590,7 +592,7 @@ const Repo = (function () {
      runs on the next poll, focus change or visibility change. */
   const WATCHED = ['reports', 'report_corroborations', 'report_assignments', 'advisories', 'notifications',
     'evacuation_centers', 'relief_distributions', 'authorized_beneficiaries', 'preparedness_guides', 'faqs',
-    'road_work_posts', 'road_status', 'sos_log', 'sos_staff_receipts', 'change_requests', 'report_dispatches', 'report_ratings',
+    'road_work_posts', 'road_status', 'sos_log', 'sos_staff_receipts', 'barangay_dispatch_requests', 'change_requests', 'report_dispatches', 'report_ratings',
     /* hotline edits by the Super Admin reach every portal live (published in 001) */
     'emergency_hotlines'];
   let refreshTimer = null;

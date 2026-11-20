@@ -1346,6 +1346,7 @@
      the flag keeps a double click to one form. */
   let dispatchOpening = false;
   function dispatchModal(inc, supportRequestId) {
+    if (isSuperAdmin()) { toast('MDRRMO duty staff coordinate dispatch', 'warning'); return; }
     if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can dispatch a response', 'warning'); return; }
     if (inc.status !== 'verified' && inc.status !== 'dispatched') {
       toast('Verify the report before dispatching a response', 'warning'); return;
@@ -1441,7 +1442,9 @@
     const suggested = (typeof UG_HAZARDS !== 'undefined' && UG_HAZARDS.suggestedTeams)
       ? UG_HAZARDS.suggestedTeams(inc.hazard_type || inc.hazard)
       : [];
-    const sortedTeams = DISPATCH_TEAMS.filter((team) => team !== 'Barangay Response Team' || inc.brgy_id || inc.barangay_id).sort((a, b) => {
+    const sortedTeams = DISPATCH_TEAMS.filter((team) => me.role === 'barangay_official'
+      ? team === 'Barangay Response Team'
+      : team !== 'Barangay Response Team' || inc.brgy_id || inc.barangay_id).sort((a, b) => {
       const ai = suggested.indexOf(a); const bi = suggested.indexOf(b);
       const an = ai === -1 ? 99 : ai; const bn = bi === -1 ? 99 : bi;
       return an - bn;
@@ -1644,7 +1647,26 @@
     'alarm-sound-help': () => { try { UG_ALARM.soundHelp(); } catch (e) { } },
     'alarm-unlock': () => { UG_ALARM.unlock(); try { UG_ALARM.play('sos', { force: true }); } catch (e) { } render(); },
     'history-all': (d) => { S.historyAll = S.historyAll === d.id ? null : d.id; render(); },
+    'request-municipal-dispatch': async (d) => {
+      if (!requireRole(['barangay_official'])) return;
+      const c = Repo.client();
+      if (!c) { toast('Connect to the server to request municipal dispatch', 'warning'); return; }
+      const reason = await UG_FEATURES.prompt({
+        title: 'Request municipal dispatch',
+        label: 'What help is needed? Include the requested service and any urgent details.',
+        required: true
+      });
+      if (reason === null) return;
+      try {
+        const { error } = await c.rpc('request_municipal_dispatch', { p_report_id: d.id, p_details: reason });
+        if (error) throw error;
+        await Repo.loadAll({ silent: true });
+        toast('Request sent to the MDRRMO', 'prepared');
+        render();
+      } catch (error) { toast(error.message, 'warning'); }
+    },
     'auto-dispatch': async (d) => {
+      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
       try {
         const res = await Repo.autoDispatch(d.id);
         const n = (res && res.dispatched) || 0;
@@ -2221,6 +2243,7 @@
     },
 
     reject: async (d) => {
+      if (isSuperAdmin()) { toast('Only duty staff can reject an incident', 'warning'); return; }
       if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can reject a report', 'warning'); return; }
       const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
       if (!inc) return;
@@ -5742,7 +5765,7 @@
      opening the app is silent. */
   let alarmSeen = null;
   let alarmSeenFor = '';
-  const NEEDS_DISPATCH = /^(No unit available|Dispatch needed|Auto-dispatch failed|Emergency alert delivery failed)/;
+  const NEEDS_DISPATCH = /^(Municipal dispatch requested|No unit available|Dispatch needed|Auto-dispatch failed|Emergency alert delivery failed)/;
   function alarmOnNew() {
     const role = S.session.role;
     if (role === 'dispatch_team') return;
