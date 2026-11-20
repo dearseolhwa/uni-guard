@@ -606,7 +606,7 @@
     }
     if (route === 'sos') {
       /* the LGU console SOS screen reads the recent SOS log; refresh on entry */
-      try { UG.DATA.sosLog = await Repo.listSos(); } catch (e) { UG.DATA.sosLog = []; }
+      try { UG.DATA.sosLog = await Repo.listSos(); } catch (e) { }
       render();
       return;
     }
@@ -712,6 +712,10 @@
     ? UG_SUPERADMIN.ROUTE
     : ((S.session && UG_WEB.ROLE_INFO[S.session.role].home) || 'home');
   function enterApp(session, message) {
+    if (!S.session || S.session.id !== session.id) {
+      UG.DATA.sosLog = [];
+      UG_ALARM.stopPendingSos();
+    }
     S.session = session;
     S.screen = 'app';
     if (session.barangay && UG_GEO.BARANGAYS.indexOf(session.barangay) !== -1) {
@@ -3895,13 +3899,15 @@
       /* a quick confirmation, so a stray tap does not tell the sender help has seen it */
       const ok = await UG_FEATURES.confirm({
         title: 'Acknowledge this SOS?',
-        message: (x.profile_name || 'The sender') + ' will be told their SOS was received by you and that help is being arranged. This cannot be undone.',
+        message: x.status === 'sent'
+          ? (x.profile_name || 'The sender') + ' will be told their SOS was received and that help is being arranged.'
+          : 'Record that you have seen this SOS and stop its alarm for your account.',
         confirmLabel: 'Acknowledge'
       });
       if (!ok) return;
       try {
         const res = await Repo.updateSosStatus(d.id, 'acknowledged');
-        if (res && res.already) toast('Already acknowledged' + (res.by ? ' by ' + res.by : '') + (res.office ? ' (' + res.office + ')' : '') + '.', 'info');
+        if (res && res.already) toast('Your acknowledgment was recorded', 'prepared');
         else toast('SOS acknowledged — ' + (x.profile_name || 'the sender') + ' has been told help is on it', 'prepared');
       }
       catch (e) { toast(e.message, 'warning'); }
@@ -5681,6 +5687,7 @@
 
   Repo.onChange(() => {
     if (!S.session) return;
+    syncSosAlarm();
     render();
     /* an open report whose history is not loaded yet (opened from a
        notification or a link) or whose status changed: (re)load it */
@@ -5724,10 +5731,6 @@
     if (!alarmSeen || alarmSeenFor !== who) {
       alarmSeen = new Set(keys);
       alarmSeenFor = who;
-      /* staff opening the app while an SOS is still unanswered hear it once */
-      if (role !== 'citizen' && sosRows.some((x) => x.status === 'sent' && x.user_id !== S.session.id)) {
-        try { UG_ALARM.play('sos'); } catch (e) { }
-      }
       return;
     }
     const newInc = inc.filter((i) => i.uuid && !alarmSeen.has('r' + i.uuid) && i.status !== 'resolved' && i.status !== 'rejected');
@@ -5739,7 +5742,7 @@
       x.user_id !== S.session.id);
     keys.forEach((k) => alarmSeen.add(k));
 
-    const sos = role !== 'citizen' && (newN.some((n) => n.type === 'sos') || newSos.length > 0);
+    const sos = role !== 'citizen' && newSos.some((row) => row.needs_receipt);
     const needsDispatch = newN.some((n) => NEEDS_DISPATCH.test(n.title));
     let kind = null;
     if (role === 'citizen') {
@@ -5748,15 +5751,16 @@
         (n.type === 'dispatch' || (n.type === 'dispatch_status' && /on scene/i.test(n.title))));
       if (help) kind = 'help';
     } else if (role === 'barangay_official') {
-      const team = newN.some((n) => n.type === 'dispatch' && /^Barangay Response Team/.test(n.body));
+      const team = newN.some((n) => n.type === 'dispatch');
       kind = sos ? 'sos' : newInc.length ? newInc[0].hazard : team ? 'dispatch' : null;
     } else if (sup) {
       const emergency = newInc.filter((i) => i.sev === 'emergency');
       kind = sos ? 'sos' : emergency.length ? emergency[0].hazard : needsDispatch ? 'attention' : newCr.length ? 'admin' : null;
     } else if (role === 'lgu_ldrrmc') {
-      kind = sos ? 'sos' : newInc.length ? newInc[0].hazard : needsDispatch ? 'attention' : null;
+      kind = sos ? 'sos' : newInc.length ? newInc[0].hazard : needsDispatch ? 'attention' : newN.some((n) => n.type === 'dispatch') ? 'dispatch' : null;
     }
-    if (kind) { try { UG_ALARM.play(kind); } catch (e) { } }
+    if (kind === 'sos') syncSosAlarm();
+    else if (kind) { try { UG_ALARM.play(kind); } catch (e) { } }
   }
   /* Instant alarm: ring as soon as the row arrives over realtime (or a push
      arrives), with the same role rules as alarmOnNew; the row is marked seen
@@ -5775,15 +5779,10 @@
       if (role === 'citizen') {
         const mine = new Set((UG.DATA.incidents || []).filter((i) => i.mine).map((i) => i.uuid));
         if (row.report_id && mine.has(row.report_id) && (type === 'dispatch' || (type === 'dispatch_status' && /on scene/i.test(title)))) kind = 'help';
-      } else if (type === 'sos') kind = 'sos';
+      } else if (type === 'sos') return;
       else if ((role === 'lgu_ldrrmc') && NEEDS_DISPATCH.test(title)) kind = 'attention';
-      else if (role === 'barangay_official' && type === 'dispatch' && /^Barangay Response Team/.test(row.body || '')) kind = 'dispatch';
+      else if (type === 'dispatch') kind = 'dispatch';
       else if (role !== 'citizen' && type === 'report') kind = title;
-    } else if (table === 'sos_log') {
-      key = 's' + row.id;
-      if (role === 'citizen' || alarmSeen.has(key) || row.user_id === S.session.id || row.status === 'resolved') return;
-      if (role === 'barangay_official' && S.session.barangay_id && row.barangay_id && row.barangay_id !== S.session.barangay_id) return;
-      kind = 'sos';
     } else if (table === 'reports') {
       key = 'r' + row.id;
       if (role === 'citizen' || alarmSeen.has(key)) return;
@@ -5810,18 +5809,57 @@
     if (dots) dots.forEach((d, k) => d.classList.toggle('is-on', k === n));
   }, true);
 
-  /* an SOS nobody has answered rings again every 3 minutes while this screen
-     is in view, until someone acknowledges it (staff portals only) */
-  setInterval(() => {
-    if (!S.session || S.session.role === 'citizen' || S.session.role === 'dispatch_team') return;
-    if (document.visibilityState !== 'visible') return;
-    const waiting = (UG.DATA.sosLog || []).some((x) => x.status === 'sent' && x.user_id !== S.session.id &&
-      (!x.created_at || Date.now() - Date.parse(x.created_at) < 24 * 3600000));
-    if (waiting) { try { UG_ALARM.play('sos'); } catch (e) { } }
-  }, 180000);
+  // The pending inbox survives reloads and shared incident resolution.
+  let lastSosAlarmAt = 0;
+  function syncSosAlarm() {
+    const role = S.session && S.session.role;
+    if ((role !== 'lgu_ldrrmc' && role !== 'barangay_official') ||
+        !(UG.DATA.sosLog || []).some((row) => row.needs_receipt)) {
+      UG_ALARM.stopPendingSos();
+      lastSosAlarmAt = 0;
+      return;
+    }
+    if (Date.now() - lastSosAlarmAt < 5000) return;
+    try {
+      if (UG_ALARM.play('sos', { force: true, pendingSos: true })) lastSosAlarmAt = Date.now();
+    } catch (e) { }
+  }
+  setInterval(syncSosAlarm, 1000);
+  document.addEventListener('ug:alarm-unlocked', () => {
+    lastSosAlarmAt = 0;
+    syncSosAlarm();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') syncSosAlarm();
+  });
+
   document.addEventListener('ug:realtime', (e) => {
     const d = e.detail || {};
     if (d.type === 'INSERT') instantAlarm(d.table, d.row);
+    if (d.table === 'sos_log' && d.type === 'INSERT' && S.session && d.row && d.row.requires_staff_receipt &&
+        d.row.status === 'sent' && d.row.user_id !== S.session.id) {
+      const staff = S.session;
+      const sameBarangay = d.row.barangay_id
+        ? d.row.barangay_id === staff.barangay_id
+        : d.row.barangay && d.row.barangay === staff.barangay;
+      if (staff.role === 'lgu_ldrrmc' || (staff.role === 'barangay_official' && sameBarangay)) {
+        const inbox = UG.DATA.sosLog || [];
+        if (!inbox.some((row) => row.id === d.row.id)) {
+          UG.DATA.sosLog = [Repo.toSos({ ...d.row, needs_receipt: true }), ...inbox];
+          syncSosAlarm();
+          render();
+        }
+      }
+    }
+    if (d.table === 'sos_staff_receipts' && d.type === 'INSERT' && S.session &&
+        d.row && d.row.staff_id === S.session.id) {
+      const sos = (UG.DATA.sosLog || []).find((row) => row.id === d.row.sos_id);
+      if (sos) {
+        sos.needs_receipt = false;
+        syncSosAlarm();
+        render();
+      }
+    }
     /* an emergency advisory (or emergency declaration) raises the alert
        card and its alarm the moment it is published, every portal but the
        dispatch console, without waiting for the refresh */

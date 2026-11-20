@@ -187,7 +187,7 @@ const Repo = (function () {
     return {
       id: s.id, user_id: s.user_id, profile_name: s.profile_name, profile_phone: s.profile_phone,
       barangay: s.barangay, lat: s.lat, lng: s.lng, accuracy: s.accuracy,
-      note: s.note, status: s.status || 'sent', kind: s.kind || 'other', report_id: s.report_id || null,
+      note: s.note, needs_receipt: s.needs_receipt === true, status: s.status || 'sent', kind: s.kind || 'other', report_id: s.report_id || null,
       created_at: s.created_at,
       /* who answered it (migration 064) */
       acknowledged_by_name: s.acknowledged_by_name || '', acknowledged_by_office: s.acknowledged_by_office || '',
@@ -458,7 +458,7 @@ const Repo = (function () {
         /* the SOS log rides the same refresh, so a new SOS shows on the LGU and
            barangay consoles (and rings) the moment Realtime reports it; RLS
            limits officials to their barangay and residents to their own */
-        c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100)
+        fetchSosInbox(c)
       ]);
       /* load change requests in parallel — the Super Admin hotlines page and
          the LGU/BO "your pending requests" section both read this. */
@@ -590,7 +590,7 @@ const Repo = (function () {
      runs on the next poll, focus change or visibility change. */
   const WATCHED = ['reports', 'report_corroborations', 'report_assignments', 'advisories', 'notifications',
     'evacuation_centers', 'relief_distributions', 'authorized_beneficiaries', 'preparedness_guides', 'faqs',
-    'road_work_posts', 'road_status', 'sos_log', 'change_requests', 'report_dispatches', 'report_ratings',
+    'road_work_posts', 'road_status', 'sos_log', 'sos_staff_receipts', 'change_requests', 'report_dispatches', 'report_ratings',
     /* hotline edits by the Super Admin reach every portal live (published in 001) */
     'emergency_hotlines'];
   let refreshTimer = null;
@@ -644,7 +644,7 @@ const Repo = (function () {
           /* the page can ring the alarm from the new row itself, before the
              refresh lands (js/app.js listens for ug:realtime) */
           try { document.dispatchEvent(new CustomEvent('ug:realtime', { detail: { table: t, type: payload && payload.eventType, row: payload && payload.new } })); } catch (e) { }
-          scheduleRefresh(/^(notifications|sos_log|reports)$/.test(t) ? 0 : undefined);
+          scheduleRefresh(/^(notifications|sos_log|sos_staff_receipts|reports)$/.test(t) ? 0 : undefined);
         });
       channels[t] = ch;
       ch.subscribe((status) => {
@@ -1652,11 +1652,22 @@ const Repo = (function () {
     loadAll({ silent: true }).catch(() => { });
     return data;
   }
+  async function fetchSosInbox(c) {
+    const [latest, pending] = await Promise.all([
+      c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100),
+      c.rpc('list_pending_sos_receipts')
+    ]);
+    if (pending.error) return pending;
+    const rows = new Map((latest.data || []).map((row) => [row.id, row]));
+    for (const row of pending.data || []) rows.set(row.id, { ...row, needs_receipt: true });
+    return { data: Array.from(rows.values()), error: null };
+  }
+
   async function listSos() {
     const c = client();
     if (!c) return [];
-    const { data, error } = await c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100);
-    if (error) return [];
+    const { data, error } = await fetchSosInbox(c);
+    if (error) fail(error);
     return (data || []).map(toSos);
   }
 
@@ -1672,7 +1683,14 @@ const Repo = (function () {
     }
     const { data, error } = await c.rpc('update_sos_status', { p_sos_id: sosId, p_status: status });
     if (error) fail(error);
-    UG.DATA.sosLog = await listSos();
+    if (status === 'acknowledged') {
+      const row = (UG.DATA.sosLog || []).find((s) => s.id === sosId);
+      if (row) {
+        row.needs_receipt = false;
+        row.status = data.status;
+      }
+    }
+    try { UG.DATA.sosLog = await listSos(); } catch (e) { }
     emit();
     return data;
   }
@@ -1809,7 +1827,7 @@ const Repo = (function () {
     submitSos, listSos, updateSosStatus, listOthersReview,
     listLguEscalationQueue, lguVerifyOverdueReport,
     logClientError,
-    toIncident, toAdvisory, toCenter, toHotline, toNotification, posFrom,
+    toIncident, toAdvisory, toCenter, toHotline, toNotification, toSos, posFrom,
     toRelief, toBeneficiary, toGuide, toFaq, toRoadWork, toRoadStatus
   };
 })();

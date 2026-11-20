@@ -320,7 +320,7 @@ const UG_DISPATCH = (function () {
       }
     }
     const list = state.data.dispatches || [];
-    if (!seenDispatches) { seenDispatches = new Set(list.map((d) => d.id)); return; }
+    if (!seenDispatches) seenDispatches = new Set();
     const fresh = list.filter((d) => !seenDispatches.has(d.id) && d.dispatch_status === 'sent');
     list.forEach((d) => seenDispatches.add(d.id));
     if (!fresh.length) return;

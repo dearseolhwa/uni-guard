@@ -30,6 +30,16 @@ assignments are labeled **Support**. For a request from a deployed team, open
 For an SOS without a linked report, confirm the location and link the matching
 incident before assigning teams.
 
+## Persistent SOS alerts upgrade
+
+Apply `migrations/069_persistent_sos_acknowledgements.sql` after 068, then publish
+the updated static files. Open an LGU or barangay console and enable browser
+audio. An eligible staff account's SOS alarm repeats every five seconds while
+the console can play audio, until that account acknowledges all its pending
+SOS alerts. The first acknowledgment updates the shared incident and notifies
+the sender. Unanswered SOS alerts stay open for staff follow-up. Dispatch units
+receive assignment alerts for their own units.
+
 ## 1. Database
 
 Run the migrations in order in the Supabase SQL editor, or with the CLI.

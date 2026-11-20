@@ -28,6 +28,13 @@ const UG_ALARM = (function () {
   const MUTE_KEY = 'uniguard.alarm.muted';
   let ctx = null;
   let lastAt = 0;
+  let pendingSosTone = null;
+
+  function stopPendingSos() {
+    if (!pendingSosTone) return;
+    pendingSosTone.disconnect();
+    pendingSosTone = null;
+  }
 
   function audio() {
     if (!ctx) {
@@ -147,6 +154,10 @@ const UG_ALARM = (function () {
       const p = PATTERNS[groupFor(kind)] || PATTERNS.other;
       const master = ac.createGain();
       master.gain.value = 0.32;
+      if (opts.pendingSos) {
+        stopPendingSos();
+        pendingSosTone = master;
+      }
       master.connect(ac.destination);
       let t = ac.currentTime + 0.02;
       for (let n = 0; n < p.times; n++) {
@@ -206,6 +217,6 @@ const UG_ALARM = (function () {
     });
   }
 
-  return { play, groupFor, muted, setMuted, roleAlarms, needsUnlock, unlock, soundHelp };
+  return { play, stopPendingSos, groupFor, muted, setMuted, roleAlarms, needsUnlock, unlock, soundHelp };
 })();
 window.UG_ALARM = UG_ALARM;
