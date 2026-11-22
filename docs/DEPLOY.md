@@ -253,9 +253,11 @@ requests, account events) and queues a phone push for each. The rows appear in
 the app as soon as 076 is applied; the push needs this one-time setup.
 
 ```bash
-supabase secrets set ADMIN_NOTIFY_SECRET='<a-long-random-secret>'
 supabase functions deploy admin-notify --no-verify-jwt
 ```
+
+No function secret is needed: the worker checks its token against the Vault
+secret below (setting ADMIN_NOTIFY_SECRET as well is optional).
 
 Enable pg_net and Vault (Database → Extensions), then in the SQL editor:
 

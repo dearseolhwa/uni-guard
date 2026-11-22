@@ -8,10 +8,11 @@
 // and sends a Web Push to that person's subscribed devices.
 //
 // Deploy (once):
-//   supabase secrets set ADMIN_NOTIFY_SECRET='<a-long-random-secret>'
 //   supabase functions deploy admin-notify --no-verify-jwt
-// It uses the VAPID keys push-dispatch already uses. Then store the URL and
-// the same secret in Vault (docs/DEPLOY.md, "Super Admin push").
+// It uses the VAPID keys push-dispatch already uses. The caller's bearer
+// token must equal the Vault secret 'uniguard_admin_notify_secret' (or the
+// optional ADMIN_NOTIFY_SECRET function secret). Setup: docs/DEPLOY.md,
+// "Super Admin push".
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
@@ -20,16 +21,24 @@ type Row = { id: string; user_id: string; title: string; body: string; tone: str
   push_lease: string; target_profile_id: string | null; change_request_id: string | null };
 
 Deno.serve(async (request) => {
-  const secret = Deno.env.get('ADMIN_NOTIFY_SECRET');
   if (request.method !== 'POST') return new Response(null, { status: 405 });
-  if (!secret || request.headers.get('Authorization') !== 'Bearer ' + secret) return new Response(null, { status: 403 });
+  const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+  // the bearer token must match the Vault secret (or the optional function secret)
+  const auth = request.headers.get('Authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const envSecret = Deno.env.get('ADMIN_NOTIFY_SECRET');
+  let allowed = !!token && !!envSecret && token === envSecret;
+  if (!allowed && token) {
+    const { data: ok } = await admin.rpc('admin_notify_token_ok', { p_token: token });
+    allowed = ok === true;
+  }
+  if (!allowed) return new Response(null, { status: 403 });
 
   const vapidPublic = Deno.env.get('VAPID_PUBLIC_KEY');
   const vapidPrivate = Deno.env.get('VAPID_PRIVATE_KEY');
   if (!vapidPublic || !vapidPrivate) return Response.json({ error: 'VAPID keys are not configured' }, { status: 500 });
   webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') || 'mailto:drrmo@example.gov.ph', vapidPublic, vapidPrivate);
 
-  const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
   const { data, error } = await admin.rpc('claim_admin_push', { p_limit: 50 });
   if (error) return Response.json({ error: 'Queue claim failed' }, { status: 500 });
   const rows = (data ?? []) as Row[];

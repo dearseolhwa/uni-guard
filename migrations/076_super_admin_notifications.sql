@@ -77,6 +77,21 @@ exception when others then
 end $$;
 revoke all on function public.kick_admin_notify() from public, anon, authenticated;
 
+-- The worker checks its bearer token against the same Vault secret, so no
+-- Edge Function secret has to be set (that needs project-admin rights).
+create or replace function public.admin_notify_token_ok(p_token text)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare v_secret text;
+begin
+  if coalesce(p_token, '') = '' or to_regnamespace('vault') is null then return false; end if;
+  execute $q$select decrypted_secret from vault.decrypted_secrets where name = 'uniguard_admin_notify_secret'$q$ into v_secret;
+  return v_secret is not null and v_secret = p_token;
+exception when others then
+  return false;
+end $$;
+revoke all on function public.admin_notify_token_ok(text) from public, anon, authenticated;
+grant execute on function public.admin_notify_token_ok(text) to service_role;
+
 -- ---------------------------------------------- one row per Super Admin
 create or replace function public.notify_super_admins(
   p_title text, p_body text, p_tone text, p_icon text, p_type text,
