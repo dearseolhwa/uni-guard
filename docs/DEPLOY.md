@@ -90,6 +90,12 @@ records are preserved. Browser preview stock is sample data and is not imported.
 ## Super Admin upgrade from 074
 
 Back up the database and confirm the last applied migration by full filename.
+If you do not know it, run
+[`CHECK-SUPABASE-MIGRATIONS.sql`](CHECK-SUPABASE-MIGRATIONS.sql) in the SQL
+Editor. It checks recorded CLI history when available and inspects the actual
+schema when migrations were previously pasted into the SQL Editor. Follow its
+final recommendation. If it reports a gap, keep the full result grid and resolve
+that gap before applying 075 or 076.
 For a project already through 074, apply these files in the SQL Editor, in order.
 
 | File | What changes |

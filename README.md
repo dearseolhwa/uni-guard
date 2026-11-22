@@ -131,7 +131,9 @@ The first entry is **Home**, which is the operations dashboard.
 2. **Auth settings.** Set the Site URL, redirect URLs, and email delivery settings.
    See [Auth settings](docs/DEPLOY.md#2-auth-settings).
 3. **Configuration.** Set your project's browser-safe settings in `env.js`.
-4. **Functions.** On an installation already through 074, redeploy `admin-users`
+4. **Functions.** If the last database migration is unknown, run the
+   [read-only migration checker](docs/CHECK-SUPABASE-MIGRATIONS.sql) first. On
+   an installation already through 074, redeploy `admin-users`
    and deploy `admin-notify` to enable Super Admin push. See the
    [Supabase upgrade checklist](docs/DEPLOY.md#super-admin-upgrade-from-074)
    for the migration sequence, Vault configuration, and verification steps.
