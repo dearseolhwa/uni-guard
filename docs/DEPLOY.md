@@ -246,6 +246,30 @@ that the provider accepts a push with the device app closed, check SMS on a
 staff account without working push, and check the failure alert with neither
 channel configured. Verify acknowledgment separately in UniGuard.
 
+## 7b. Super Admin push (migration 076)
+
+Migration 076 stores Super Admin notifications on the server (hotline change
+requests, account events) and queues a phone push for each. The rows appear in
+the app as soon as 076 is applied; the push needs this one-time setup.
+
+```bash
+supabase secrets set ADMIN_NOTIFY_SECRET='<a-long-random-secret>'
+supabase functions deploy admin-notify --no-verify-jwt
+```
+
+Enable pg_net and Vault (Database → Extensions), then in the SQL editor:
+
+```sql
+select vault.create_secret('https://<project-ref>.supabase.co/functions/v1/admin-notify', 'uniguard_admin_notify_url');
+select vault.create_secret('<the same long random secret>', 'uniguard_admin_notify_secret');
+```
+
+Each new Super Admin notification then wakes the worker immediately; with
+pg_cron enabled, 076 also retries every two minutes. A Super Admin gets the
+push only on devices where they turned on alerts. Check delivery with
+`select title, push_status from notifications where audience = 'super_admin' order by created_at desc limit 10;`
+(`sent`, `none` = no device subscribed, `failed` after four attempts).
+
 ## 8. Verification after deploy
 
 1. `https://your-host/manifest.json` loads and Chrome shows an install prompt.

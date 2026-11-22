@@ -242,10 +242,13 @@ end;
 $$;
 
 -- ------------------------------------------------- the first Super Admin
--- Promotes the account that owns this email. The account must already exist
--- (sign up or be invited first). If it does not, the whole migration rolls
--- back with a clear message rather than leaving the system with no Super
--- Admin, which would lock everyone out of user management.
+-- Promotes the account that owns this email when it exists. On a fresh
+-- project (no such account yet) the migration no longer aborts (audit F-14):
+-- it warns, and the rest of the chain can still be applied. Promote the first
+-- Super Admin afterwards by re-running this block, or with:
+--   update public.profiles set role='lgu_ldrrmc', is_super_admin=true,
+--     disabled=false, dispatch_unit_id=null, unit_role=''
+--   where id=(select id from auth.users where lower(email)=lower('<email>'));
 do $$
 declare
   v_email constant text := 'geraldinegazazz05@gmail.com';
@@ -253,7 +256,8 @@ declare
 begin
   select id into v_id from auth.users where lower(email) = lower(v_email);
   if v_id is null then
-    raise exception 'No account exists for %. Create or sign up that account, then run this migration again.', v_email;
+    raise warning 'No account exists for %. No Super Admin was promoted; create that account and re-run this block.', v_email;
+    return;
   end if;
 
   update public.profiles
@@ -268,7 +272,7 @@ begin
     values (null, 'user.role_changed', 'profiles', v_id,
             jsonb_build_object('to', 'super_admin', 'email', v_email, 'via', 'migration 043'));
   elsif not exists (select 1 from public.profiles where id = v_id) then
-    raise exception 'The account % has no profile row. Sign in once with it, then run this migration again.', v_email;
+    raise warning 'The account % has no profile row. Sign in once with it, then re-run this block.', v_email;
   end if;
 end $$;
 
