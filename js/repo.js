@@ -27,7 +27,8 @@ const Repo = (function () {
     hasSynced: false,
     /* the actual error from the last loadAll attempt, surfaced to the user
        so "Back to Online" no longer fails silently. */
-    lastError: null
+    lastError: null,
+    sosInboxIncomplete: false
   };
 
   const listeners = new Set();
@@ -479,7 +480,7 @@ const Repo = (function () {
       const sig = JSON.stringify([reports, advisories, centers, hotlines, notifications, subscriptions, assignments,
         relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings, sos, municipalRequests, stock]
         .map((r) => r && (r.error ? 'error' : [r.data, r.count]))
-        .concat([UG.DATA.changeRequests || null]));
+        .concat([UG.DATA.changeRequests || null, state.sosInboxIncomplete]));
       if (opts.silent && sig === lastDataSig && state.hasSynced && state.source === 'supabase') {
         state.loading = false;
         state.lastSync = new Date().toISOString();
@@ -1691,7 +1692,8 @@ const Repo = (function () {
       c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100),
       c.rpc('list_pending_sos_receipts')
     ]);
-    if (pending.error) return pending;
+    state.sosInboxIncomplete = !!(latest.error || pending.error);
+    if (latest.error && pending.error) return latest;
     const rows = new Map((latest.data || []).map((row) => [row.id, row]));
     for (const row of pending.data || []) rows.set(row.id, { ...row, needs_receipt: true });
     return { data: Array.from(rows.values()), error: null };

@@ -124,12 +124,14 @@ The first entry is **Home**, which is the operations dashboard.
 
 ## Getting started
 
-1. **Database.** Run `migrations/000` … `067` in order (file name order). `000` is read
-   only and tells you what already exists. Two files share the number 045; run
+1. **Database.** Run all SQL files in `migrations/` in filename order, through
+   `074_shared_relief_inventory.sql`. For an existing deployment, apply the migrations it
+   is missing. `000` only inspects the existing schema. Two files share the number 045; run
    `045_one_hour_lgu_escalation` then `045_super_admin_improvements`. `047` is a newer copy
    of the one-hour escalation and supersedes `045_one_hour_lgu_escalation`, so running both
-   is safe. See `docs/MIGRATION-NOTES.md` for 061–067. Then, in development only, run `seed/001_sample_data.sql` and
-   `seed/002_relief_guides_faqs_roadwork.sql`.
+   is safe. See `docs/MIGRATION-NOTES.md` for 061–067. Migrations 068–074 add the current
+   dispatch, SOS, response tracking, account, and relief inventory support. In development, run `seed/001_sample_data.sql` and
+   `seed/002_relief_guides_faqs_roadwork.sql` after applying the migrations.
 2. **Auth settings.** Confirm email, Site URL and redirect URLs. See `docs/DEPLOY.md` §2.
 3. **Configuration.** `cp .env.example .env.local`, fill it in, then generate `env.js`
    from it. Only the anon key goes in `env.js`.

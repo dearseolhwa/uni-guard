@@ -3176,8 +3176,9 @@
     },
 
     'save-advisory': async () => {
-      await UG_PWA.storeSnapshot(UG.DATA);
-      toast('Critical advisories saved for offline reading', 'info');
+      const saved = await UG_PWA.storeSnapshot(UG.DATA);
+      toast(saved ? 'Critical advisories saved for offline reading' : 'Could not save advisories for offline reading',
+        saved ? 'info' : 'warning');
     },
 
     'share-advisory': async () => {
@@ -3204,9 +3205,11 @@
       }
     },
 
-    'save-center-offline': async () => {
-      await UG_PWA.storeSnapshot(UG.DATA);
-      toast('Shelter list saved for offline use', 'info');
+    'save-center-offline': async (d) => {
+      const saved = await UG_PWA.storeSnapshot(UG.DATA);
+      const list = d && d.id === 'hotlines' ? 'Emergency contacts' : 'Shelters';
+      toast(saved ? list + ' saved for offline use' : 'Could not save ' + list.toLowerCase() + ' for offline use',
+        saved ? 'info' : 'warning');
     },
 
     call: (d) => {
@@ -3226,10 +3229,13 @@
     reconnect: async () => {
       const r = await UG_PWA.retryNow();
       if (r.online && Auth.state.needsRevalidate) revalidateSession();
-      if (r.online) {
+      if (r.refreshed) {
         toast('Back online. Data refreshed' +
           (r.uploaded ? ', ' + r.uploaded + ' queued report' + (r.uploaded > 1 ? 's' : '') + ' uploaded' : '') + '.',
           'prepared');
+      } else if (r.online) {
+        toast('Internet connection detected. Live data could not be refreshed.' +
+          (r.queued ? ' ' + r.queued + ' queued item(s) still waiting.' : ''), 'warning');
       } else {
         toast('Still offline. ' + (r.queued || 0) + ' report' + (r.queued === 1 ? '' : 's') +
           ' waiting. They send by themselves when the connection returns.', 'warning');

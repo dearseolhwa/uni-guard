@@ -49,6 +49,7 @@ const UG_PWA = (function () {
       const out = fn(s);
       t.oncomplete = () => resolve(out && out.result !== undefined ? out.result : out);
       t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error || new Error('IndexedDB transaction aborted'));
     }));
   }
 
@@ -61,8 +62,10 @@ const UG_PWA = (function () {
       advisories: (data.advisories || []).filter((a) => a.severity !== 'prepared').slice(0, 20),
       incidents: (data.incidents || []).slice(0, 40)
     };
-    state.lastSync = payload.at;
-    return tx(STORE_SNAPSHOT, 'readwrite', (s) => s.put(payload, 'data')).catch(() => null);
+    return tx(STORE_SNAPSHOT, 'readwrite', (s) => s.put(payload, 'data')).then(() => {
+      state.lastSync = payload.at;
+      return true;
+    }).catch(() => false);
   }
 
   function readSnapshot() {
