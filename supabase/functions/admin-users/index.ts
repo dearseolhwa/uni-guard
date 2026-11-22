@@ -11,7 +11,8 @@
 //   · A unit_admin can invite members INTO THEIR OWN UNIT only, with
 //     action='unit-invite'. The function re-checks they are an admin of that
 //     unit. Members can be deactivated/reactivated by the admin of the same
-//     unit (action='unit-set-disabled') and reactivated.
+//     unit through the admin_change_account_disabled RPC (the former
+//     'unit-set-disabled' action had no caller and was removed).
 //   · Self sign up can NEVER produce dispatch_team — the auth.users trigger
 //     (migration 006) forces role=citizen; the trigger plus the
 //     profiles_dispatch_team_unit_check constraint enforce the rest.
@@ -26,6 +27,9 @@
 // Deploy:
 //   supabase functions deploy admin-users --no-verify-jwt=false
 //   supabase secrets set SUPABASE_SERVICE_ROLE_KEY=... (usually already present)
+//   supabase secrets set APP_PUBLIC_URL=https://your-public-site
+//   (optional) supabase secrets set ALLOWED_REDIRECT_ORIGINS=https://a,https://b
+//   Invitation links only redirect to those origins (audit F-06).
 //
 // Call from the app with the signed in user's access token; the platform passes
 // the Authorization header through and we read the caller from it.
@@ -42,6 +46,22 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
 const ALL_ROLES = ['citizen', 'barangay_official', 'lgu_ldrrmc', 'dispatch_team'];
+
+/* Audit F-06: the redirect in an invitation email must never be whatever the
+   client sent. Allowed: APP_PUBLIC_URL and ALLOWED_REDIRECT_ORIGINS (comma
+   separated). With neither set, only a non-loopback https origin passes.
+   Anything else falls back to the project's Site URL (undefined). */
+const LOOPBACK = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/i;
+function safeRedirect(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  let u: URL;
+  try { u = new URL(raw); } catch { return undefined; }
+  const allowed = [Deno.env.get('APP_PUBLIC_URL') || '', ...(Deno.env.get('ALLOWED_REDIRECT_ORIGINS') || '').split(',')]
+    .map((x) => x.trim()).filter(Boolean)
+    .map((x) => { try { return new URL(x).origin; } catch { return ''; } }).filter(Boolean);
+  if (allowed.length) return allowed.includes(u.origin) ? u.origin : undefined;
+  return u.protocol === 'https:' && !LOOPBACK.test(u.hostname) ? u.origin : undefined;
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -79,10 +99,17 @@ Deno.serve(async (req: Request) => {
   try { payload = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
 
   const action = String(payload.action || '');
+  /* Audit F-05: best effort. The mutation has already committed when this
+     runs, so a logging failure must never turn success into a 500. */
   const audit = async (a: string, entityId: string | null, meta: Record<string, unknown>) => {
-    await admin.from('audit_log').insert({
-      actor_id: profile.id, action: a, entity: 'profiles', entity_id: entityId, meta
-    });
+    try {
+      const { error } = await admin.from('audit_log').insert({
+        actor_id: profile.id, action: a, entity: 'profiles', entity_id: entityId, meta
+      });
+      if (error) console.error('[admin-users] audit insert failed', a, error.message);
+    } catch (e) {
+      console.error('[admin-users] audit insert failed', a, (e as Error).message);
+    }
   };
 
   // helper: is this caller an admin of THIS unit?
@@ -101,12 +128,9 @@ Deno.serve(async (req: Request) => {
         const barangayId = (payload.barangayId as string) || null;
         const unitId = (payload.unitId as string) || null;
         const unitRole = (payload.unitRole as string) || '';
-        /* redirectUrl is sent by the frontend (window.location.origin) so the
-           invitation email's "Accept Invitation" button points back to the
-           site that sent the invite — localhost:5500 during dev, the Netlify
-           URL in production. Fall back to the Supabase dashboard default if
-           the frontend didn't send one. */
-        const redirectUrl = (payload.redirectUrl as string) || undefined;
+        /* the frontend sends Auth.redirectUrl(); only allow-listed origins are
+           forwarded, otherwise Supabase uses the project's Site URL */
+        const redirectUrl = safeRedirect(payload.redirectUrl);
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: 'A valid email is required' }, 400);
         // Creating ANY non-citizen account is a Super Admin action. (Before
         // this check the function only verified the caller for dispatch_team,
@@ -115,7 +139,7 @@ Deno.serve(async (req: Request) => {
         if (!isSuper) return json({ error: SUPER_ONLY }, 403);
         if (!ALL_ROLES.includes(role)) return json({ error: 'Unknown role' }, 400);
         if (role !== 'dispatch_team' && !['barangay_official', 'lgu_ldrrmc'].includes(role)) {
-          return json({ error: 'Self sign-up cannot produce dispatch_team or other restricted roles' }, 400);
+          return json({ error: 'Residents create their own accounts by signing up. Invite staff roles only.' }, 400);
         }
         let barangayName = '';
         if (role === 'barangay_official') {
@@ -174,7 +198,7 @@ Deno.serve(async (req: Request) => {
         // promote a member to admin through this path (LGU only).
         const unitId = String(payload.unitId || '');
         const email = String(payload.email || '').trim().toLowerCase();
-        const redirectUrl = (payload.redirectUrl as string) || undefined;
+        const redirectUrl = safeRedirect(payload.redirectUrl);
         if (!isAdminOf(unitId)) {
           return json({ error: 'You can only invite into your own unit' }, 403);
         }
@@ -186,24 +210,22 @@ Deno.serve(async (req: Request) => {
         });
         if (inviteErr) return json({ error: inviteErr.message }, 400);
         if (invited?.user) {
-          await admin.from('profiles').upsert({
+          // Audit F-04: same rollback as 'create' when the profile cannot be saved
+          const { error: profileError } = await admin.from('profiles').upsert({
             id: invited.user.id, email, role: 'dispatch_team',
             dispatch_unit_id: unitId, unit_role: 'member',
+            invite_last_attempt_at: new Date().toISOString(),
             full_name: email.split('@')[0], updated_at: new Date().toISOString()
           }, { onConflict: 'id' });
+          if (profileError) {
+            const { error: rollbackError } = await admin.auth.admin.deleteUser(invited.user.id);
+            return json({ error: rollbackError
+              ? 'The invitation was created but the unit membership could not be saved. Ask the Super Admin to reconcile the account.'
+              : profileError.message }, 400);
+          }
         }
         await audit('unit.member_invited', invited?.user?.id ?? null, { email, unitId });
         return json({ ok: true, email, unitId });
-      }
-
-      case 'unit-set-disabled': {
-        const target = String(payload.userId || '');
-        if (typeof payload.disabled !== 'boolean' || !target) return json({ error: 'Select an account and a status' }, 400);
-        const { data, error } = await admin.rpc('admin_change_account_disabled', {
-          p_actor: profile.id, p_target: target, p_disabled: payload.disabled
-        });
-        if (error) return json({ error: error.message }, error.code === '42501' ? 403 : 400);
-        return json({ ok: true, profile: data, sessionsRevoked: payload.disabled });
       }
 
       case 'set-role': {
@@ -285,7 +307,7 @@ Deno.serve(async (req: Request) => {
         if (reserveError || !email) return json({ error: reserveError?.message || 'Invitation not found' }, 400);
         // The invited user already exists. A fresh recovery/setup link keeps that account's role and identity.
         const { error: sendError } = await asCaller.auth.resetPasswordForEmail(email, {
-          redirectTo: typeof payload.redirectUrl === 'string' ? payload.redirectUrl : undefined
+          redirectTo: safeRedirect(payload.redirectUrl)
         });
         const { error: statusError } = await admin.from('profiles').update({ invite_last_failed: !!sendError }).eq('id', userId);
         await audit(sendError ? 'user.invitation_retry_failed' : 'user.invitation_resent', userId, {});

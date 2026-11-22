@@ -124,17 +124,19 @@ The first entry is **Home**, which is the operations dashboard.
 
 ## Getting started
 
-1. **Database.** Run `migrations/000` … `067` in order (file name order). `000` is read
-   only and tells you what already exists. Two files share the number 045; run
-   `045_one_hour_lgu_escalation` then `045_super_admin_improvements`. `047` is a newer copy
-   of the one-hour escalation and supersedes `045_one_hour_lgu_escalation`, so running both
-   is safe. See `docs/MIGRATION-NOTES.md` for 061–067. Then, in development only, run `seed/001_sample_data.sql` and
-   `seed/002_relief_guides_faqs_roadwork.sql`.
-2. **Auth settings.** Confirm email, Site URL and redirect URLs. See `docs/DEPLOY.md` §2.
-3. **Configuration.** `cp .env.example .env.local`, fill it in, then generate `env.js`
-   from it. Only the anon key goes in `env.js`.
-4. **Functions.** Deploy `admin-users`, `push-dispatch` and `sms-fallback`, and set the
-   VAPID and SMS secrets.
+1. **Database.** Apply missing SQL files in `migrations/` in filename order through
+   `076_super_admin_notifications.sql`. `000` only inspects the schema. Apply both
+   `045_*` files and then `047_one_hour_lgu_escalation.sql`. Use sample seed files
+   only in development or staging.
+2. **Auth settings.** Set the Site URL, redirect URLs, and email delivery settings.
+   See [Auth settings](docs/DEPLOY.md#2-auth-settings).
+3. **Configuration.** Set your project's browser-safe settings in `env.js`.
+4. **Functions.** If the last database migration is unknown, run the
+   [read-only migration checker](docs/CHECK-SUPABASE-MIGRATIONS.sql) first. On
+   an installation already through 074, redeploy `admin-users`
+   and deploy `admin-notify` to enable Super Admin push. See the
+   [Supabase upgrade checklist](docs/DEPLOY.md#super-admin-upgrade-from-074)
+   for the migration sequence, Vault configuration, and verification steps.
 5. **Serve.** Any static host over HTTPS. There is no build step.
 6. **Verify.** Work through `docs/TEST-CHECKLIST-ALL.md`.
 

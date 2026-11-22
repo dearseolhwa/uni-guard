@@ -27,7 +27,8 @@ const Repo = (function () {
     hasSynced: false,
     /* the actual error from the last loadAll attempt, surfaced to the user
        so "Back to Online" no longer fails silently. */
-    lastError: null
+    lastError: null,
+    sosInboxIncomplete: false
   };
 
   const listeners = new Set();
@@ -213,7 +214,12 @@ const Repo = (function () {
       advisory_id: n.advisory_id,
       road_work_id: n.road_work_id,
       sos_id: n.sos_id,
-      relief_id: n.relief_id
+      relief_id: n.relief_id,
+      /* migration 076: '' for ordinary rows, 'super_admin' for the Super Admin
+         feed; null when the column does not exist yet */
+      audience: n.audience === undefined ? null : (n.audience || ''),
+      target_profile_id: n.target_profile_id || null,
+      change_request_id: n.change_request_id || null
     };
   }
 
@@ -479,7 +485,7 @@ const Repo = (function () {
       const sig = JSON.stringify([reports, advisories, centers, hotlines, notifications, subscriptions, assignments,
         relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings, sos, municipalRequests, stock]
         .map((r) => r && (r.error ? 'error' : [r.data, r.count]))
-        .concat([UG.DATA.changeRequests || null]));
+        .concat([UG.DATA.changeRequests || null, state.sosInboxIncomplete]));
       if (opts.silent && sig === lastDataSig && state.hasSynced && state.source === 'supabase') {
         state.loading = false;
         state.lastSync = new Date().toISOString();
@@ -1247,15 +1253,17 @@ const Repo = (function () {
 
   async function adminUsers(action, payload) {
     const c = client();
-    if (!c) return { local: true };
-    /* Pass the current origin as redirectUrl so the invitation email's
-       "Accept Invitation" button points back to the site that sent the
-       invite (localhost:5500 during dev, the Netlify URL in production).
-       The edge function reads this and forwards it to Supabase Auth's
-       inviteUserByEmail(). */
+    /* Never report success for a change that was never sent (audit F-08). */
+    if (!c) throw new Error('Connect to the server to manage accounts');
+    /* The invitation email's "Accept Invitation" button points at
+       Auth.redirectUrl(): the configured public URL first, never a loopback
+       origin when a real one is available (audit F-06). The edge function
+       re-validates it against its own allowlist. */
     const body = Object.assign({ action: action }, payload || {});
     if (action === 'create' || action === 'unit-invite' || action === 'resend-invitation') {
-      body.redirectUrl = (typeof window !== 'undefined' ? window.location.origin : '') || UG_CONFIG.APP_PUBLIC_URL;
+      body.redirectUrl = (typeof Auth !== 'undefined' && Auth.redirectUrl)
+        ? Auth.redirectUrl()
+        : (UG_CONFIG.APP_PUBLIC_URL || (typeof window !== 'undefined' ? window.location.origin : ''));
     }
     const { data, error } = await c.functions.invoke('admin-users', { body: body });
     if (error) {
@@ -1691,7 +1699,8 @@ const Repo = (function () {
       c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100),
       c.rpc('list_pending_sos_receipts')
     ]);
-    if (pending.error) return pending;
+    state.sosInboxIncomplete = !!(latest.error || pending.error);
+    if (latest.error && pending.error) return latest;
     const rows = new Map((latest.data || []).map((row) => [row.id, row]));
     for (const row of pending.data || []) rows.set(row.id, { ...row, needs_receipt: true });
     return { data: Array.from(rows.values()), error: null };

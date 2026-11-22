@@ -87,20 +87,67 @@ Barangay officials can record distributions for their own barangay. A void
 restores stock and preserves the original record for audit. Existing database
 records are preserved. Browser preview stock is sample data and is not imported.
 
+## Super Admin upgrade from 074
+
+Back up the database and confirm the last applied migration by full filename.
+If you do not know it, run
+[`CHECK-SUPABASE-MIGRATIONS.sql`](CHECK-SUPABASE-MIGRATIONS.sql) in the SQL
+Editor. It checks recorded CLI history when available and inspects the actual
+schema when migrations were previously pasted into the SQL Editor. Follow its
+final recommendation. If it reports a gap, keep the full result grid and resolve
+that gap before applying 075 or 076.
+For a project already through 074, apply these files in the SQL Editor, in order.
+
+| File | What changes |
+| --- | --- |
+| [075_super_admin_audit_fixes.sql](../migrations/075_super_admin_audit_fixes.sql) | Allows account deletion to clear the requester on old change requests, revokes obsolete staff-management RPCs from browser roles, extends revoked-session policies, and rejects approval when the hotline target is gone. |
+| [076_super_admin_notifications.sql](../migrations/076_super_admin_notifications.sql) | Adds persisted Super Admin notifications and a push queue. New pending hotline requests and supported account events produce notification rows. |
+
+The branch also corrects migrations 043, `045_super_admin_improvements.sql`, and
+072 for fresh or incomplete setups. Use the corrected files when applying
+missing migrations. A project that has already successfully applied them can
+continue with 075 and 076.
+
+1. Confirm the deployed HTTPS origin is the Auth **Site URL**, that the allowed
+   Auth redirect URLs include that origin, and that SMTP works for invitations
+   and password recovery. In `env.js` and the `admin-users` function's
+   `APP_PUBLIC_URL` secret, use the same public HTTPS origin. Set
+   `ALLOWED_REDIRECT_ORIGINS` only if you also use another approved site.
+2. Redeploy the updated `admin-users` function with its existing JWT verification.
+   Keep the existing project URL, browser anon/publishable key, and Web Push keys.
+   The integration updates the frontend build version while keeping the
+   repository's project configuration.
+3. For background Super Admin push, follow
+   [Super Admin push](#7b-super-admin-push-migration-076). In-app Super Admin
+   notifications work after 076 without configuring the worker.
+4. Publish the static site after applying both migrations and updating
+   `admin-users`. Verify an invitation link on a phone and a hotline change
+   request from a separate staff account. The actor is excluded from their own
+   Super Admin notification, so use different accounts for sender and recipient.
+   Mark a notification read and confirm it stays read after reload.
+
+If you are behind 074, apply the missing files in filename order before these
+two migrations. Check the sections above for 068–074 and
+[background emergency delivery](#7-background-sos-and-dispatch-delivery) for 071.
+The `emergency-delivery` worker, its Vault entries, and its cron job are
+independent of Super Admin push.
+
 ## 1. Database
 
-For a fresh database, run the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `074_shared_relief_inventory.sql`.
-`000_inspect_current_schema.sql` is an optional read-only inspection. Use the SQL
-editor and keep a record of the **full filename** applied. Enable `pg_trgm` before
-011. Both `045_*` files
-must run separately. Before running 043, create the first Super Admin account
-and make sure its email matches the bootstrap email in that migration.
+For a fresh database, apply the files in `migrations/` in filename order, from
+`001_align_core_tables.sql` through `076_super_admin_notifications.sql`.
+`000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
+and record each full filename. Enable `pg_trgm` before 011. Apply both `045_*`
+files, followed by 046 and 047. Migration 043 promotes the account matching its
+bootstrap email if the account and profile exist. For a fresh project, use an
+email you control in the bootstrap block. If the account does not exist yet,
+create it and run only that promotion block once it has a profile.
 
-For an existing database, confirm the last applied full filename and apply
-only later files. For an installation at 070, apply 071. Deploy the relevant
-Edge Functions and their secrets before publishing the matching static files.
-The SQL editor sequence avoids the duplicate version prefix in legacy files.
+Migration 072 can finish even when the SQL Editor role lacks permission to
+install the `reject_revoked_session` policy on `storage.objects`. If it reports
+that the Storage policy was skipped, use a role with policy-management rights
+to add the restrictive Storage policy defined in 072 and confirm it is present
+with the verification query below.
 
 Then, in development or staging only:
 
@@ -140,13 +187,8 @@ the `on_auth_user_created` trigger, with the role forced to `citizen`.
 
 ## 3. Application configuration
 
-Copy the template and fill it in:
-
-```bash
-cp .env.example .env.local
-```
-
-Then generate `env.js` from it (this file is served to the browser):
+Set the four environment variables below for your deployment and generate
+`env.js`. The generated file is served to the browser:
 
 ```bash
 cat > env.js <<EOF
@@ -155,12 +197,13 @@ window.UG_ENV = {
   SUPABASE_ANON_KEY: "$SUPABASE_ANON_KEY",
   APP_PUBLIC_URL: "$APP_PUBLIC_URL",
   VAPID_PUBLIC_KEY: "$VAPID_PUBLIC_KEY",
+  BUILD: "set-this-to-your-release-version",
   DEV: false
 };
 EOF
 ```
 
-Only the **anon** key belongs here. The `service_role` key bypasses every RLS rule
+Only the browser-safe **anon or publishable** key belongs here. The `service_role` key bypasses every RLS rule
 and must never reach the browser.
 
 ## 4. Edge Functions
@@ -169,6 +212,8 @@ and must never reach the browser.
 supabase functions deploy admin-users
 supabase functions deploy push-dispatch
 supabase functions deploy sms-fallback
+supabase secrets set APP_PUBLIC_URL='https://<deployed-host>'
+# Optional: ALLOWED_REDIRECT_ORIGINS is a comma-separated list of extra origins.
 
 supabase secrets set \
   VAPID_PUBLIC_KEY=... \
@@ -245,6 +290,85 @@ LGU notification inbox for duty-phone or radio follow-up. In staging, check
 that the provider accepts a push with the device app closed, check SMS on a
 staff account without working push, and check the failure alert with neither
 channel configured. Verify acknowledgment separately in UniGuard.
+
+## 7b. Super Admin push (migration 076)
+
+Migration 076 stores Super Admin notifications on the server (hotline change
+requests, account events) and queues a phone push for each. The rows appear in
+the app as soon as 076 is applied; the push needs this one-time setup.
+
+```bash
+supabase functions deploy admin-notify --no-verify-jwt
+```
+
+Enable `pg_net` and Supabase Vault in Dashboard → Database → Extensions.
+Enable `pg_cron` before running 076 if you want the retry job installed
+automatically. The worker reuses `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and
+`VAPID_SUBJECT` from your existing function secrets. Preserve the existing VAPID
+key pair so subscribed devices can keep receiving push.
+
+Create these two Vault entries once. If either name already exists, update the
+existing Vault entry. Use this Supabase project's function URL and generate a
+fresh random bearer secret for this worker.
+
+```sql
+select vault.create_secret('https://<project-ref>.supabase.co/functions/v1/admin-notify', 'uniguard_admin_notify_url');
+select vault.create_secret('<long-random-secret-for-admin-notify>', 'uniguard_admin_notify_secret');
+```
+
+The worker validates its bearer token against Vault. `ADMIN_NOTIFY_SECRET` is
+an optional Edge Function alternative. The Vault secret is still required for
+the database to call the worker. Keep worker secrets out of browser files.
+
+If `pg_cron` was enabled after 076, register the named job once.
+
+```sql
+select cron.schedule('uniguard-admin-notify', '*/2 * * * *', 'select public.kick_admin_notify()');
+```
+
+With pg_net and Vault configured, new notification rows wake the worker
+immediately. The cron job handles retries. In UniGuard, enable alerts on the
+receiving Super Admin device before testing.
+
+### Read-only SQL verification
+
+```sql
+select to_regprocedure('public.account_session_blocked()') is not null as has_072,
+       to_regclass('public.barangay_dispatch_requests') is not null as has_073,
+       to_regprocedure('public.read_relief_stock()') is not null as has_074,
+       (select is_nullable = 'YES' from information_schema.columns
+         where table_schema = 'public' and table_name = 'change_requests'
+           and column_name = 'requester_id') as requester_nullable,
+       to_regprocedure('public.claim_admin_push(integer)') is not null as has_076;
+
+select schemaname, tablename, policyname
+from pg_policies
+where policyname = 'reject_revoked_session'
+  and (tablename = 'barangay_dispatch_requests'
+       or (schemaname = 'storage' and tablename = 'objects'));
+
+select extname from pg_extension
+where extname in ('pg_net', 'pg_cron', 'supabase_vault');
+
+select push_status, count(*) from public.notifications
+where audience = 'super_admin' group by push_status;
+```
+
+Run these additional queries only when the corresponding extensions are
+enabled. They verify names and scheduling without showing secret values.
+
+```sql
+select name from vault.secrets
+where name in ('uniguard_admin_notify_url', 'uniguard_admin_notify_secret');
+
+select jobname, schedule, active from cron.job
+where jobname in ('uniguard-admin-notify', 'uniguard-emergency-delivery');
+```
+
+After a test event, `sent` means at least one push provider accepted delivery.
+`none` means no eligible subscription, and `failed` means delivery exhausted
+the configured attempts. If rows remain `pending`, check the cron job, Vault
+entries, and function logs.
 
 ## 8. Verification after deploy
 

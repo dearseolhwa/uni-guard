@@ -461,7 +461,7 @@ html[data-portal="admin"] .ug-frame.ug-d.ug-bg.ug-cmd { background: var(--bg-wor
 .lv-btn { height: 36px; margin-top: 12px; }
 
 /* Super Admin: brand + round gold back button to the main screen (uniguard) */
-.bg-brand--sup { gap: 6px; padding: 4px 4px 4px 12px; cursor: default; }
+.bg-brand--sup { gap: 6px; padding: 4px 12px; cursor: default; }
 .bg-brand-in { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; padding: 2px 0; cursor: pointer; font: inherit; color: inherit; }
 .bg-back { width: 32px; height: 32px; flex: none; border-radius: 999px; border: 0; display: grid; place-items: center; cursor: pointer; color: #fff;
   background: linear-gradient(140deg, #F6C445 0%, #E9A825 55%, #D69E2E 100%); box-shadow: 0 6px 14px -8px rgba(162,101,10,.9); transition: transform .15s, filter .15s; }
@@ -1080,7 +1080,7 @@ html[data-portal="barangay"] .ug-note2 { background: #fff !important; }
    scrolling); open: a sheet above the bottom bar (it no longer covers it).
    Urgent but deep: crimson with a slow pulsing glow and a pulsing siren. */
 @media (max-width: 767px) {
-  .ug-sosx { left: 10px !important; right: 10px !important; bottom: calc(96px + env(safe-area-inset-bottom)) !important; top: auto !important; z-index: 55; }
+  .ug-sosx { left: 10px !important; right: 10px !important; bottom: calc(108px + env(safe-area-inset-bottom)) !important; top: auto !important; z-index: 55; }
   .ug-sosx .sx-panel { max-height: calc(100dvh - 210px) !important; border-radius: 22px !important; box-shadow: 0 24px 48px -16px rgba(60,8,8,.55) !important; }
 
   /* folded banner, top */
@@ -1116,7 +1116,9 @@ html[data-portal="barangay"] .ug-note2 { background: #fff !important; }
   .ug-sosx.is-min .sx-pill-n { display: grid; place-items: center; position: absolute; top: -3px; right: -3px; min-width: 22px; height: 22px; padding: 0 6px;
     border-radius: 999px; background: #fff; color: #7F1D1D; font-style: normal; font-size: 12px; font-weight: 800; box-shadow: 0 2px 6px rgba(0,0,0,.25); }
 }
-@media (max-width: 767px) { .ug-sosx.is-min { bottom: calc(84px + env(safe-area-inset-bottom)) !important; } }
+/* clear of the bottom bar AND its raised active circle (it rises ~28px above
+   the bar), so the rightmost tab is never covered */
+@media (max-width: 767px) { .ug-sosx.is-min { bottom: calc(112px + env(safe-area-inset-bottom)) !important; } }
 
 /* ================================= Open SOS sheet, phone: swipe + frosted
    one SOS per swipe (snaps to each card), a dot per card under them, a View
@@ -2690,4 +2692,19 @@ html[data-portal="barangay"] .ug-note2 { background: #fff !important; }
 
   /* templates: compact cards */
   .ug-bg .bg-page .stg .ug-card p { overflow-wrap: anywhere; }
+}
+
+/* Super Admin in the staff console (html[data-portal="admin"]): the phone
+   bottom bar uses the Super Admin's gold instead of the LDRRMO charcoal, so it
+   matches the Super Admin screen's bar. LDRRMO staff keep charcoal. */
+@media (max-width: 767px) {
+  html[data-portal="admin"] .ug-cmd .bg-pbar-in { border-color: #F1E3C2; box-shadow: 0 8px 28px -10px rgba(58,42,8,.3); }
+  html[data-portal="admin"] .ug-cmd .bg-pb-i, html[data-portal="admin"] .ug-cmd .bg-pb b { color: #9C8455; }
+  html[data-portal="admin"] .ug-cmd .bg-pb.is-on .bg-pb-i { background: linear-gradient(135deg, #F6C445, #E9A12A); color: #fff;
+    box-shadow: 0 0 0 6px #F1F5FA, 0 10px 15px -3px rgba(201,138,11,.45); }
+  html[data-portal="admin"] .ug-cmd .bg-pb.is-on b { color: #5C3A0A; }
+  html[data-portal="admin"] .ug-cmd .bg-pb-i em { background: #C98A0B; color: #fff; }
+  html[data-portal="admin"] .ug-cmd .bg-pb.is-on .bg-pb-i em { background: #fff; color: #8A5A00; border: 1px solid #F1E3C2; }
+  html[data-portal="admin"] .ug-cmd .bg-pb--sos .bg-pb-i em { background: #B91C1C; color: #fff; border: 0; }
+  html[data-portal="admin"] .ug-cmd .bg-pb--sos.is-on .bg-pb-i em { background: #fff; color: #B91C1C; border: 0; }
 }

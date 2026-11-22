@@ -35,6 +35,7 @@ const UG_SUPERADMIN = (function () {
   const LI = {
     grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    menu: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
     bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
     file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
     sheet: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/>',
@@ -126,13 +127,16 @@ const UG_SUPERADMIN = (function () {
     damage_assessments: 'Damage assessment', situation_reports: 'Situation report', advisories: 'Advisory',
     preparedness_guides: 'Guide', faqs: 'FAQ', dispatch_units: 'Dispatch unit', profiles: 'Account'
   };
+  /* role keys in audit entries, in words (super_admin is not a database role) */
+  const roleWord = (r) => ({ citizen: 'Resident', barangay_official: 'Barangay official', lgu_ldrrmc: 'LDRRMO staff',
+    dispatch_team: 'Dispatch staff', super_admin: 'Super Admin' })[r] || String(r || '').replace(/_/g, ' ');
   function describe(a) {
     const meta = (a.meta && typeof a.meta === 'object') ? a.meta : {};
     switch (a.action) {
       case 'report.status_changed': return 'Report status changed to ' + (meta.to || 'unknown') + (meta.note ? ' — ' + meta.note : '');
       case 'report.responder_assigned': return 'Responder unit assigned to report';
-      case 'user.invited': return 'Invited ' + (meta.email || 'an account') + ' as ' + (meta.role || 'official');
-      case 'user.role_changed': return 'Role changed to ' + (meta.to || 'unknown');
+      case 'user.invited': return 'Invited ' + (meta.email || 'an account') + ' as ' + roleWord(meta.role || 'barangay_official');
+      case 'user.role_changed': return 'Role changed to ' + (meta.to ? roleWord(meta.to) : 'unknown');
       case 'user.barangay_changed': return 'Barangay assignment changed to ' + (meta.name || 'none');
       case 'user.account_updated': return 'Account details updated';
       case 'user.invitation_resent': return 'Setup email requested again';
@@ -182,13 +186,18 @@ const UG_SUPERADMIN = (function () {
      Lives here, not in the controller's S: it survives every re-render and
      starts fresh for a different account. */
   const SHORT = 10, PAGE = 25;
+  /* set by 'sa-open' (the Operations bottom bar): the view to show when the
+     screen is next entered */
+  let pendingView = null;
   function fresh(uid) {
     const now = new Date();
     return {
       uid: uid, view: 'overview', range: 14,
       month: new Date(now.getFullYear(), now.getMonth(), 1), day: isoDayLocal(now),
       query: '', accRole: 'all', accStatus: 'all', allAccounts: false, accountPage: 1, directory: null, directoryError: '', directoryLoading: false,
-      menu: null,              /* 'role' | 'export-accounts' | 'export-activity' */
+      menu: null,              /* 'role' | 'export-accounts' | 'export-activity' | 'sa-brand' */
+      drawer: false,
+      notif: false, notifTab: 'admin', notifSeenPrev: 0,   /* the notifications panel */
       newAcct: null, newNote: '', newBusy: false,
       edit: null, editNote: '', editOk: false, saving: false, resetting: false,
       actQ: '', actRole: 'all', actEntity: 'all', actAction: 'all', actActor: 'all', actBarangay: 'all',
@@ -219,13 +228,19 @@ const UG_SUPERADMIN = (function () {
     st.loadError = null;
     const parts = [
       reloadUsers(),
-      Repo.listAudit(500).then((a) => { s.audit = a; UG.DATA.audit = a; }),
-      Repo.listSos().then((x) => { UG.DATA.sosLog = x; }),
       Repo.loadChangeRequests(),
       Repo.loadDispatchDirectory(),
-      Repo.listResponders().then((r) => { s.responders = r; UG.DATA.responders = r; }),
       Repo.subscribedDeviceCount().then((n) => { UG.DATA.subscribedDevices = n; })
     ];
+    /* Audit F-03: these return [] with no server; offline they would wipe the
+       audit, SOS and responder data the PWA cache restored. */
+    if (Repo.client()) {
+      parts.push(
+        Repo.listAudit(500).then((a) => { s.audit = a; UG.DATA.audit = a; }),
+        Repo.listSos().then((x) => { UG.DATA.sosLog = x; }),
+        Repo.listResponders().then((r) => { s.responders = r; UG.DATA.responders = r; })
+      );
+    }
     if (!(s.barangays && s.barangays.length)) parts.push(Repo.listBarangays().then((b) => { s.barangays = b; }));
     const res = await Promise.allSettled(parts);
     const bad = res.filter((r) => r.status === 'rejected');
@@ -425,12 +440,17 @@ const UG_SUPERADMIN = (function () {
   }
 
   /* ================================================================ sidebar */
+  function sideNotif(m) {
+    const n = adminFeed().count;
+    return '<button type="button" class="sa-side-link"' + btn('sa-notif') + ' aria-haspopup="dialog">' + li(m.icon, 16, 'sa-side-ico') +
+      '<span class="sa-flex1">' + esc(m.label) + '</span>' + (n ? '<span class="sa-badge">' + (n > 99 ? '99+' : n) + '</span>' : '') + '</button>';
+  }
   function sidebar(counts, total) {
     const unread = (D().notifications || []).filter((n) => n.unread).length;
     return '<aside class="sa-side">' +
       '<div class="sa-logo">' + emblem('admin', 30) + '<span>UniGuard</span></div>' +
       '<h1 class="sa-side-title">System Admin</h1>' +
-      '<nav class="sa-side-nav" aria-label="Operations menu">' + SIDE_MENU.map((m) =>
+      '<nav class="sa-side-nav" aria-label="Operations menu">' + SIDE_MENU.map((m) => m.route === 'notifications' ? sideNotif(m) :
         '<button type="button" class="sa-side-link"' + btn('nav', { route: m.route }) + '>' + li(m.icon, 16, 'sa-side-ico') +
         '<span class="sa-flex1">' + esc(m.label) + '</span>' +
         (m.route === 'notifications' && unread > 0 ? '<span class="sa-badge">' + unread + '</span>' : '') +
@@ -466,7 +486,7 @@ const UG_SUPERADMIN = (function () {
         '<div class="sa-hero-body">' +
           '<div class="sa-hero-copy">' +
             '<h2 class="sa-hero-h">Every portal,<br>one view.</h2>' +
-            '<p class="sa-hero-p">' + total + ' accounts across residents, barangays, LDRRMO and dispatch.' + (disabledN ? ' ' + disabledN + ' disabled.' : '') + '</p>' +
+            '<p class="sa-hero-p">' + total + ' account' + (total === 1 ? '' : 's') + ' across residents, barangays, LDRRMO and dispatch.' + (disabledN ? ' ' + disabledN + ' disabled.' : '') + '</p>' +
             '<div class="sa-hero-btns">' +
               '<button type="button" class="sa-btn-orange"' + btn('sa-role', { role: 'all' }) + '>Manage accounts</button>' +
               '<button type="button" class="sa-btn-cream"' + btn('nav', { route: 'dashboard' }) + '>Open operations' + li('arrow', 16) + '</button>' +
@@ -477,7 +497,7 @@ const UG_SUPERADMIN = (function () {
     return '<section class="sa-hero" data-sa-hero>' + top +
       '<div class="sa-hero-head"><h2>' + (st.view === 'accounts' ? 'Accounts' : 'Activity') + '</h2><p>' +
         (st.view === 'accounts'
-          ? esc(total + ' accounts' + (disabledN ? ' · ' + disabledN + ' disabled' : '') + '. Tap an account to change its role or barangay.')
+          ? esc(total + ' account' + (total === 1 ? '' : 's') + (disabledN ? ' · ' + disabledN + ' disabled' : '') + '. Tap an account to change its role or barangay.')
           : 'Every change made by an account, newest first. Tap an entry for details.') +
       '</p></div></section>';
   }
@@ -491,7 +511,7 @@ const UG_SUPERADMIN = (function () {
       '</span></button>';
   }
 
-  function healthCard() {
+  function healthChecks() {
     const R = Repo.state || {};
     const online = !(typeof UG_PWA !== 'undefined' && UG_PWA.state && UG_PWA.state.online === false);
     const connected = online && R.source === 'supabase';
@@ -512,6 +532,11 @@ const UG_SUPERADMIN = (function () {
       { label: 'Hotline requests', value: String(pending), state: pending ? 'warn' : 'ok', hint: pending ? 'Review them in Operations → Hotlines.' : '', route: 'hotlines' },
       { label: 'App version', value: (UG_CONFIG && UG_CONFIG.BUILD) || 'dev', state: 'ok' }
     ];
+    return checks;
+  }
+
+  function healthCard() {
+    const checks = healthChecks();
     const problems = checks.filter((c) => c.state !== 'ok');
     const hinted = problems.filter((c) => c.hint);
     return '<section class="sa-pad sa-mt4" aria-labelledby="sa-health-title"><div class="sa-card sa-health">' +
@@ -629,7 +654,7 @@ const UG_SUPERADMIN = (function () {
       '<option value="' + esc(o[0]) + '"' + (String(o[0]) === String(value == null ? '' : value) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
   }
   const brgyOpts = (empty) => [['', empty]].concat(barangays().map((b) => [b.id, b.name]));
-  const unitOpts = (empty) => [['', empty]].concat(activeUnits().map((u) => [u.id, u.name + ' (' + (u.unit_type === 'Rescue' ? 'LGU Rescue' : u.unit_type || '') + ')']));
+  const unitOpts = (empty) => [['', empty]].concat(activeUnits().map((u) => [u.id, u.name + (u.unit_type ? ' (' + (u.unit_type === 'Rescue' ? 'LGU Rescue' : u.unit_type) + ')' : '')]));
 
   function newAccountForm() {
     const n = st.newAcct;
@@ -660,7 +685,8 @@ const UG_SUPERADMIN = (function () {
   }
 
   function accountsView(counts, total) {
-    const list = st.directoryLoading || st.directoryError ? [] : filteredAccounts();
+    /* audit F-19: keep the previous rows, dimmed, while the next query loads */
+    const list = st.directoryError ? [] : filteredAccounts();
     const disabledN = st.directory ? st.directory.disabled : users().filter((u) => u.disabled).length;
     const shown = Repo.client() || st.allAccounts ? list : list.slice(0, SHORT);
     const rows = shown.map((u) => {
@@ -689,11 +715,11 @@ const UG_SUPERADMIN = (function () {
       '</div>' +
       (st.newNote && !st.newAcct ? '<p class="sa-note-gold">' + esc(st.newNote) + '</p>' : '') +
       (st.newAcct ? newAccountForm() : '') +
-      '<div class="sa-card sa-table">' +
+      '<div class="sa-card sa-table' + (st.directoryLoading ? ' is-loading' : '') + '"' + (st.directoryLoading ? ' aria-busy="true"' : '') + '>' +
         '<div class="sa-thead"><span>Account</span><span>Role</span><span>Barangay</span><span>Joined</span></div>' +
         rows +
-        (st.directoryLoading ? '<p class="sa-empty" role="status">Loading accounts…</p>' :
-          !list.length && !st.directoryError ? '<p class="sa-empty">No accounts match.</p>' : '') +
+        (st.directoryLoading && !list.length ? '<p class="sa-empty" role="status">Loading accounts…</p>' :
+          !st.directoryLoading && !list.length && !st.directoryError ? '<p class="sa-empty">No accounts match.</p>' : '') +
         (st.directoryError ? '<p class="sa-err" role="alert">' + esc(st.directoryError) + '</p>' : '') +
         (st.directory && !st.directoryLoading && !st.directoryError && st.directory.matched > PAGE ? '<div class="sa-row-end">' +
           '<button class="sa-btn-ghost"' + btn('sa-account-page', { page: st.accountPage - 1 }) + (st.accountPage <= 1 ? ' disabled' : '') + '>Previous</button>' +
@@ -783,7 +809,9 @@ const UG_SUPERADMIN = (function () {
       '<option value="' + esc(o[0]) + '"' + (o[0] === value ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
 
     return '<div class="sa-pad sa-pt6">' +
-      '<div class="sa-act-bar"><p class="sa-act-count">' + (list.length === all.length ? all.length + ' entries' : list.length + ' of ' + all.length + ' entries') + '</p>' +
+      '<div class="sa-act-bar"><p class="sa-act-count">' + (list.length === all.length ? all.length + ' entries' : list.length + ' of ' + all.length + ' entries') +
+        /* audit F-26: the feed and calendar hold the newest 500 entries only */
+        (all.length >= 500 ? ' · newest 500 loaded; older days are not counted' : '') + '</p>' +
         '<div class="sa-act-btns"><button type="button" class="sa-refresh"' + btn('sa-act-refresh') + (st.refreshing ? ' disabled' : '') + '>' + li('refresh', 14, st.refreshing ? 'sa-spin' : '') + 'Refresh</button>' +
           exportMenu('export-activity', 'activity', !list.length, 'Only the entries that match the filters are exported.', true) + '</div></div>' +
       '<div class="sa-card sa-act-filters">' +
@@ -822,7 +850,10 @@ const UG_SUPERADMIN = (function () {
     sync();
     /* arriving from another screen starts on a fresh Overview, as the React
        console does when it mounts again */
-    if (!document.querySelector('.ug-sa')) st = fresh(st.uid);
+    /* the screen can be drawn more than once before it is on the page, so a
+       view asked for by 'sa-open' holds until the screen is actually shown */
+    if (!document.querySelector('.ug-sa')) { st = fresh(st.uid); if (pendingView) st.view = pendingView; }
+    else pendingView = null;
     const counts = roleCounts();
     const total = st.directory ? st.directory.total : users().length;
     const disabledN = st.directory ? st.directory.disabled : users().filter((u) => u.disabled).length;
@@ -843,6 +874,7 @@ const UG_SUPERADMIN = (function () {
     return '<div class="ug-sa"><div class="sa-wrap"><div class="sa-frame">' +
       sidebar(counts, total) +
       '<main class="sa-main ug-scroll">' +
+        phoneHeader() +
         /* the alarm prompt and open SOS get their own padded row above the hero */
         ((typeof UG_SOS !== 'undefined' && (function (h) { return h ? '<div class="sa-strips">' + h + '</div>' : ''; })(
           UG_SOS.activeStrip(Object.assign({}, appSt, { session: UG_SCREENS.sess(appSt) })))) || '') +
@@ -853,9 +885,165 @@ const UG_SUPERADMIN = (function () {
         '<div class="sa-gap8 sa-xl-only"></div>' +
       '</main>' +
       (st.view === 'overview' ? '<aside class="sa-pulse-side"><div class="sa-band" data-sa-band></div><div class="sa-pulse-scroll">' + pulseCard() + '</div></aside>' : '') +
+      bottomNav() + drawer(appSt) + notifPanel() +
       (st.edit ? editDialog() : '') +
     '</div></div></div>';
   }
+  /* ===================================================== notifications */
+  /* The bell opens a panel with two tabs. "Super Admin" is built for this role
+     only: hotline change requests waiting for approval, account activity by
+     other people (invites, role changes, disables, removals, failed setup
+     emails, change request decisions) and system problems. "All notifications"
+     is the account's ordinary notification list. What has been seen is kept
+     per account on this device. */
+  const ACCOUNT_EVENT = {
+    'user.invited': ['Invitation sent', 'userPlus', ''], 'unit.member_invited': ['Unit member invited', 'userPlus', ''],
+    'user.role_changed': ['Role changed', 'crown', ''], 'user.account_updated': ['Account updated', 'users', ''],
+    'user.barangay_changed': ['Barangay changed', 'building', ''], 'user.disabled': ['Account disabled', 'shieldCheck', 'warn'],
+    'user.enabled': ['Account enabled', 'shieldCheck', ''], 'user.removed': ['Account removed', 'x', 'warn'],
+    'user.invitation_resent': ['Setup email sent again', 'key', ''], 'user.invitation_retry_failed': ['Setup email failed', 'key', 'bad'],
+    'change_request.submitted': ['Hotline change requested', 'file', ''], 'change_request.approved': ['Hotline change approved', 'check', ''],
+    'change_request.rejected': ['Hotline change rejected', 'x', '']
+  };
+  const seenKey = () => 'uniguard.sa.notifSeen.' + (st.uid || 'me');
+  function seenAt() { try { return Number(localStorage.getItem(seenKey())) || 0; } catch (e) { return 0; } }
+  function markSeen() { try { localStorage.setItem(seenKey(), String(Date.now())); } catch (e) { } }
+
+  /* Migration 076 stores Super Admin notifications on the server (audience
+     'super_admin', with read state and phone push). Until it is applied the
+     feed falls back to account events read from the activity log, with a
+     "seen" mark kept on this device. */
+  const isSaRow = (n) => n.audience === 'super_admin';
+  const serverFeed = () => (D().notifications || []).some((n) => n.audience !== null && n.audience !== undefined);
+
+  function adminFeed() {
+    const me = (S().session || {}).id;
+    const pending = (D().changeRequests || []).filter((c) => c.status === 'pending')
+      .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
+    const pendingIds = pending.map((c) => c.id);
+    const system = healthChecks().filter((c) => c.state === 'bad' || (c.state === 'warn' && c.label === 'Waiting to send'));
+    const bad = system.filter((c) => c.state === 'bad').length;
+    if (serverFeed()) {
+      /* change requests still waiting are listed under "Needs your action" */
+      const rows = (D().notifications || []).filter((n) => isSaRow(n) && !(n.change_request_id && pendingIds.indexOf(n.change_request_id) !== -1));
+      const unread = rows.filter((n) => n.unread).length;
+      return { server: true, pending: pending, rows: rows, system: system, unread: unread, count: pending.length + unread + bad };
+    }
+    const since = Date.now() - 14 * 86400000;
+    const seen = st.notif ? st.notifSeenPrev : seenAt();
+    const events = audit().filter((a) => ACCOUNT_EVENT[a.action] && a.actor_id !== me && Date.parse(a.created_at) >= since).slice(0, 30);
+    const fresh = events.filter((a) => Date.parse(a.created_at) > seen).length;
+    return { server: false, pending: pending, events: events, system: system, seen: seen, unread: fresh, count: pending.length + fresh + bad };
+  }
+  const otherUnread = () => (D().notifications || []).filter((n) => n.unread && !isSaRow(n)).length;
+  const SA_ICON = { doc: 'file', shield: 'shieldCheck', alert: 'key', x: 'x', users: 'users' };
+
+  function notifPanel() {
+    if (!st.notif) return '';
+    const feed = adminFeed();
+    const others = (D().notifications || []).filter((n) => !isSaRow(n));
+    const unread = otherUnread();
+    const tab = (id, label, n) => '<button type="button" role="tab" class="sa-nt-tab' + (st.notifTab === id ? ' is-on' : '') + '"' + btn('sa-notif-tab', { tab: id }) +
+      ' aria-selected="' + (st.notifTab === id) + '">' + esc(label) + (n ? '<em>' + (n > 99 ? '99+' : n) + '</em>' : '') + '</button>';
+    const item = (o) => '<button type="button" class="sa-nt-i' + (o.fresh ? ' is-new' : '') + (o.tone ? ' is-' + o.tone : '') + '"' + o.attrs + '>' +
+      '<span class="sa-nt-ico">' + li(o.icon, 16) + '</span>' +
+      '<span class="sa-nt-body"><span class="sa-nt-t">' + esc(o.title) + '</span>' + (o.text ? '<span class="sa-nt-txt">' + esc(o.text) + '</span>' : '') +
+        (o.meta ? '<span class="sa-nt-m">' + esc(o.meta) + '</span>' : '') + '</span>' +
+      (o.fresh ? '<i class="sa-nt-dot" aria-label="New"></i>' : '') + '</button>';
+    const section = (title, rows) => rows.length ? '<p class="sa-nt-g">' + esc(title) + '</p><div class="sa-nt-card">' + rows.join('') + '</div>' : '';
+    let body, canMarkAll;
+    if (st.notifTab === 'admin') {
+      const activity = feed.server
+        ? section('Account activity', feed.rows.slice(0, 40).map((n) => item({
+            icon: SA_ICON[n.icon] || 'bell', tone: n.tone === 'warning' ? 'warn' : '', title: n.title, text: n.body,
+            meta: n.time || '', fresh: n.unread, attrs: btn('sa-notif-sa', { id: n.id }) })))
+        : section('Account activity · last 14 days', feed.events.map((a) => { const e = ACCOUNT_EVENT[a.action]; return item({
+            icon: e[1], tone: e[2], title: e[0], text: describe(a), fresh: Date.parse(a.created_at) > feed.seen,
+            meta: actorName(a) + ' · ' + relTime(a.created_at),
+            attrs: a.entity === 'profiles' && a.entity_id ? btn('sa-notif-acct', { id: a.entity_id }) : btn('sa-notif-view', { view: 'activity' }) }); }));
+      const rows = section('Needs your action', feed.pending.map((c) => item({
+          icon: 'file', tone: 'act', title: 'Hotline ' + (c.action || 'change') + ' request',
+          text: (c.requester_name || 'Someone') + (c.requester_barangay ? ' · Brgy. ' + c.requester_barangay : '') + ' is waiting for your approval',
+          meta: c.created_at ? relTime(c.created_at) : '', attrs: btn('sa-notif-cr', { id: c.id }) }))) +
+        section('System', feed.system.map((c) => item({
+          icon: c.label === 'Waiting to send' ? 'refresh' : 'heart', tone: c.state === 'bad' ? 'bad' : 'warn',
+          title: c.label + ': ' + c.value, text: c.hint || '', attrs: btn('sa-notif-view', { view: 'overview' }) }))) +
+        activity;
+      body = rows || '<div class="sa-nt-empty">' + li('check', 22) + '<b>You are all caught up</b><span>Change requests, account activity and system problems appear here.</span></div>';
+      canMarkAll = feed.server && feed.unread > 0;
+    } else {
+      body = others.length
+        ? '<div class="sa-nt-card">' + others.slice(0, 30).map((n) => item({
+            icon: 'bell', tone: n.unread ? 'unread' : '', title: n.title || 'Notification', text: n.body || '', meta: n.time || '', fresh: n.unread,
+            attrs: btn('sa-notif-open', { id: n.id }) })).join('') + '</div>'
+        : '<div class="sa-nt-empty">' + li('bell', 22) + '<b>No notifications yet</b><span>Alerts about reports, SOS and advisories appear here.</span></div>';
+      canMarkAll = unread > 0;
+    }
+    return '<div class="sa-nt-scrim"' + btn('sa-notif') + ' aria-hidden="true"></div>' +
+      '<section class="sa-nt" role="dialog" aria-modal="true" aria-labelledby="sa-nt-title">' +
+        '<div class="sa-nt-h"><h3 id="sa-nt-title">Notifications</h3>' +
+          (canMarkAll ? '<button type="button" class="sa-nt-link"' + btn('sa-notif-readall') + '>Mark all read</button>' : '') +
+          '<button type="button" class="sa-nt-x"' + btn('sa-notif') + ' aria-label="Close notifications">' + li('x', 18) + '</button></div>' +
+        '<div class="sa-nt-tabs" role="tablist">' + tab('admin', 'Super Admin', feed.count) + tab('all', 'All notifications', unread) + '</div>' +
+        '<div class="sa-nt-list">' + body + '</div>' +
+        '<div class="sa-nt-f"><button type="button" class="sa-nt-full"' + btn('nav', { route: 'notifications' }) + '>Open the full notifications page' + li('arrow', 14) + '</button></div>' +
+      '</section>';
+  }
+
+  /* ======================================================= phone header */
+  /* Phones and tablets (below 1024px), after the staff console's header: the
+     brand pill (tap: account card with Sign out), notifications and the menu
+     drawer. The sidebar replaces all of it on wider screens. */
+  function phoneHeader() {
+    const s = S().session || {};
+    const saCount = adminFeed().count;
+    const others = otherUnread();
+    const open = st.menu === 'sa-brand';
+    const name = s.name || 'Super Admin';
+    return '<header class="sa-mtop">' +
+      '<div class="sa-mbrand" data-sa-menu="sa-brand">' +
+        '<button type="button" class="sa-mbrand-in' + (open ? ' is-open' : '') + '"' + btn('sa-menu', { menu: 'sa-brand' }) +
+          ' aria-haspopup="true" aria-expanded="' + open + '" aria-label="Account and sign out">' +
+          emblem('admin', 26) + '</button>' +
+        (open ? '<div class="sa-mcard" role="menu">' +
+          '<div class="sa-mcard-who"><span class="sa-mcard-av">' + esc(String(name).trim().charAt(0).toUpperCase()) + '</span>' +
+            '<span class="sa-minw0"><b>' + esc(name) + '</b><small>' + esc(s.email || 'Super Admin') + '</small></span></div>' +
+          '<button type="button" role="menuitem" class="sa-mcard-out"' + btn('logout') + '>' + li('logout', 16) + 'Sign out</button>' +
+        '</div>' : '') +
+      '</div>' +
+      '<div class="sa-mright">' +
+        '<button type="button" class="sa-mibtn' + (st.notif ? ' is-on' : '') + '"' + btn('sa-notif') + ' aria-haspopup="dialog" aria-expanded="' + st.notif + '" aria-label="Notifications' +
+          (saCount ? ', ' + saCount + ' for the Super Admin' : '') + (others ? ', ' + others + ' other unread' : '') + '">' + li('bell', 18) +
+          (saCount ? '<span class="sa-mbadge">' + (saCount > 9 ? '9+' : saCount) + '</span>' : others ? '<span class="sa-mdot"></span>' : '') + '</button>' +
+        '<button type="button" class="sa-mibtn' + (S().bgMenu ? ' is-on' : '') + '"' + btn('bg-pmenu') + ' aria-label="Menu" aria-haspopup="dialog" aria-controls="bg-pm" aria-expanded="' + !!S().bgMenu + '">' + li('menu', 20) + '</button>' +
+      '</div>' +
+    '</header>';
+  }
+
+  /* the staff console's phone menu (js/barangay.js), identical to Operations */
+  function drawer(appSt) {
+    if (typeof UG_BRGY === 'undefined' || !UG_BRGY.drawer) return '';
+    return '<div class="sa-pm-host"><div class="ug-cmd">' + UG_BRGY.drawer(appSt) + '</div></div>';
+  }
+
+  /* ============================================================ bottom nav */
+  /* Phones and tablets (no sidebar below 1024px): the same bar as the staff
+     console (js/barangay.js phoneNav), the active section rising into a circle
+     that dips into the bar, in the Super Admin's gold. The first three switch
+     this screen's view; Operations opens the console. */
+  function bottomNav() {
+    const ops = SIDE_MENU[0];
+    const slot = (label, icon, attrs, on) =>
+      '<button type="button" class="sa-pb' + (on ? ' is-on' : '') + '"' + attrs + (on ? ' aria-current="page"' : '') + '>' +
+        '<span class="sa-pb-i">' + li(icon, on ? 20 : 22) + '</span><b>' + esc(label) + '</b></button>';
+    return '<nav class="sa-pbar" aria-label="Super Admin sections"><div class="sa-pbar-in">' +
+      slot('Overview', 'home', btn('sa-view', { view: 'overview' }), st.view === 'overview') +
+      slot('Accounts', 'users', btn('sa-view', { view: 'accounts' }), st.view === 'accounts') +
+      slot('Activity', 'activity', btn('sa-view', { view: 'activity' }), st.view === 'activity') +
+      slot(ops.label, ops.icon, btn('nav', { route: ops.route }), false) +
+    '</div></nav>';
+  }
+
   function syncBand() {
     const h = document.querySelector('[data-sa-hero]');
     const b = document.querySelector('[data-sa-band]');
@@ -870,6 +1058,8 @@ const UG_SUPERADMIN = (function () {
     const rows = list.map((u) => [u.full_name || '(no name)', u.email || '', u.phone || '',
       roleLabel(roleKey(u)) + (u.unit_role ? ' (' + String(u.unit_role).replace('_', ' ') + ')' : ''),
       u.barangay || '', u.disabled ? 'Disabled' : 'Active', u.created_at || null]);
+    /* audit F-29: never write an empty register (e.g. offline) */
+    if (!rows.length) throw new Error(Repo.client() ? 'No accounts match these filters, so there is nothing to export.' : 'Connect to the server to export the account register.');
     const columns = [{ label: 'Name', type: 'text', width: 24 }, { label: 'Email', type: 'text', width: 30 }, { label: 'Phone', type: 'id', width: 16 },
       { label: 'Role', type: 'status', width: 20 }, { label: 'Barangay', type: 'text', width: 18 }, { label: 'Status', type: 'status', width: 11 }, { label: 'Created', type: 'date', width: 14 }];
     const filters = [st.accRole !== 'all' ? 'Role: ' + roleLabel(st.accRole) : '', st.accStatus !== 'all' ? 'Status: ' + (st.accStatus === 'active' ? 'Active' : 'Disabled') : '',
@@ -888,6 +1078,7 @@ const UG_SUPERADMIN = (function () {
     const list = filteredAudit();
     const rows = list.map((a) => [a.created_at || null, actorName(a), ROLE_TEXT[a.actor_role || ''] || a.actor_role || 'System', a.actor_barangay || '',
       ENTITY_TEXT[a.entity] || a.entity || '', a.action || '', describe(a)]);
+    if (!rows.length) throw new Error('No activity matches these filters, so there is nothing to export.');
     const columns = [{ label: 'When', type: 'datetime', width: 15 }, { label: 'Who', type: 'text', width: 18 }, { label: 'Role', type: 'status', width: 13 },
       { label: 'Barangay', type: 'text', width: 14 }, { label: 'Record', type: 'text', width: 14 }, { label: 'Action', type: 'text', width: 16 }, { label: 'What changed', type: 'longtext', width: 46 }];
     const filters = [st.actRole !== 'all' ? 'Role: ' + (ROLE_TEXT[st.actRole] || 'System') : '', st.actEntity !== 'all' ? 'Record: ' + (ENTITY_TEXT[st.actEntity] || st.actEntity) : '',
@@ -1083,7 +1274,11 @@ const UG_SUPERADMIN = (function () {
   }
 
   const actions = {
-    'sa-view': (d) => set({ view: d.view, menu: null }),
+    'sa-view': (d) => {
+      const changed = d.view !== st.view;
+      set({ view: d.view, menu: null, drawer: false });
+      if (changed) { const m = document.querySelector('.ug-sa .sa-main'); if (m) m.scrollTop = 0; }
+    },
     'sa-role': (d) => showRole(d.role),
     'sa-range': (d) => set({ range: Number(d.n) === 7 ? 7 : 14 }),
     'sa-month': (d) => set({ month: new Date(st.month.getFullYear(), st.month.getMonth() + (Number(d.dir) || 0), 1) }),
@@ -1097,11 +1292,63 @@ const UG_SUPERADMIN = (function () {
     'sa-day-activity': () => set({ actQ: '', actRole: 'all', actEntity: 'all', actAction: 'all', actActor: 'all', actBarangay: 'all',
       actFrom: st.day, actTo: st.day, actPage: 1, allOnPage: false, view: 'activity' }),
     'sa-menu': (d) => set({ menu: st.menu === d.menu ? null : d.menu }),
+    'sa-drawer': () => set({ drawer: !st.drawer, menu: null }),
+    'sa-notif': () => {
+      if (st.notif) { set({ notif: false }); return; }
+      const prev = seenAt();
+      markSeen();
+      set({ notif: true, notifSeenPrev: prev, menu: null });
+    },
+    'sa-notif-tab': (d) => set({ notifTab: d.tab === 'all' ? 'all' : 'admin' }),
+    'sa-notif-cr': (d) => { set({ notif: false }); act('open-change-request', { id: d.id }); },
+    'sa-notif-acct': (d) => { set({ notif: false, view: 'accounts' }); openAccount(d.id); },
+    'sa-notif-view': (d) => { set({ notif: false, view: d.view, menu: null }); const m = document.querySelector('.ug-sa .sa-main'); if (m) m.scrollTop = 0; },
+    'sa-notif-open': (d) => {
+      const n = (D().notifications || []).find((x) => x.id === d.id);
+      if (!n) return;
+      set({ notif: false });
+      act('open-notification', { id: n.id, report: n.report_id, advisory: n.advisory_id, roadWork: n.road_work_id, relief: n.relief_id, sos: n.sos_id });
+    },
+    'sa-notif-sa': (d) => {
+      const n = (D().notifications || []).find((x) => x.id === d.id);
+      if (!n) return;
+      n.unread = false;
+      Repo.markRead(n.id).catch(() => { });
+      if (n.change_request_id && (D().changeRequests || []).some((c) => c.id === n.change_request_id)) {
+        set({ notif: false }); act('open-change-request', { id: n.change_request_id }); return;
+      }
+      if (n.target_profile_id) { set({ notif: false, view: 'accounts' }); openAccount(n.target_profile_id); return; }
+      set({ notif: false, view: 'activity' });
+    },
+    'sa-notif-readall': async () => {
+      const list = (D().notifications || []).filter((n) => n.unread && (st.notifTab === 'admin' ? isSaRow(n) : !isSaRow(n)));
+      try { await Promise.all(list.map((n) => Repo.markRead(n.id))); }
+      catch (e) { toast((e && e.message) || 'Could not mark them read', 'warning'); }
+      render();
+    },
+    /* from the Operations console's bottom bar: open this screen on a view */
+    'sa-open': (d) => {
+      const view = ['overview', 'accounts', 'activity'].indexOf(d.view) !== -1 ? d.view : 'overview';
+      if (document.querySelector('.ug-sa')) { set({ view: view, menu: null, drawer: false }); return; }
+      pendingView = view;
+      window.location.hash = '#' + ROUTE;
+    },
     'sa-acc-role': (d) => changeAccountFilters({ accRole: d.value, accountPage: 1, allAccounts: false, menu: null }),
     'sa-acc-status': (d) => changeAccountFilters({ accStatus: d.status, accountPage: 1, allAccounts: false }),
     'sa-account-page': (d) => changeAccountFilters({ accountPage: Math.max(1, Number(d.page) || 1) }),
     'sa-acc-all': () => set({ allAccounts: !st.allAccounts }),
-    'sa-new': () => set({ newAcct: { lastName: '', firstName: '', email: '', role: 'barangay_official', barangayId: '', unitId: '', unitRole: 'member' }, newNote: '', menu: null }),
+    'sa-new': () => {
+      set({ newAcct: { lastName: '', firstName: '', email: '', role: 'barangay_official', barangayId: '', unitId: '', unitRole: 'member' }, newNote: '', menu: null });
+      /* on a phone the form opens below the filters, out of sight: bring it
+         into view and put the cursor in the first field */
+      requestAnimationFrame(() => {
+        const form = document.querySelector('[data-sa-new]');
+        if (!form) return;
+        try { form.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { form.scrollIntoView(); }
+        const first = form.querySelector('[data-sa-field="newLast"]');
+        if (first) { try { first.focus({ preventScroll: true }); } catch (e) { } }
+      });
+    },
     'sa-new-close': () => set({ newAcct: null, newNote: '' }),
     'sa-new-submit': () => createAccount(),
     'sa-open-account': (d) => openAccount(d.id),
@@ -1205,7 +1452,9 @@ const UG_SUPERADMIN = (function () {
       if ((ev.key === 'Enter' || ev.key === ' ') && t && t.matches && t.matches('[data-sa-key]')) { ev.preventDefault(); t.dispatchEvent(new MouseEvent('click', { bubbles: true })); return; }
       if (ev.key === 'Enter' && t && t.closest && t.closest('[data-sa-new]') && t.tagName === 'INPUT') { ev.preventDefault(); createAccount(); return; }
       if (ev.key === 'Escape' && !document.querySelector('.ug-modal')) {
-        if (st.menu) set({ menu: null });
+        if (st.notif) set({ notif: false });
+        else if (st.drawer) set({ drawer: false });
+        else if (st.menu) set({ menu: null });
         else if (st.edit && !st.saving) set({ edit: null, editNote: '' });
       }
     });
@@ -1220,5 +1469,5 @@ const UG_SUPERADMIN = (function () {
     window.addEventListener('resize', syncBand);
   }
 
-  return { ROUTE, handles, frame, load, actions, describe };
+  return { ROUTE, handles, frame, load, actions };
 })();

@@ -275,6 +275,8 @@ const UG_SOS = (function () {
           ? 'Every one-tap SOS from a resident of your barangay, newest first.'
           : 'Every one-tap SOS received from a citizen, newest first.') + ' Tap a row for the full record and the response actions.',
         '<span class="ug-chip is-on">' + all.length + ' events</span>') +
+      (typeof Repo !== 'undefined' && Repo.state.sosInboxIncomplete
+        ? '<p role="status">Some SOS records or acknowledgement actions are unavailable. <button type="button"' + A('refresh-data') + '>Retry</button></p>' : '') +
       '<div class="sos-tool">' +
         /* phones: the status filter as a dropdown (the tabs hide there) */
         '<div class="ug-wmore inc-dd sos-dd"><button class="inc-dd-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Filter by status">' +

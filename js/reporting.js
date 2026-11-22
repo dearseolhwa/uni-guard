@@ -47,7 +47,7 @@ const UG_REPORTING = (function () {
     eventName: '', remarks: '',
     incidentId: '', history: {},
     dna: [], dnaMode: 'device', dnaBrgy: 'All',
-    issued: [], lastSaved: null,
+    issued: [], issuedMode: 'device', lastSaved: null,
     loaded: false, loading: false
   };
 
@@ -86,31 +86,53 @@ const UG_REPORTING = (function () {
   const barangayId = (name) => { const b = (S().barangays || []).find((x) => x.name === name); return b ? b.id : null; };
 
   function readLocal(key) { try { return JSON.parse(localStorage.getItem(key) || '[]') || []; } catch (e) { return []; } }
-  function writeLocal(key, rows) { try { localStorage.setItem(key, JSON.stringify(rows)); } catch (e) { } }
+  function writeLocal(key, rows) { localStorage.setItem(key, JSON.stringify(rows)); }
 
   /* ------------------------------------------------------------ data access */
   function client() { return (typeof Repo !== 'undefined' && Repo.client) ? Repo.client() : null; }
 
+  function devicePreview() {
+    return me().id === 'dev' || (!UG_CONFIG.SUPABASE_URL && !UG_CONFIG.SUPABASE_ANON_KEY);
+  }
+
   async function loadDna() {
-    const c = client();
-    if (c && me().id && me().id !== 'dev') {
-      const { data, error } = await c.from('damage_assessments').select('*')
-        .order('assessed_on', { ascending: false }).limit(500);
-      if (!error) { state.dnaMode = 'server'; state.dna = data || []; return; }
+    if (devicePreview()) {
+      state.dnaMode = 'device';
+      state.dna = readLocal(LOCAL_DNA);
+      return;
     }
-    /* table missing (migration 044 not applied), signed out preview, or offline */
-    state.dnaMode = 'device';
-    state.dna = readLocal(LOCAL_DNA);
+    const c = client();
+    if (c) {
+      try {
+        const { data, error } = await c.from('damage_assessments').select('*')
+          .order('assessed_on', { ascending: false }).limit(500);
+        if (!error) { state.dnaMode = 'server'; state.dna = data || []; return; }
+      } catch (e) { /* show the unavailable state below */ }
+    }
+    state.dnaMode = 'unavailable';
+    state.dna = [];
   }
 
   async function loadIssued() {
-    const c = client();
-    if (c && state.dnaMode === 'server') {
-      const { data, error } = await c.from('situation_reports').select('*')
-        .order('created_at', { ascending: false }).limit(100);
-      if (!error) { state.issued = data || []; return; }
+    if (devicePreview()) {
+      state.issuedMode = 'device';
+      state.issued = readLocal(LOCAL_SITREP);
+      return;
     }
-    state.issued = readLocal(LOCAL_SITREP);
+    const c = client();
+    if (c) {
+      try {
+        const { data, error } = await c.from('situation_reports').select('*')
+          .order('created_at', { ascending: false }).limit(100);
+        if (!error) { state.issuedMode = 'server'; state.issued = data || []; return; }
+      } catch (e) { /* show the unavailable state below */ }
+    }
+    state.issuedMode = 'unavailable';
+    state.issued = [];
+  }
+
+  function requireDevicePreview() {
+    if (!devicePreview()) throw new Error('The shared database is unavailable. Refresh Reports and try again.');
   }
 
   async function saveDna(row) {
@@ -127,6 +149,7 @@ const UG_REPORTING = (function () {
       await loadDna();
       return;
     }
+    requireDevicePreview();
     const rows = readLocal(LOCAL_DNA);
     if (row.id) {
       const i = rows.findIndex((r) => r.id === row.id);
@@ -146,6 +169,7 @@ const UG_REPORTING = (function () {
       await loadDna();
       return;
     }
+    requireDevicePreview();
     const rows = readLocal(LOCAL_DNA).filter((r) => r.id !== id);
     writeLocal(LOCAL_DNA, rows);
     state.dna = rows;
@@ -153,8 +177,7 @@ const UG_REPORTING = (function () {
 
   async function loadRoute() {
     state.loading = true;
-    try { await loadDna(); } catch (e) { state.dnaMode = 'device'; state.dna = readLocal(LOCAL_DNA); }
-    try { await loadIssued(); } catch (e) { state.issued = readLocal(LOCAL_SITREP); }
+    await Promise.all([loadDna(), loadIssued()]);
     /* dispatch records for the incidents a situation report will list */
     try {
       if (client() && Repo.loadDispatches) {
@@ -388,11 +411,12 @@ const UG_REPORTING = (function () {
       barangay_id: scopeBrgy() === 'All' ? null : (isOfficial() ? me().barangay_id : barangayId(scopeBrgy())),
       summary: built.counts, remarks: state.remarks.trim(), prepared_by_name: me().name || ''
     };
-    if (state.dnaMode === 'server') {
+    if (state.issuedMode === 'server' && state.dnaMode === 'server') {
       const { error } = await client().from('situation_reports').insert(row);
       if (error) throw new Error(error.message);
       await loadIssued();
     } else {
+      requireDevicePreview();
       const rows = readLocal(LOCAL_SITREP);
       rows.unshift(Object.assign({ id: 'SR-' + Date.now(), created_at: new Date().toISOString() }, row));
       writeLocal(LOCAL_SITREP, rows);
@@ -544,9 +568,14 @@ const UG_REPORTING = (function () {
   }
 
   function deviceNote() {
-    if (state.dnaMode === 'server') return '';
-    return UG.note('rp-device', 1, 'info', 'Saved on this device only',
-      'Damage assessments and the situation report register stay in this browser until migration 044 is applied. After that they are shared across every LDRRMO and barangay device and written to the activity log.');
+    if (devicePreview()) {
+      return UG.note('rp-device', 1, 'info', 'Device preview',
+        'Damage assessments and situation reports saved here stay in this browser.');
+    }
+    if (state.loading) return '';
+    if (state.dnaMode === 'server' && state.issuedMode === 'server') return '';
+    return UG.note('rp-device', 1, 'warning', 'Shared reporting data unavailable',
+      'Use Refresh to reconnect before recording assessments or saving a situation report.');
   }
 
   function tabs() {
@@ -662,7 +691,7 @@ const UG_REPORTING = (function () {
         '<th>Houses total / partial</th><th>Est. damage</th><th>Needs</th><th>Status</th><th class="rp-act">Action</th></tr></thead><tbody>' + body + '</tbody></table></div></section>'
       : '<div class="rl-card"><div class="rl-empty"><span>' + I('layers', 20) + '</span><b>No damage assessment recorded yet</b>' +
         '<p>Record one per barangay after a hazard. The figures feed the situation report automatically.</p>' +
-        (UG_CONFIG.DEV ? '<button class="hl-ghost"' + A('rp-dna-sample') + '>Load sample rows (preview only)</button>' : '') + '</div></div>';
+        (UG_CONFIG.DEV && devicePreview() ? '<button class="hl-ghost"' + A('rp-dna-sample') + '>Load sample rows (preview only)</button>' : '') + '</div></div>';
 
     return toolbar + stats + table;
   }
@@ -794,7 +823,12 @@ const UG_REPORTING = (function () {
 
   const actions = {
     'rp-tab': (d) => { state.tab = d.v; if (state.tab === 'incident' && state.incidentId) loadIncidentExtras(state.incidentId); rerender(); },
-    'rp-refresh': guard(async () => { await loadRoute(); toast('Reports refreshed', 'info'); }),
+    'rp-refresh': guard(async () => {
+      await loadRoute();
+      const unavailable = state.dnaMode === 'unavailable' || state.issuedMode === 'unavailable';
+      toast(unavailable ? 'Some reporting data could not be refreshed' : 'Reports refreshed',
+        unavailable ? 'warning' : 'info');
+    }),
     /* opened from an incident's detail page */
     'rp-open-incident': (d) => {
       state.tab = 'incident'; state.incidentId = d.id || '';
@@ -840,8 +874,9 @@ const UG_REPORTING = (function () {
     'rp-dna-xlsx': () => UG_EXPORT.run('rp-dna-xlsx', () => exportDna('xlsx'), { label: 'damage and needs workbook' }),
     'rp-dna-one-pdf': (d) => UG_EXPORT.run('rp-dna-one-pdf', () => exportDna('pdf', d.id), { label: 'assessment PDF' }),
     'rp-dna-sample': () => {
-      if (!UG_CONFIG.DEV) return;
-      writeLocal(LOCAL_DNA, sampleRows()); state.dna = readLocal(LOCAL_DNA); rerender();
+      if (!UG_CONFIG.DEV || !devicePreview()) return;
+      try { writeLocal(LOCAL_DNA, sampleRows()); state.dna = readLocal(LOCAL_DNA); rerender(); }
+      catch (e) { toast('Could not save sample assessments on this device', 'warning'); }
     }
   };
 

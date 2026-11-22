@@ -656,9 +656,21 @@
       return;
     }
     await Repo.loadAll();
-    UG.DATA.users = S.users;
-    UG.DATA.audit = S.audit;
-    UG.DATA.responders = S.responders;
+    /* Audit F-03: with no server, keep what the PWA cache restored instead of
+       overwriting it with empty snapshots. Online, a Super Admin's user list is
+       loaded here so the cache has accounts the next time the app is offline. */
+    if (Repo.client()) {
+      if (isSuperAdmin()) {
+        try { S.users = await Repo.listUsers(); } catch (e) { }
+      }
+      if (S.users) UG.DATA.users = S.users;
+      if (S.audit) UG.DATA.audit = S.audit;
+      if (S.responders) UG.DATA.responders = S.responders;
+    } else {
+      if (S.users && S.users.length) UG.DATA.users = S.users;
+      if (S.audit && S.audit.length) UG.DATA.audit = S.audit;
+      if (S.responders && S.responders.length) UG.DATA.responders = S.responders;
+    }
     S.barangays = await Repo.listBarangays();
     S.auth.barangays = S.barangays;
     /* the advisory composer and the report form offer the live barangay list */
@@ -706,7 +718,9 @@
     catch (e) { try { window.location.hash = route; } catch (e2) { } }
   }
 
-  const go = (route) => { S.route = route; S.openId = null; setHash(route); };
+  /* audit F-25: #/admin-home is the Super Admin's screen only */
+  const guardRoute = (route) => (route === 'admin-home' && !isSuperAdmin()) ? homeRoute() : route;
+  const go = (route) => { route = guardRoute(route); S.route = route; S.openId = null; setHash(route); };
 
   /* ---------------------------------------------------- console navigation */
   /* The console navigation is a drawer behind a three bar button. Closed by
@@ -3176,8 +3190,9 @@
     },
 
     'save-advisory': async () => {
-      await UG_PWA.storeSnapshot(UG.DATA);
-      toast('Critical advisories saved for offline reading', 'info');
+      const saved = await UG_PWA.storeSnapshot(UG.DATA);
+      toast(saved ? 'Critical advisories saved for offline reading' : 'Could not save advisories for offline reading',
+        saved ? 'info' : 'warning');
     },
 
     'share-advisory': async () => {
@@ -3204,9 +3219,11 @@
       }
     },
 
-    'save-center-offline': async () => {
-      await UG_PWA.storeSnapshot(UG.DATA);
-      toast('Shelter list saved for offline use', 'info');
+    'save-center-offline': async (d) => {
+      const saved = await UG_PWA.storeSnapshot(UG.DATA);
+      const list = d && d.id === 'hotlines' ? 'Emergency contacts' : 'Shelters';
+      toast(saved ? list + ' saved for offline use' : 'Could not save ' + list.toLowerCase() + ' for offline use',
+        saved ? 'info' : 'warning');
     },
 
     call: (d) => {
@@ -3226,10 +3243,13 @@
     reconnect: async () => {
       const r = await UG_PWA.retryNow();
       if (r.online && Auth.state.needsRevalidate) revalidateSession();
-      if (r.online) {
+      if (r.refreshed) {
         toast('Back online. Data refreshed' +
           (r.uploaded ? ', ' + r.uploaded + ' queued report' + (r.uploaded > 1 ? 's' : '') + ' uploaded' : '') + '.',
           'prepared');
+      } else if (r.online) {
+        toast('Internet connection detected. Live data could not be refreshed.' +
+          (r.queued ? ' ' + r.queued + ' queued item(s) still waiting.' : ''), 'warning');
       } else {
         toast('Still offline. ' + (r.queued || 0) + ' report' + (r.queued === 1 ? '' : 's') +
           ' waiting. They send by themselves when the connection returns.', 'warning');
@@ -3282,6 +3302,11 @@
        friendlier toast for the success case. */
     'refresh-data': async () => {
       const r = await Repo.forceReload();
+      /* audit F-13: the Super Admin directory and activity feed are not part
+         of loadAll; refresh them too so "Check again" is not stale. */
+      if (S.route === 'admin-home' && typeof UG_SUPERADMIN !== 'undefined' && UG_SUPERADMIN.load) {
+        try { await UG_SUPERADMIN.load(); } catch (e) { }
+      }
       if (r && r.ok && Repo.state.source === 'supabase') {
         toast('Data synced with the server', 'prepared');
       } else if (r && r.ok) {
@@ -5699,6 +5724,7 @@
   function followAddressBar() {
     let hr = routeFromHash();
     if (!hr || !S.session || hr === S.route) return;
+    if (guardRoute(hr) !== hr) { go(guardRoute(hr)); render(); loadRouteData(S.route); return; }
     const keepId = DETAIL_PARENT[hr] && S.lastOpen && S.lastOpen[hr];
     if (DETAIL_PARENT[hr] && !keepId) {
       hr = DETAIL_PARENT[hr];

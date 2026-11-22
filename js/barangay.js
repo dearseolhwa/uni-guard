@@ -105,9 +105,10 @@ const UG_BRGY = (() => {
     return '<header class="bg-top">' +
       (V.sup
         /* Super Admin: the brand and the round back button return to the main screen */
-        ? '<div class="bg-brand bg-brand--sup"><button class="bg-brand-in"' + A('nav', attr({ route: 'admin-home' })) + ' aria-label="Go to the Super Admin main screen">' + U.brandMark(26) +
-            '<span class="bg-word">Uni<em>Guard</em></span>' + (V.chip ? '<span class="bg-chip">' + esc(V.chip) + '</span>' : '') + '</button>' +
-            '<button class="bg-back"' + A('nav', attr({ route: 'admin-home' })) + ' aria-label="Back to the main screen" title="Back to the main screen">' + I('chevron', 15) + '</button></div>'
+        /* Super Admin: just the brand; it returns to the Super Admin screen (the
+           bottom bar's Overview does too) */
+        ? '<div class="bg-brand bg-brand--sup"><button class="bg-brand-in"' + A('nav', attr({ route: 'admin-home' })) + ' aria-label="Go to the Super Admin main screen" title="Super Admin main screen">' + U.brandMark(26) +
+            '<span class="bg-word">Uni<em>Guard</em></span></button></div>'
         : '<button class="bg-brand"' + A('nav', attr({ route: 'dashboard' })) + ' aria-label="Go to Home">' + U.brandMark(26) +
             '<span class="bg-word">Uni<em>Guard</em></span>' +
             (V.chip ? '<span class="bg-chip">' + esc(V.chip) + '</span>' : '') + '</button>') +
@@ -320,14 +321,15 @@ const UG_BRGY = (() => {
   function pmGroups(V) {
     const isB = !V.lgu;
     const keep = (it) => (!it[3] || (it[3] === 'lgu' ? V.lgu : isB));
-    return [
+    return (V.sup ? [['Command', [['dashboard', 'Operations Home', 'home'], ['incidents', 'Incidents', 'alert'], ['advisories', 'Advisories', 'megaphone'],
+      ['sos', 'SOS Log', 'shieldx'], ['dispatch-units', 'Dispatch Units', 'truck']]]] : []).concat([
       ['Operations', [['centers', 'Shelters', 'shelter'], ['relief', 'Relief', 'relief'], ['roadwork', 'Road Work', 'road'],
         ['hotlines', 'Hotlines', 'phone'], ['analytics', 'Analytics', 'layers'],
         ['reporting', 'Reports & Documents', 'doc']]],
       ['Resources', [['map', 'Hazard Map', 'map'], ['guides', 'Preparedness Guides', 'guide'], ['faqs', 'FAQs', 'faq']]],
       ['Administration', [['others-review', 'Others Review', 'help', 'lgu']]],
       ['This device', [['notifications', 'Notifications', 'bell'], ['offline', 'Offline Sync', 'download'], ['settings', 'Settings', 'settings']]]
-    ].map((g) => [g[0], g[1].filter(keep)]).filter((g) => g[1].length);
+    ]).map((g) => [g[0], g[1].filter(keep)]).filter((g) => g[1].length);
   }
   function phoneNav(st, V) {
     const s = st.session || {};
@@ -342,6 +344,22 @@ const UG_BRGY = (() => {
       advisories: (U.DATA.advisories || []).filter((a) => a.severity === 'emergency' || a.severity === 'warning').length,
       sos: sosOpen()
     };
+    /* Super Admin: the same four sections as the Super Admin screen's bar
+       (js/screens.superadmin.js), Operations lit while in the console; the
+       console's own sections move into the Menu */
+    if (V.sup) {
+      const sosN = sosOpen();
+      const supSlot = (label, icon, act, on, n) =>
+        '<button class="bg-pb' + (on ? ' is-on' : '') + '"' + act + (on ? ' aria-current="page"' : '') +
+          ' aria-label="' + esc(label) + (n ? ', ' + n + ' open SOS' : '') + '">' +
+          '<span class="bg-pb-i">' + I(icon, on ? 20 : 22) + (n ? '<em>' + (n > 99 ? '99+' : n) + '</em>' : '') + '</span><b>' + esc(label) + '</b></button>';
+      return '<nav class="bg-pbar bg-pbar--sup" aria-label="Super Admin sections"><div class="bg-pbar-in">' +
+          supSlot('Overview', 'home', A('sa-open', attr({ view: 'overview' })), false) +
+          supSlot('Accounts', 'users', A('sa-open', attr({ view: 'accounts' })), false) +
+          supSlot('Activity', 'activity', A('sa-open', attr({ view: 'activity' })), false) +
+          supSlot('Operations', 'grid', A('nav', attr({ route: 'dashboard' })), !shown, sosN) +
+        '</div></nav>' + drawerHtml(st, V, s, route, open, unread);
+    }
     const bar = PBAR.concat([V.lgu ? ['dispatch-units', 'Units', 'truck'] : ['response-team', 'Team', 'shield']]);
     const slot = (id, label, icon, on, act) =>
       '<button class="bg-pb' + (on ? ' is-on' : '') + (id === 'sos' ? ' bg-pb--sos' : '') + '" data-slot="' + id + '"' + act + (on ? ' aria-current="page"' : '') +
@@ -350,8 +368,16 @@ const UG_BRGY = (() => {
         '<b>' + esc(label) + '</b></button>';
     return '<nav class="bg-pbar" aria-label="Main sections"><div class="bg-pbar-in">' +
         bar.map((t) => slot(t[0], t[1], t[2], !shown && route === t[0], A('nav', attr({ route: t[0] })))).join('') +
-      '</div></nav>' +
-      '<div class="bg-pm-scrim' + (open ? ' is-open' : '') + '"' + A('bg-pmenu', attr({ v: '0' })) + ' aria-hidden="true"></div>' +
+      '</div></nav>' + drawerHtml(st, V, s, route, open, unread);
+  }
+  /* the same drawer for screens outside this frame (the Super Admin screen) */
+  function drawer(st) {
+    const s = st.session || {};
+    return drawerHtml(st, variant(st), s, activeRoute(st.route), !!st.bgMenu && !st.bgMenuEnter,
+      (U.DATA.notifications || []).filter((n) => n.unread).length);
+  }
+  function drawerHtml(st, V, s, route, open, unread) {
+    return '<div class="bg-pm-scrim' + (open ? ' is-open' : '') + '"' + A('bg-pmenu', attr({ v: '0' })) + ' aria-hidden="true"></div>' +
       '<aside id="bg-pm" class="bg-pm' + (open ? ' is-open' : '') + '" role="dialog" aria-modal="true" aria-label="Menu"' + (open ? '' : ' inert') + '>' +
         '<div class="bg-pm-h"><span class="bg-pm-av">' + esc((s.name || (V.lgu ? 'L' : 'B')).trim().charAt(0).toUpperCase()) + '</span>' +
           '<div class="bg-pm-who"><b>' + esc(s.name || (V.lgu ? 'LDRRMO Officer' : 'Barangay Official')) + '</b>' +
@@ -361,7 +387,7 @@ const UG_BRGY = (() => {
           '<button class="bg-pm-i' + (route === it[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: it[0] })) + (route === it[0] ? ' aria-current="page"' : '') + '>' +
             I(it[2], 22) + '<span>' + esc(it[1]) + '</span>' +
             (it[0] === 'notifications' && unread ? '<em>' + unread + '</em>' : '') + '<i class="bg-pm-chev">' + I('chevron', 16) + '</i></button>').join('') + '</div>').join('') + '</div>' +
-        (V.sup ? '<div class="bg-pm-sup"><button' + A('nav', attr({ route: 'admin-home' })) + '>Back to Super Admin console</button></div>' : '') +
+        (V.sup && st.route !== 'admin-home' ? '<div class="bg-pm-sup"><button' + A('nav', attr({ route: 'admin-home' })) + '>Back to Super Admin console</button></div>' : '') +
         '<div class="bg-pm-f"><button' + A('logout') + '>' + I('logout', 16) + '<span>Sign out</span></button>' +
           '<small>UniGuard · ' + (V.lgu ? 'Lingayen LDRRMO' : 'Brgy. ' + esc(s.barangay || '') + ' BDRRMC') + ((typeof UG_CONFIG !== 'undefined' && UG_CONFIG.BUILD) ? ' · ' + esc(UG_CONFIG.BUILD) : '') + '</small></div>' +
       '</aside>';
@@ -392,6 +418,6 @@ const UG_BRGY = (() => {
     '</div>';
   }
 
-  return { frame, home, NAV, NAV_LGU };
+  return { frame, home, drawer, NAV, NAV_LGU };
 })();
 window.UG_BRGY = UG_BRGY;

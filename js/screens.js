@@ -13,6 +13,7 @@ const UG = (() => {
     megaphone:'<path d="M4 10v4a1 1 0 0 0 1 1h2l7 4V5L7 9H5a1 1 0 0 0-1 1Z"/><path d="M18 9.5a3.5 3.5 0 0 1 0 5"/>',
     shelter:'<path d="M4 20V9l8-5 8 5v11"/><path d="M9 20v-6h6v6"/>',
     phone:'<path d="M6.5 4h2.2l1.4 3.4-1.8 1.4a11.5 11.5 0 0 0 5.9 5.9l1.4-1.8L18.9 14v2.2a2 2 0 0 1-2.2 2A13.4 13.4 0 0 1 4.5 6.2 2 2 0 0 1 6.5 4Z"/>',
+    activity:'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     grid:'<rect x="4" y="4" width="7" height="7" rx="1.4"/><rect x="13" y="4" width="7" height="7" rx="1.4"/><rect x="4" y="13" width="7" height="7" rx="1.4"/><rect x="13" y="13" width="7" height="7" rx="1.4"/>',
     alert:'<path d="M12 4.5 3.5 19h17L12 4.5Z"/><path d="M12 10v4"/><path d="M12 16.6h.01"/>',
     map:'<path d="M9 4.5 3.5 6.8v12.7L9 17.2l6 2.3 5.5-2.3V4.5L15 6.8 9 4.5Z"/><path d="M9 4.5v12.7M15 6.8v12.7"/>',
