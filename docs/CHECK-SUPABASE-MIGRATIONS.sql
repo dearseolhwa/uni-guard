@@ -101,7 +101,11 @@ with checks(sort_order, migration, installed, evidence) as (
     (76, '076_super_admin_notifications.sql',
       to_regprocedure('public.claim_admin_push(integer)') is not null and
       exists (select 1 from information_schema.columns where table_schema='public' and table_name='notifications' and column_name='audience'),
-      'Super Admin notification queue')
+      'Super Admin notification queue'),
+    (77, '077_relief_scope_and_support_completion.sql',
+      exists (select 1 from pg_policies where schemaname='public' and tablename='relief_distributions' and policyname='relief_distributions_manage') and
+      exists (select 1 from pg_policies where schemaname='public' and tablename='authorized_beneficiaries' and policyname='authorized_beneficiaries_manage'),
+      'Barangay-scoped relief and beneficiary policies')
 )
 select migration,
        case when installed then 'INSTALLED' else 'MISSING' end as status,
@@ -121,20 +125,23 @@ with current_state as (
     to_regclass('public.barangay_dispatch_requests') is not null as has_073,
     to_regprocedure('public.read_relief_stock()') is not null as has_074,
     exists (select 1 from information_schema.columns where table_schema='public' and table_name='change_requests' and column_name='requester_id' and is_nullable='YES') as has_075,
-    to_regprocedure('public.claim_admin_push(integer)') is not null as has_076
+    to_regprocedure('public.claim_admin_push(integer)') is not null as has_076,
+    exists (select 1 from pg_policies where schemaname='public' and tablename='relief_distributions' and policyname='relief_distributions_manage') and
+      exists (select 1 from pg_policies where schemaname='public' and tablename='authorized_beneficiaries' and policyname='authorized_beneficiaries_manage') as has_077
 )
 select case
   when not has_067 then 'STOP: the database is behind 067 or has gaps. Share the full results before applying the update.'
-  when not has_068 then 'NEXT: apply 068, then continue in filename order through 076.'
-  when not has_069 then 'NEXT: apply 069, then continue in filename order through 076.'
-  when not has_070 then 'NEXT: apply 070, then continue in filename order through 076.'
-  when not has_071 then 'NEXT: apply 071, then continue in filename order through 076.'
-  when not has_072 then 'NEXT: apply 072, then continue in filename order through 076.'
-  when not has_073 then 'NEXT: apply 073, then continue in filename order through 076.'
-  when not has_074 then 'NEXT: apply 074, then 075 and 076.'
-  when not has_075 then 'READY: apply 075, then 076.'
-  when not has_076 then 'READY: apply 076.'
-  else 'CURRENT: schema features through 076 are installed.'
+  when not has_068 then 'NEXT: apply 068, then continue in filename order through 077.'
+  when not has_069 then 'NEXT: apply 069, then continue in filename order through 077.'
+  when not has_070 then 'NEXT: apply 070, then continue in filename order through 077.'
+  when not has_071 then 'NEXT: apply 071, then continue in filename order through 077.'
+  when not has_072 then 'NEXT: apply 072, then continue in filename order through 077.'
+  when not has_073 then 'NEXT: apply 073, then continue in filename order through 077.'
+  when not has_074 then 'NEXT: apply 074, then 075 through 077.'
+  when not has_075 then 'READY: apply 075 through 077.'
+  when not has_076 then 'READY: apply 076, then 077.'
+  when not has_077 then 'READY: apply 077.'
+  else 'CURRENT: schema features through 077 are installed.'
 end as recommendation
 from current_state;
 

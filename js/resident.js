@@ -686,6 +686,7 @@ const UG_RW = (() => {
           '<button class="rw-row"' + A('nav', attr({ route: x[3] })) + '><div class="rw-t" style="gap:14px"><span class="rw-ico rw-ico--sm">' + I(x[2], 16) + '</span><h4>' + x[0] + '</h4></div>' +
             '<span class="rw-pill rw-pill--soft" style="padding:4px 12px">' + (x[1] || 0) + ' ready</span><span class="rw-off-n">' + (x[1] || 0) + ' saved</span>' + I('chevron', 15) + '</button>').join('') + '</div></section>' +
       '<section class="rw-card rw-off-wait"><div class="rw-card-h"><h3>Reports waiting to send</h3><span class="rw-live">' + queued.length + '</span></div>' +
+        (UG_PWA.state.unassigned ? '<p class="rw-warn rw-warn--amber" role="status">Older reports or SOS messages without an account are held on this device. If you still need help, send a new report or call the LDRRMO.</p>' : '') +
         (queued.length ? '<div class="rw-rows">' + queued.map((q) => '<div class="rw-row" style="cursor:default"><div class="rw-main"><div class="rw-t"><h4>' + esc(q.hazard || 'Hazard') + '</h4></div>' +
             '<div class="rw-meta"><span>' + I('pin', 14) + 'Brgy. ' + esc(q.brgy || '') + '</span><span>' + I('clock', 14) + 'Sends automatically when you are online</span></div></div></div>').join('') + '</div>'
           : '<p class="rw-empty rw-empty--row" style="margin:0;font-size:14px">Nothing waiting. Every report has been sent.</p>') + '</section>' +

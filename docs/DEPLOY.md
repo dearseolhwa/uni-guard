@@ -132,10 +132,27 @@ two migrations. Check the sections above for 068–074 and
 The `emergency-delivery` worker, its Vault entries, and its cron job are
 independent of Super Admin push.
 
+## Upgrade from 076
+
+Run [077_relief_scope_and_support_completion.sql](../migrations/077_relief_scope_and_support_completion.sql)
+in the Supabase SQL Editor before deploying build `uniguard-v562`. It scopes
+relief schedules and beneficiary records by barangay and makes support request
+completion safe to retry. Current relief records stay in the database.
+Run [the migration checker](CHECK-SUPABASE-MIGRATIONS.sql) again and confirm it
+reports that the schema features through `077` are installed.
+
+Older offline queue entries without an account ID are held on the device.
+Residents who still need assistance can file a new report or call the LDRRMO
+from the SOS screen.
+
+Publish the new build to Vercel from the branch containing this migration.
+Check the deployed site's `sw.js` for `uniguard-v562` before testing live sign-in,
+photo uploads, email, and push or SMS.
+
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `076_super_admin_notifications.sql`.
+`001_align_core_tables.sql` through `077_relief_scope_and_support_completion.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
 and record each full filename. Enable `pg_trgm` before 011. Apply both `045_*`
 files, followed by 046 and 047. Migration 043 promotes the account matching its

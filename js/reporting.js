@@ -895,6 +895,8 @@ const UG_REPORTING = (function () {
       const k = el.dataset.rp;
       if (!(k in state)) return;
       state[k] = el.value;
+      // Blurring a text field on Save must leave the clicked button mounted.
+      if (k === 'eventName' || k === 'remarks') return;
       if (k === 'incidentId') loadIncidentExtras(el.value);
       rerender();
     });

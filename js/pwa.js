@@ -14,6 +14,7 @@ const UG_PWA = (function () {
     swReady: false,
     queued: 0,
     failed: 0,
+    unassigned: 0,
     lastSync: null,
     reloaded: false
   };
@@ -44,12 +45,21 @@ const UG_PWA = (function () {
 
   function tx(store, mode, fn) {
     return openDB().then((db) => new Promise((resolve, reject) => {
-      const t = db.transaction(store, mode);
-      const s = t.objectStore(store);
-      const out = fn(s);
-      t.oncomplete = () => resolve(out && out.result !== undefined ? out.result : out);
-      t.onerror = () => reject(t.error);
-      t.onabort = () => reject(t.error || new Error('IndexedDB transaction aborted'));
+      try {
+        const transaction = db.transaction(store, mode);
+        transaction.onabort = () => {
+          db.close();
+          reject(transaction.error || new Error('IndexedDB transaction aborted'));
+        };
+        const result = fn(transaction.objectStore(store));
+        transaction.oncomplete = () => {
+          db.close();
+          resolve(result && result.result !== undefined ? result.result : result);
+        };
+      } catch (error) {
+        db.close();
+        reject(error);
+      }
     }));
   }
 
@@ -123,51 +133,90 @@ const UG_PWA = (function () {
     } catch (e) { /* best effort */ }
   }
 
-  function enqueue(report) {
-    return tx(STORE_QUEUE, 'readwrite', (s) => s.add(Object.assign({ queued_at: new Date().toISOString() }, report)))
-      .then(() => { requestBackgroundSync(); return refreshQueueCount(); })
-      .catch(() => null);
+  function queueOwner() {
+    const session = Auth.state.session;
+    if (session && session.id) return session.id;
+    return UG_CONFIG.DEV && window.UG_APP?.S.session?.id === 'dev' ? 'dev' : null;
   }
 
-  function putRow(row) {
-    return tx(STORE_QUEUE, 'readwrite', (s) => s.put(row)).catch(() => null);
-  }
-
-  /* One person in danger tapping SOS again and again must not stack up rows:
-     a queued SOS from the last 10 minutes is replaced by the newer position. */
-  async function upsertQueuedSos(row) {
-    const rows = await listQueue();
-    const cutoff = Date.now() - 10 * 60 * 1000;
-    const recent = (rows || []).filter((r) => r._kind === 'sos' &&
-      Date.parse(r.client_sent_at || r.queued_at) >= cutoff);
-    if (!recent.length) return enqueue(Object.assign({ _kind: 'sos' }, row));
-    const keep = recent[recent.length - 1];
-    const next = Object.assign({}, keep, {
-      lat: row.lat != null ? row.lat : keep.lat,
-      lng: row.lng != null ? row.lng : keep.lng,
-      accuracy: row.lat != null ? row.accuracy : keep.accuracy,
-      note: row.note || keep.note || '',
-      kind: row.kind || keep.kind || 'other',
-      updated_at: new Date().toISOString(),
-      attempts: 0, failed: false
-    });
-    await putRow(next);
+  async function saveQueuedItem(write, ownerId) {
+    if (!ownerId || ownerId !== queueOwner()) throw new Error('Sign in to the original account and try again.');
+    try {
+      await tx(STORE_QUEUE, 'readwrite', write);
+    } catch (e) {
+      throw new Error('Could not save on this device. Free up browser storage or reconnect and try again.');
+    }
     requestBackgroundSync();
     return refreshQueueCount();
   }
 
-  function listQueue() {
-    return tx(STORE_QUEUE, 'readonly', (s) => s.getAll()).catch(() => []);
+  function enqueue(report, ownerId = queueOwner()) {
+    return saveQueuedItem((store) => store.add(Object.assign({}, report, {
+      owner_id: ownerId,
+      queued_at: new Date().toISOString(),
+      revision: crypto.randomUUID()
+    })), ownerId);
+  }
+
+  /* One person in danger tapping SOS again and again must not stack up rows:
+     a queued SOS from the last 10 minutes is replaced by the newer position. */
+  function upsertQueuedSos(row, ownerId = queueOwner()) {
+    const stamp = new Date().toISOString();
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    return saveQueuedItem((store) => {
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const keep = request.result.filter((item) => item.owner_id === ownerId && item._kind === 'sos' &&
+          Date.parse(item.client_sent_at || item.queued_at) >= cutoff).pop();
+        const next = Object.assign({}, keep, row, {
+          _kind: 'sos', owner_id: ownerId, queued_at: keep ? keep.queued_at : stamp, updated_at: stamp,
+          revision: crypto.randomUUID(), attempts: 0, failed: false, last_error: '',
+          note: row.note || keep?.note || '', kind: row.kind || keep?.kind || 'other'
+        });
+        if (keep && row.lat == null) {
+          next.lat = keep.lat; next.lng = keep.lng; next.accuracy = keep.accuracy;
+        }
+        store.put(next);
+      };
+    }, ownerId);
+  }
+
+  function readQueue() {
+    return tx(STORE_QUEUE, 'readonly', (s) => s.getAll());
+  }
+
+  async function listQueue() {
+    const ownerId = queueOwner();
+    if (!ownerId) return [];
+    const rows = await readQueue().catch(() => []);
+    return queueOwner() === ownerId ? rows.filter((row) => row.owner_id === ownerId) : [];
+  }
+
+  function updateQueuedRow(id, ownerId, update, revision) {
+    return tx(STORE_QUEUE, 'readwrite', (store) => {
+      const request = store.get(id);
+      request.onsuccess = () => {
+        const row = request.result;
+        if (row && row.owner_id === ownerId && (revision === undefined || row.revision === revision)) {
+          update(store, row);
+        }
+      };
+    });
   }
 
   function removeFromQueue(id) {
-    return tx(STORE_QUEUE, 'readwrite', (s) => s.delete(id)).then(() => refreshQueueCount()).catch(() => null);
+    const ownerId = queueOwner();
+    if (!ownerId) return Promise.resolve();
+    return updateQueuedRow(id, ownerId, (store) => store.delete(id)).then(() => refreshQueueCount());
   }
 
   async function refreshQueueCount() {
-    const rows = await listQueue();
-    state.queued = (rows || []).length;
-    state.failed = (rows || []).filter((r) => r.failed).length;
+    const rows = await readQueue().catch(() => []);
+    const ownerId = queueOwner();
+    const own = ownerId ? rows.filter((row) => row.owner_id === ownerId) : [];
+    state.queued = own.length;
+    state.failed = own.filter((row) => row.failed).length;
+    state.unassigned = rows.filter((row) => !row.owner_id).length;
     emit();
     return state.queued;
   }
@@ -183,25 +232,40 @@ const UG_PWA = (function () {
      resident retries it (opts.retryFailed). */
   async function flushQueue(opts) {
     opts = opts || {};
-    if (flushing) return 0;
-    if (!state.online || !Repo.online()) return 0;
+    const ownerId = queueOwner();
+    if (!ownerId || flushing || !state.online || !Repo.online()) return 0;
     flushing = true;
+    try {
+      if (navigator.locks) {
+        return await navigator.locks.request('uniguard-queue-' + ownerId, () => sendQueuedItems(ownerId, opts));
+      }
+      return await sendQueuedItems(ownerId, opts);
+    } finally {
+      flushing = false;
+    }
+  }
+
+  async function sendQueuedItems(ownerId, opts) {
+    if (queueOwner() !== ownerId) return 0;
+    const rows = await listQueue();
+    if (!rows.length) return 0;
+    const upload = await Repo.queueUploadSession(ownerId);
+    if (!upload || queueOwner() !== ownerId) return 0;
     let sent = 0;
     try {
-      const rows = (await listQueue()) || [];
-      if (!rows.length) return 0;
       rows.sort((a, b) => (a._kind === 'sos' ? 0 : 1) - (b._kind === 'sos' ? 0 : 1));
       for (const row of rows) {
+        if (queueOwner() !== ownerId) break;
         if (row.failed && !opts.retryFailed) continue;
+        let sosResult;
         try {
           if (row._kind === 'sos') {
             const stamp = row.client_sent_at ? new Date(row.client_sent_at).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }) : '';
-            const res = await Repo.submitSos({
+            sosResult = await Repo.submitSos({
               lat: row.lat, lng: row.lng, accuracy: row.accuracy, kind: row.kind || 'other',
               /* the duty officer must know this SOS waited for a signal */
               note: ((row.note || '') + (stamp ? ' [Saved offline at ' + stamp + ']' : '')).trim()
-            });
-            try { document.dispatchEvent(new CustomEvent('ug:sos-delivered', { detail: { row: row, result: res } })); } catch (e) { }
+            }, upload);
           } else {
             await Repo.createReport({
               hazard_type: row.hazard_type, hazard_other_text: row.hazard_other_text || '',
@@ -209,26 +273,29 @@ const UG_PWA = (function () {
               severity: row.severity, urgency: row.urgency, lat: row.lat, lng: row.lng,
               location_note: row.location_note || '',
               photoBlob: row.photoBlob || null, reportCodeHint: 'offline'
-            });
+            }, upload);
           }
-          await removeFromQueue(row.id);
-          sent++;
         } catch (e) {
           if (UG_UTIL.isNetworkError(e)) break;
           row.attempts = (row.attempts || 0) + 1;
           row.last_error = UG_UTIL.friendlyError(e);
           row.failed = row.attempts >= MAX_ATTEMPTS;
-          await putRow(row);
-          if (row._kind === 'sos') {
+          await updateQueuedRow(row.id, ownerId, (store) => store.put(row), row.revision);
+          if (row._kind === 'sos' && queueOwner() === ownerId) {
             try { document.dispatchEvent(new CustomEvent('ug:sos-rejected', { detail: { row: row, message: row.last_error } })); } catch (e2) { }
           }
+          continue;
         }
+        sent++;
+        if (row._kind === 'sos' && queueOwner() === ownerId) {
+          document.dispatchEvent(new CustomEvent('ug:sos-delivered', { detail: { row: row, result: sosResult } }));
+        }
+        await updateQueuedRow(row.id, ownerId, (store) => store.delete(row.id), row.revision);
       }
     } finally {
-      flushing = false;
+      await refreshQueueCount();
     }
-    await refreshQueueCount();
-    if (sent) {
+    if (sent && queueOwner() === ownerId) {
       await Repo.loadAll();
       emit();
     }
@@ -402,10 +469,11 @@ const UG_PWA = (function () {
     if (typeof window === 'undefined') return;
     window.UG_CACHE = { storeSnapshot: storeSnapshot, readSnapshot: readSnapshot, hydrateFromCache: hydrateFromCache };
 
+    const syncQueue = () => { if (state.online) return flushQueue().catch(() => {}); };
     const sync = () => {
       state.online = navigator.onLine !== false;
       emit();
-      if (state.online) flushQueue();
+      syncQueue();
     };
     window.addEventListener('online', sync);
     window.addEventListener('offline', sync);
@@ -414,14 +482,15 @@ const UG_PWA = (function () {
     try {
       if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
         navigator.serviceWorker.addEventListener('message', (e) => {
-          if (e.data && e.data.type === 'FLUSH_QUEUE') flushQueue();
+          if (e.data && e.data.type === 'FLUSH_QUEUE') syncQueue();
         });
       }
     } catch (e) { /* best effort */ }
 
-    register().then(() => { if (state.online) flushQueue(); });
+    register().then(syncQueue);
+    Auth.onChange(() => refreshQueueCount());
     refreshQueueCount();
-    setInterval(() => { if (state.online) flushQueue(); }, UG_CONFIG.SYNC_RETRY_MS);
+    setInterval(syncQueue, UG_CONFIG.SYNC_RETRY_MS);
   }
 
   return {

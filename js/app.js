@@ -38,6 +38,12 @@
     pendingEmail: '', barangays: [], phoneError: ''
   });
 
+  const blankReport = () => ({
+    hazard: UG_HAZARDS.LIST[0].label, hazardOther: '', brgy: UG_GEO.BARANGAYS[0], urg: 'warning', desc: '',
+    photo: false, photoBlob: null, photoName: '', gps: false, lat: null, lng: null,
+    accuracy: null, error: '', busy: false, address: '', locationNote: '', mapDragging: false
+  });
+
   const S = {
     screen: 'auth',
     auth: blankAuth(),
@@ -76,11 +82,7 @@
     mapPanelOpen: false,
     draft: { title: '', sev: 'warning', type: 'Emergency', area: UG_GEO.PLACE.areaAll, msg: '', lang: 'en', alertType: 'general', deliveryMode: 'push' },
     lastReport: null,
-    report: {
-      hazard: UG_HAZARDS.LIST[0].label, hazardOther: '', brgy: UG_GEO.BARANGAYS[0], urg: 'warning', desc: '',
-      photo: false, photoBlob: null, photoName: '', gps: false, lat: null, lng: null,
-      accuracy: null, error: '', busy: false, address: '', locationNote: '', mapDragging: false
-    }
+    report: blankReport()
   };
 
   const q = (sel, el) => (el || document).querySelector(sel);
@@ -558,7 +560,8 @@
   async function loadRouteData(route) {
     /* Dispatch team: their data comes from UG_DISPATCH, not Repo. */
     if (S.session && S.session.role === 'dispatch_team' && typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.loadRoute) {
-      await UG_DISPATCH.loadRoute(route);
+      try { await UG_DISPATCH.loadRoute(route); }
+      catch (e) { toast(e.message || ('Could not load ' + route), 'warning'); }
       return;
     }
     /* Super Admin home: accounts, activity, SOS, change requests, units,
@@ -692,7 +695,7 @@
     'dashboard', 'incidents', 'incident', 'analytics', 'users', 'audit', 'command', 'more',
     'relief', 'relief-verify', 'guides', 'faqs', 'roadwork', 'map', 'sos',
     'others-review', 'response-team', 'dispatch-units', 'dispatch', 'reporting',
-    'equipment', 'roster', 'hospital', 'requests', 'contacts', 'dispatch-detail', 'settings',
+    'equipment', 'roster', 'hospital', 'requests', 'contacts', 'dispatch-detail', 'dp-settings', 'settings',
     'admin-home'];
 
   /* detail screens and the list each falls back to (back / forward) */
@@ -750,6 +753,15 @@
     : ((S.session && UG_WEB.ROLE_INFO[S.session.role].home) || 'home');
   function enterApp(session, message) {
     if (!S.session || S.session.id !== session.id) {
+      UG.DATA.queuedReports = [];
+      UG_PWA.state.queued = 0;
+      UG_PWA.state.failed = 0;
+      S.lastReport = null;
+      S.lastSos = null;
+      S.sosSending = false;
+      S.editing = null;
+      if (S.report.photoPreview) URL.revokeObjectURL(S.report.photoPreview);
+      S.report = blankReport();
       UG.DATA.sosLog = [];
       UG.DATA.inventory = [];
       UG.DATA.distributionLog = [];
@@ -779,6 +791,7 @@
     toast(message || ('Signed in as ' + (session.title || UG_WEB.ROLE_INFO[session.role].label) + ' · ' + session.scope), 'prepared');
     render();
     bootstrapData();
+    UG_PWA.refreshQueueCount();
     if (S.route === 'admin-home') loadRouteData('admin-home');
   }
 
@@ -2017,6 +2030,8 @@
     },
 
     'submit-report': async () => {
+      const owner = S.session;
+      if (!owner) return;
       const r = S.report;
       if (!r.desc.trim()) { toast('Add a short description before submitting', 'warning'); return; }
       const hz = UG_HAZARDS.classify(r.hazard);
@@ -2044,7 +2059,7 @@
         if (!go) return;
         r.brgy = r.pinBrgy;
       }
-      if (r.busy) return;
+      if (r.busy || S.session !== owner) return;
       r.busy = true;
       try {
         if (S.editing) {
@@ -2056,6 +2071,7 @@
             location_note: r.locationNote || '',
             lat: r.lat, lng: r.lng
           });
+          if (S.session !== owner) return;
           toast(S.editing.code + ' updated. The change was recorded in the audit log.', 'prepared');
           S.editing = null;
           S.route = 'reports';
@@ -2068,7 +2084,8 @@
             severity: r.urg || 'advisory', urgency: r.urg, lat: r.lat, lng: r.lng,
             location_note: r.locationNote || '',
             photoBlob: r.photoBlob || null
-          });
+          }, owner.id);
+          if (S.session !== owner) return;
           toast('Saved on this device. It uploads when you are back online.', 'warning');
           S.lastReport = { id: null, brgy: r.brgy };
         } else {
@@ -2078,6 +2095,7 @@
             location_note: r.locationNote || '',
             photoBlob: r.photoBlob, reportCodeHint: 'draft'
           });
+          if (S.session !== owner) return;
           /* the barangay the server actually filed it under */
           const filed = (res.row && res.row.brgy) || r.brgy;
           toast(res.queued ? 'Saved for upload' : 'Report ' + res.row.id + ' submitted to the ' + filed + ' queue', 'prepared');
@@ -2087,6 +2105,7 @@
         S.report = { hazard: r.hazard, hazardOther: '', brgy: r.brgy, urg: 'warning', desc: '', photo: false, photoBlob: null, photoName: '', gps: false, lat: null, lng: null, accuracy: null, error: '', busy: false, address: '', locationNote: '', _autoTriggered: false };
       } catch (e) {
         r.busy = false;
+        if (S.session !== owner) return;
         toast(e.message || 'Could not submit the report', 'warning');
       }
       render();
@@ -3349,8 +3368,10 @@
         danger: true
       });
       if (!ok) return;
-      await UG_PWA.removeFromQueue(Number(d.qid));
-      await refreshQueuedList();
+      try {
+        await UG_PWA.removeFromQueue(Number(d.qid));
+        await refreshQueuedList();
+      } catch (e) { toast('Could not remove the queued report. Try again.', 'warning'); }
     },
 
     'enable-push': async () => {
@@ -5148,7 +5169,8 @@
        the typed button sends, and the server dispatches the matching team. */
     'sos-trigger': async (d) => {
       if (S.sosSending) return;
-      if (!S.session) { toast('Sign in to send an SOS', 'warning'); return; }
+      const owner = S.session;
+      if (!owner) { toast('Sign in to send an SOS', 'warning'); return; }
       const kind = d && d.kind;
       if (!kind) {
         if (S.route !== 'sos') { go('sos'); render(); }
@@ -5158,6 +5180,7 @@
       let pos = null;
       try { pos = await UG_FEATURES.locate(); }
       catch (e) { pos = null; /* send or queue without coordinates */ }
+      if (S.session !== owner) return;
       const now = new Date();
       const base = {
         lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, accuracy: pos ? pos.accuracy : null,
@@ -5165,17 +5188,24 @@
         noGps: !pos, kind: kind
       };
       const queueIt = async () => {
-        await UG_PWA.upsertQueuedSos({
-          _kind: 'sos', lat: base.lat, lng: base.lng, accuracy: base.accuracy, note: '', kind: kind,
-          client_sent_at: now.toISOString()
-        });
-        S.lastSos = Object.assign({ status: 'queued', id: null, reach: null }, base);
+        try {
+          await UG_PWA.upsertQueuedSos({
+            lat: base.lat, lng: base.lng, accuracy: base.accuracy, note: '', kind: kind,
+            client_sent_at: now.toISOString()
+          }, owner.id);
+          if (S.session === owner) S.lastSos = Object.assign({ status: 'queued', id: null, reach: null }, base);
+        } catch (e) {
+          if (S.session === owner) {
+            S.lastSos = Object.assign({ status: 'error', message: 'Your SOS could not be saved on this device. Call the LDRRMO now.' }, base);
+          }
+        }
       };
       try {
         if (navigator.onLine === false) {
           await queueIt();
         } else {
           const res = await Repo.submitSos({ lat: base.lat, lng: base.lng, accuracy: base.accuracy, kind: kind });
+          if (S.session !== owner) return;
           if (res && res.queued) {
             S.lastSos = Object.assign({ status: 'queued', id: null, reach: null }, base);
           } else {
@@ -5190,17 +5220,19 @@
           }
         }
       } catch (e) {
+        if (S.session !== owner) return;
         if (UG_UTIL.isNetworkError(e)) {
-          try { await queueIt(); }
-          catch (e2) { S.lastSos = Object.assign({ status: 'error', message: T('error.network') }, base); }
+          await queueIt();
         } else {
           /* the server refused it (rate limit, permission): say so in the card */
           console.error('[UniGuard] SOS rejected', e);
           S.lastSos = Object.assign({ status: 'error', message: UG_UTIL.friendlyError(e) }, base);
         }
       }
-      S.sosSending = false;
-      render();
+      if (S.session === owner) {
+        S.sosSending = false;
+        render();
+      }
     },
 
     'map-layer-toggle': (d) => {
@@ -6092,7 +6124,9 @@
      UG.DATA.queuedReports and refresh it whenever the queue changes. */
   let queueKey = '';
   async function refreshQueuedList() {
+    const owner = S.session;
     const rows = (await UG_PWA.listQueue()) || [];
+    if (S.session !== owner) return;
     UG.DATA.queuedReports = rows.filter((r) => r._kind !== 'sos').map((r) => ({
       qid: r.id, hazard: r.hazard_type, brgy: r.barangay, description: r.description,
       queued_at: r.queued_at, failed: !!r.failed, last_error: r.last_error || '', sev: r.severity
@@ -6100,7 +6134,7 @@
     if (S.session) render();
   }
   UG_PWA.onChange((st) => {
-    const k = (st.queued || 0) + ':' + (st.failed || 0);
+    const k = [S.session?.id, st.queued, st.failed].join(':');
     if (k === queueKey) return;
     queueKey = k;
     refreshQueuedList().catch(() => { });
@@ -6269,7 +6303,7 @@
     if (INITIAL_ROUTE && S.session && INITIAL_ROUTE !== S.route) {
       go(INITIAL_ROUTE);
       render();
-      loadRouteData(INITIAL_ROUTE);
+      loadRouteData(S.route);
     }
   }
 

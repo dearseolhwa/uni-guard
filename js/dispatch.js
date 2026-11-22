@@ -179,8 +179,9 @@ const UG_DISPATCH = (function () {
   async function loadRequests() {
     const c = client(); if (!c) return [];
     const unit = state.data.unit; if (!unit) return [];
-    const { data } = await c.from('unit_requests')
+    const { data, error } = await c.from('unit_requests')
       .select('*').eq('unit_id', unit.id).order('created_at', { ascending: false });
+    if (error) throw error;
     state.data.requests = data || [];
     return data || [];
   }
@@ -518,6 +519,7 @@ const UG_DISPATCH = (function () {
 
   async function loadRoute(route) {
     state.route = route;
+    if (route === 'dispatch-detail' && app().S?.openId) state.openDispatchId = app().S.openId;
     if (route === 'dispatch-detail' || route === 'dispatch') await loadDispatches().then(loadEvents);
     if (route === 'equipment') await loadEquipment();
     if (route === 'roster') await loadPersonnel();
@@ -1129,6 +1131,18 @@ const UG_DISPATCH = (function () {
     ['other', 'Other', 'help', 'Anything else']];
   const RQ_STATE = { pending: ['Waiting for the LGU', 'is-wait'], approved: ['Approved · help is coming', 'is-ok'], declined: ['Declined', 'is-no'], done: ['Fulfilled', 'is-done'] };
 
+  function canCompleteRequest(row, session) {
+    return row.status === 'approved' && session?.role === 'dispatch_team' &&
+      session.unit_role === 'unit_admin' && row.unit_id === session.dispatch_unit_id;
+  }
+
+  function completeRequestButton(row, session) {
+    return canCompleteRequest(row, session)
+      ? '<button type="button" class="ug-btn ug-btn--sm" data-act="dispatch-request-done" data-id="' +
+        esc(row.id) + '">' + I('check', 14) + 'Mark done</button>'
+      : '';
+  }
+
   /* phones: quick-request tiles, Open / History, plain-language cards */
   function mRequests(st) {
     const rows = (state.data.requests || []).slice().sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
@@ -1145,6 +1159,7 @@ const UG_DISPATCH = (function () {
         '<p class="dpq-st ' + stt[1] + '"><i></i>' + esc(stt[0]) + '</p>' +
         (r.details ? '<p class="dpq-d">' + esc(r.details) + '</p>' : '') +
         (r.decided_at ? '<p class="dpq-f">Decided ' + esc(absTime(r.decided_at)) + '</p>' : '') +
+        completeRequestButton(r, st.session) +
       '</article>';
     };
     return '<div class="dpq">' +
@@ -1172,14 +1187,15 @@ const UG_DISPATCH = (function () {
       '<td>' + esc(r.details) + '</td>' +
       '<td>' + badge(r.status, r.status) + '</td>' +
       '<td class="t-num">' + (r.decided_at ? absTime(r.decided_at) : '—') + '</td>' +
+      '<td class="t-right">' + completeRequestButton(r, st.session) + '</td>' +
     '</tr>';
     return '<div class="ug-col" style="gap:18px">' +
       pageHead(T('title.requests'), T('dispatch.requestsSub'),
         '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-request-new">' + I('plus', 14) + 'New request</button>') +
       (open.length ? '<span class="ug-chip is-on">' + open.length + ' open</span>' : '') +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
-      '<thead><tr><th>When</th><th>Kind</th><th>Details</th><th>Status</th><th>Decided</th></tr></thead>' +
-      '<tbody>' + (rows.length ? rows.map(row).join('') : '<tr><td colspan="5" class="dp-none">No requests yet</td></tr>') + '</tbody></table></div>' +
+      '<thead><tr><th>When</th><th>Kind</th><th>Details</th><th>Status</th><th>Decided</th><th>Action</th></tr></thead>' +
+      '<tbody>' + (rows.length ? rows.map(row).join('') : '<tr><td colspan="6" class="dp-none">No requests yet</td></tr>') + '</tbody></table></div>' +
     '</div>';
   }
 
@@ -1701,30 +1717,28 @@ const UG_DISPATCH = (function () {
   }
 
   /* ----------------------------------------------------------------- actions */
+  function openDispatch(id) {
+    const ui = app();
+    ui.go('dispatch-detail');
+    if (ui.S) ui.S.openId = id;
+    state.openDispatchId = id;
+    state.route = 'dispatch-detail';
+    ui.render();
+  }
+
   const actions = {
     'dispatch-nav': async (d) => {
-      { const A0 = app(); if (A0 && A0.S && A0.S.bgMenu) { A0.S.bgMenu = false; A0.S.bgMenuEnter = false; } }
-      /* PRIORITY 0 fix: the old version called UG_APP.go('dispatch') which
-         wrote #dispatch to the hash and reset S.route to 'dispatch',
-         clobbering the sub-route we just set (e.g. 'equipment' became
-         'dispatch'). Now we update the hash to match the actual sub-route
-         (so back/forward and reload land on the same screen), render
-         immediately so the user sees the loading state, await loadRoute,
-         then render again. */
+      const ui = app();
+      if (ui.S?.bgMenu) { ui.S.bgMenu = false; ui.S.bgMenuEnter = false; }
+      ui.go(d.route);
       state.route = d.route;
-      try { window.history.replaceState(null, '', '#' + d.route); } catch (e) {}
-      app().render();
-      try {
-        await loadRoute(d.route);
-      } catch (e) {
-        app().toast(e.message || ('Could not load ' + d.route), 'warning');
-      }
-      app().render();
+      ui.render();
+      await ui.loadRouteData(d.route);
     },
     'dispatch-refresh': () => { const A0 = app(); if (A0 && A0.S && A0.S.bgMenu) A0.S.bgMenu = false; return loadAll(); },
     'dispatch-eqf': (d) => { state.eqF = d.v; app().render(); },
     'dispatch-mtab': (d) => { state.mTab = d.v === 'done' ? 'done' : 'active'; app().render(); },
-    'dispatch-open': (d) => { state.openDispatchId = d.id; state.route = 'dispatch-detail'; app().render(); },
+    'dispatch-open': (d) => openDispatch(d.id),
     'dispatch-respond': async (d) => {
       try {
         const note = (document.querySelector('[data-act="dispatch-note"][data-id="' + d.id + '"]') || {}).value || '';
@@ -2048,6 +2062,20 @@ const UG_DISPATCH = (function () {
 
     'dispatch-csv': () => UG_EXPORTS.run('dispatch-csv'),
     'dispatch-request-new': (d) => openRequestModal(d && d.kind),
+    'dispatch-request-done': async (d, button) => {
+      const ui = app();
+      const row = state.data.requests.find((item) => item.id === d.id);
+      if (!row || !canCompleteRequest(row, ui.S?.session)) return;
+      if (!online()) { ui.toast('Connect to the server to complete this request', 'warning'); return; }
+      if (button) button.disabled = true;
+      try {
+        await rpc('decide_unit_request', { p_request_id: row.id, p_decision: 'done' });
+        row.status = 'done';
+        ui.toast('Support request marked done', 'prepared');
+        await loadRequests();
+      } catch (e) { ui.toast(e.message || 'Could not update the request', 'warning'); }
+      finally { ui.render(); }
+    },
     'dispatch-ntf': (d) => { state.ntF = d.v === 'unread' ? 'unread' : 'all'; app().render(); },
     'dispatch-dirf': (d) => { if (state.dirTab === 'captains') state.dirCap = d.v; else state.dirCat = d.v; app().render(); },
     'dispatch-dirtab': (d) => { state.dirTab = d.v === 'captains' ? 'captains' : 'hotlines'; app().render(); },
@@ -2061,7 +2089,7 @@ const UG_DISPATCH = (function () {
         c.from('notifications').update({ read_at: n.read_at }).eq('id', d.id).then(() => { }, () => { });
       }
       const disp = d.report ? (state.data.dispatches || []).find((x) => x.report_id === d.report) : null;
-      if (disp) { state.openDispatchId = disp.id; state.route = 'dispatch-detail'; }
+      if (disp) { openDispatch(disp.id); return; }
       else if (d.report) app().toast('That dispatch is no longer assigned to your unit', 'info');
       app().render();
     },

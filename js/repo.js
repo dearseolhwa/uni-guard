@@ -49,6 +49,22 @@ const Repo = (function () {
   }
   const online = () => !!client();
 
+  async function queueUploadSession(ownerId) {
+    const c = client();
+    if (!c) return null;
+    const { data, error } = await c.auth.getSession();
+    const session = data?.session;
+    if (error || !session?.access_token || session.user?.id !== ownerId) return null;
+    // Use the same token for storage and database writes, even if the shared client changes accounts.
+    const token = session.access_token;
+    return {
+      ownerId,
+      client: window.supabase.createClient(UG_CONFIG.SUPABASE_URL, UG_CONFIG.SUPABASE_ANON_KEY, {
+        accessToken: async () => token
+      })
+    };
+  }
+
   function fail(error) {
     /* an update or delete that row security refused comes back as "no rows";
        say what that means instead of the raw PostgREST text */
@@ -713,8 +729,8 @@ const Repo = (function () {
   }
 
   /* --------------------------------------------------------------- reports */
-  async function createReport(input) {
-    const c = client();
+  async function createReport(input, upload) {
+    const c = upload ? upload.client : client();
         if (!c) {
       /* offline: keep it in the queue and show it locally */
       const code = 'PENDING-' + Math.random().toString(36).slice(2, 7).toUpperCase();
@@ -732,7 +748,7 @@ const Repo = (function () {
 
     let photo_path = null;
     if (input.photoBlob) {
-      const path = await uploadPhoto(input.photoBlob, input.reportCodeHint);
+      const path = await uploadPhoto(input.photoBlob, input.reportCodeHint, upload);
       photo_path = path;
     }
 
@@ -758,16 +774,15 @@ const Repo = (function () {
     if (ins.error) fail(ins.error);
     const data = ins.data;
 
-    await loadAll();
-    const row = (UG.DATA.incidents || []).find((i) => i.uuid === data.id) || toIncident(data, 0);
+    if (!upload) await loadAll();
+    const row = (!upload && (UG.DATA.incidents || []).find((i) => i.uuid === data.id)) || toIncident(data, 0);
     return { queued: false, row: row, report: data };
   }
 
-  async function uploadPhoto(blob, hint) {
-    const c = client();
+  async function uploadPhoto(blob, hint, upload) {
+    const c = upload ? upload.client : client();
     if (!c) return null;
-    const { data: userData } = await c.auth.getUser();
-    const uid = userData && userData.user ? userData.user.id : 'anon';
+    const uid = upload ? upload.ownerId : (await c.auth.getUser()).data?.user?.id || 'anon';
     const folder = (hint || 'draft').replace(/[^A-Za-z0-9-]/g, '');
     const path = uid + '/' + folder + '/' + Date.now() + '.jpg';
     const up = await c.storage.from('reports').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
@@ -1677,13 +1692,13 @@ const Repo = (function () {
     await loadAll();
   }
 
-  async function submitSos(payload) {
-    const c = client();
+  async function submitSos(payload, upload) {
+    const c = upload ? upload.client : client();
     if (!c) {
       /* offline: queue it like an offline report so it sends when the connection
          returns. SOS is rate-limited in the RPC; the queue retry will surface
          the limit as a toast at that point. */
-      try { await UG_PWA.upsertQueuedSos(Object.assign({ _kind: 'sos', client_sent_at: new Date().toISOString() }, payload)); } catch (e) {}
+      await UG_PWA.upsertQueuedSos(Object.assign({ client_sent_at: new Date().toISOString() }, payload));
       return { id: 'PENDING-' + Date.now(), reach: 0, queued: true };
     }
     const { data, error } = await c.rpc('submit_sos', {
@@ -1691,7 +1706,7 @@ const Repo = (function () {
       p_kind: payload.kind || 'other'
     });
     if (error) fail(error);
-    loadAll({ silent: true }).catch(() => { });
+    if (!upload) loadAll({ silent: true }).catch(() => { });
     return data;
   }
   async function fetchSosInbox(c) {
@@ -1852,7 +1867,7 @@ const Repo = (function () {
   }
 
   return {
-    client, online, state, onChange,
+    client, online, queueUploadSession, state, onChange,
     loadAll, forceReload, subscribe, unsubscribe, setRefreshGate, autoDispatch, rateReport, reportHandlers,
     createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, lguVerify, barangayAt, reportHistory, updateReport,
     createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,
