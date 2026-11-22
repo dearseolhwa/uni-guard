@@ -1,5 +1,8 @@
 -- ============================================================================
---  UniGuard · 044 · Super Admin improvements
+--  UniGuard · 045 (super admin) · Super Admin improvements
+--  NOTE: shares the number 045 with 045_one_hour_lgu_escalation.sql. Apply
+--  both (this one second). 047 is NOT a duplicate of 045_one_hour: it closes
+--  the verify-block gap and must always be applied (audit F-16).
 --
 --  Companion to migration 043 (the Super Admin role). This file:
 --    · Reclassifies inventory rows from the broad "Shelter" category into
@@ -60,15 +63,26 @@ comment on column public.relief_inventory.category is
 --    their current category (so a custom item the LGU added is not
 --    silently re-classified). Stock quantities, reorder levels, supplier
 --    and location are NOT touched.
-update public.relief_inventory
-   set category = 'Shelter Supplies', updated_at = now()
- where category = 'Shelter'
-   and (lower(name) ~ 'tarp|trapal|sleeping mat|tent|blanket|mosquito');
-
-update public.relief_inventory
-   set category = 'Hygiene', updated_at = now()
- where category = 'Shelter'
-   and (lower(name) ~ 'hygiene|soap|detergent|sanitary|napkin|water container|sanitation');
+-- 3. (combined) Each UPDATE returns the rows it actually moved and only those
+--    are audited, so re-running this migration logs nothing new (audit F-12).
+with moved_supplies as (
+  update public.relief_inventory
+     set category = 'Shelter Supplies', updated_at = now()
+   where category = 'Shelter'
+     and (lower(name) ~ 'tarp|trapal|sleeping mat|tent|blanket|mosquito')
+  returning id, name, category
+), moved_hygiene as (
+  update public.relief_inventory
+     set category = 'Hygiene', updated_at = now()
+   where category = 'Shelter'
+     and not (lower(name) ~ 'tarp|trapal|sleeping mat|tent|blanket|mosquito')
+     and (lower(name) ~ 'hygiene|soap|detergent|sanitary|napkin|water container|sanitation')
+  returning id, name, category
+)
+insert into public.audit_log (actor_id, action, entity, entity_id, meta)
+select null, 'relief_inventory.category_reclassified', 'relief_inventory', null,
+       jsonb_build_object('from', 'Shelter', 'to', m.category, 'name', m.name, 'item_id', m.id)
+  from (select * from moved_supplies union all select * from moved_hygiene) m;
 
 -- 3. Audit the reclassification itself, one entry per affected row, so
 --    the Super Admin can see in the activity log that the migration
@@ -76,11 +90,7 @@ update public.relief_inventory
 --    it shows up as "System" in the activity log, which is correct.
 --    relief_inventory.id is text (e.g. 'INV-01'), but audit_log.entity_id
 --    is uuid — so we store null in entity_id and put the text id inside meta.
-insert into public.audit_log (actor_id, action, entity, entity_id, meta)
-select null, 'relief_inventory.category_reclassified', 'relief_inventory', null,
-       jsonb_build_object('from', 'Shelter', 'to', category, 'name', name, 'item_id', id)
-  from public.relief_inventory
- where category in ('Shelter Supplies', 'Hygiene');
+-- (the audit insert now lives with the UPDATEs above)
 
 -- 4. Audit triggers: re-affirm road_status has the generic audit trigger.
 --    Migration 033 already creates it; this is defensive so an upgrade

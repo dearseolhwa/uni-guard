@@ -56,9 +56,17 @@ begin
     execute format('drop policy if exists reject_revoked_session on public.%I',t.tablename);
     execute format('create policy reject_revoked_session on public.%I as restrictive for all to authenticated using (not (select public.account_session_blocked())) with check (not (select public.account_session_blocked()))',t.tablename);
   end loop;
+  -- storage.objects is owned by supabase_storage_admin on hosted projects, so
+  -- the postgres role may not be allowed to add a policy there. That must not
+  -- roll back the rest of this migration (audit F-02): skip with a notice and
+  -- add the policy from the dashboard if it is wanted.
   if exists (select 1 from pg_tables where schemaname='storage' and tablename='objects' and rowsecurity) then
-    execute 'drop policy if exists reject_revoked_session on storage.objects';
-    execute 'create policy reject_revoked_session on storage.objects as restrictive for all to authenticated using (not (select public.account_session_blocked())) with check (not (select public.account_session_blocked()))';
+    begin
+      execute 'drop policy if exists reject_revoked_session on storage.objects';
+      execute 'create policy reject_revoked_session on storage.objects as restrictive for all to authenticated using (not (select public.account_session_blocked())) with check (not (select public.account_session_blocked()))';
+    exception when insufficient_privilege then
+      raise notice 'Skipped reject_revoked_session on storage.objects (not the table owner). Add it from the Supabase dashboard if needed.';
+    end;
   end if;
 end $$;
 

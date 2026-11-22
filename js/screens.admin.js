@@ -67,8 +67,12 @@ const UG_ADMIN = (function () {
 
     const rows = users.map((u) => {
       const cur = roleOf(u);
-      const roleOpts = ['citizen', 'barangay_official', 'lgu_ldrrmc', 'super_admin', 'dispatch_team'].map((r) =>
-        '<option value="' + r + '"' + (cur === r ? ' selected' : '') + '>' + esc(ROLE_LABEL[r] || r) + '</option>').join('');
+      /* audit F-07: dispatch_team needs a unit and unit role, which this inline
+         select cannot supply; it is shown (read-only) only for current members.
+         Move someone into a unit from the Super Admin account editor. */
+      const roleOpts = ['citizen', 'barangay_official', 'lgu_ldrrmc', 'super_admin', 'dispatch_team']
+        .filter((r) => r !== 'dispatch_team' || cur === 'dispatch_team').map((r) =>
+        '<option value="' + r + '"' + (cur === r ? ' selected' : '') + (r === 'dispatch_team' ? ' disabled' : '') + '>' + esc(ROLE_LABEL[r] || r) + '</option>').join('');
       const brgyOpts = '<option value="">Not set</option>' + barangays.map((b) =>
         '<option value="' + esc(b.id) + '"' + (u.barangay_id === b.id ? ' selected' : '') + '>' + esc(b.name) + '</option>').join('');
       return '<tr data-user="' + esc(u.id) + '">' +
