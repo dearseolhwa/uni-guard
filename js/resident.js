@@ -112,7 +112,7 @@ const UG_RW = (() => {
         ' a ' + esc(r.hazard.toLowerCase()) + ' in Brgy. ' + esc(brgy) + '. Send yours too. More reports help confirm it faster.</span></p>' : '') +
       '<div class="rw-form-grid"><div class="ug-col" style="gap:16px">' + details + photo + '</div>' +
         '<div class="ug-col" style="gap:16px">' + where + '</div></div>' +
-      '<p class="rw-quiet">' + I('info', 14) + 'When ' + UG_CONFIG.CORROBORATION_THRESHOLD + ' neighbours report the same thing, it is confirmed faster.</p>' +
+      '<p class="rw-quiet">' + I('info', 14) + 'Your report counts once. Other residents can confirm the same nearby hazard.</p>' +
       '<div class="rw-submit">' +
         (r.error ? '<p class="rw-alert" role="alert">' + I('alert', 16) + '<span>' + esc(r.error) + '</span></p>' : '') +
         '<button class="rw-send' + (ready && !r.busy ? '' : ' is-disabled') + '"' + A('submit-report') + (r.busy ? ' disabled' : '') + '>' +
@@ -124,16 +124,18 @@ const UG_RW = (() => {
 
   function reportDone(st) {
     const last = st.lastReport || {};
-    const steps = [['Reported', 'Your report reached the barangay queue.'], ['Verified', 'An official or ' + UG_CONFIG.CORROBORATION_THRESHOLD + ' neighbours confirm it.'],
+    const steps = [['Reported', 'Your report reached the barangay queue.'], ['Verified', 'An official can verify the hazard. It also verifies after three independent residents report or confirm it, including the original reporter.'],
       ['Help on the way', 'A response team is sent.'], ['Resolved', 'The hazard is cleared.']];
     return '<div class="ug-col" style="gap:20px;max-width:760px">' +
       '<section class="rw-done">' +
         '<span class="rw-done-ico">' + I('check', 28) + '</span>' +
-        '<h2>Report sent</h2>' +
-        '<p>Your hazard report is now with Brgy. ' + esc(last.brgy || '') + ' and the Lingayen LDRRMO. Responders see it right away.</p>' +
+        '<h2>' + (last.id ? 'Report sent' : 'Report saved offline') + '</h2>' +
+        '<p>' + (last.id ? 'Brgy. ' + esc(last.brgy || '') + ' can review your hazard report.' : 'UniGuard will send your report when you reconnect.') + '</p>' +
         '<span class="rw-pill rw-pill--soft rw-mono">' + esc(last.id || 'Waiting to sync') + '</span>' +
       '</section>' +
-      '<section class="rw-card"><div class="rw-card-h"><h3>What happens next</h3><span class="rw-live">1 of ' + UG_CONFIG.CORROBORATION_THRESHOLD + ' confirmations</span></div>' +
+      '<section class="rw-card"><div class="rw-card-h"><h3>What happens next</h3>' +
+        (last.id ? '<span class="rw-live">' + Math.min(last.corr ?? 1, UG_CONFIG.CORROBORATION_THRESHOLD) +
+          ' of ' + UG_CONFIG.CORROBORATION_THRESHOLD + ' confirmations</span>' : '') + '</div>' +
         '<ol class="rw-next">' + steps.map((s, n) => '<li class="' + (n === 0 ? 'is-on' : '') + '"><b>' + (n + 1) + '</b><span><strong>' + s[0] + '</strong>' + s[1] + '</span></li>').join('') + '</ol></section>' +
       '<div class="rw-row-acts">' +
         '<button class="rw-btn rw-btn--red" style="padding:12px 22px"' + A('nav', attr({ route: 'reports' })) + '>Track my report</button>' +

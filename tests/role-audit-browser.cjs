@@ -327,11 +327,52 @@ async function urgentReceipts(browser, app) {
   } finally { await context.close(); }
 }
 
+async function corroborationControls(browser, app) {
+  const {page, context} = await fixture(browser, app, {mobile: true});
+  try {
+    await enter(page, app, 'citizen', 'reports');
+    await page.evaluate(() => {
+      const incident = {
+        id: 'FIXTURE-CORROBORATION', uuid: '8a617a5a-88eb-44e4-a3c8-f178b21541aa',
+        hazard: 'Flood', status: 'reported', sev: 'warning', corr: 1, brgy: 'Poblacion'
+      };
+      UG.DATA.incidents = [incident];
+      UG_APP.S.openId = incident.uuid;
+      UG_APP.S.route = 'report-detail';
+      UG_FEATURES.locate = async () => null;
+      window.confirmCalls = 0;
+      Repo.corroborate = async () => {
+        window.confirmCalls++;
+        incident.corr = 2;
+        return { corroborations: 2, status: 'reported', auto_verified_now: false };
+      };
+      UG_APP.render();
+    });
+    const button = page.getByRole('button', {name: 'Confirm This Hazard Is Still There'});
+    await button.click();
+    await page.getByRole('button', {name: 'Confirmed', exact: true}).waitFor();
+    assert.equal(await page.evaluate(() => window.confirmCalls),1);
+    assert.ok(await page.getByText('2 / 3', {exact: true}).isVisible());
+    await page.evaluate(() => {
+      UG.DATA.incidents[0].status = 'resolved';
+      UG_APP.render();
+    });
+    assert.equal(await button.count(),0);
+    await page.evaluate(() => {
+      UG.DATA.incidents[0].is_sos = true;
+      UG_APP.render();
+    });
+    assert.equal(await page.getByRole('heading', {name: 'Corroboration', exact: true}).count(),0);
+    console.log('PASS Resident confirmation updates the meter and closed reports and SOS do not show the confirmation action.');
+  } finally { await context.close(); }
+}
+
 module.exports = async function verifyRoleAudits(browser, app) {
   await dispatchFailure(browser, app);
   await advisoryDelivery(browser, app);
   await photoAndDialogs(browser, app);
   await productionAuth(browser, app);
   await urgentReceipts(browser, app);
+  await corroborationControls(browser, app);
   await roleSweep(browser, app);
 };

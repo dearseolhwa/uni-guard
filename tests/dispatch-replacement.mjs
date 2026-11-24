@@ -240,15 +240,45 @@ export async function verifyRoles(db) {
     values ('Earthquake','Fixture resident verified hazard','warning',16.0223,120.2312) returning id`))[0];
   const firstWitness = await account('citizen', locality);
   const secondWitness = await account('citizen', locality);
-  for (const witness of [firstWitness, secondWitness]) {
-    await runAs(witness,"select public.corroborate_report($1,'Fixture confirmation',16.0223,120.2312)",[corroborated.id]);
-  }
+  const confirm = "select public.corroborate_report($1,'Fixture confirmation',16.0223,120.2312) as value";
+  const countInFeed = async (reportId) => (await runAs(official,
+    'select corroborations from public.reports_feed where id=$1',[reportId]))[0].corroborations;
+  assert.equal(Number(await countInFeed(corroborated.id)), 1);
+  await assert.rejects(runAs(otherCitizen, confirm, [corroborated.id]), /own report/);
+  const localOnly = "select public.corroborate_report($1,'Fixture confirmation without GPS',null,null) as value";
+  const firstConfirmation = await value(firstWitness, localOnly, [corroborated.id]);
+  assert.equal(firstConfirmation.corroborations, 2);
+  assert.equal(firstConfirmation.status, 'reported');
+  assert.equal(firstConfirmation.auto_verified_now, false);
+  assert.equal(Number(await countInFeed(corroborated.id)), 2);
+  assert.equal((await value(firstWitness, localOnly, [corroborated.id])).already_confirmed,true);
+  assert.equal(Number(await countInFeed(corroborated.id)), 2);
+  const decisiveConfirmation = await value(secondWitness, confirm, [corroborated.id]);
+  assert.equal(decisiveConfirmation.corroborations, 3);
+  assert.equal(decisiveConfirmation.auto_verified_now, true);
+  assert.equal(Number(await countInFeed(corroborated.id)), 3);
+  await assert.rejects(runAs(firstWitness, confirm, [sent.report_id]), /SOS response status/);
+  assert.equal(Number(await countInFeed(sent.report_id)),0);
+  assert.equal((await first('select count(*)::int as n from public.corroboration_nearby_reports($1) where corroboration_nearby_reports=$2',
+    [ordinary.id,sent.report_id])).n,0);
+
+  const otherHazard = async (reporter, detail) => (await runAs(reporter, `insert into public.reports(hazard_type,hazard_other_text,description,severity,lat,lng)
+    values ('Others',$1,'Fixture unrelated hazard','warning',16.0223,120.2312) returning id`,[detail]))[0];
+  const separate = await otherHazard(firstWitness, 'Broken street light');
+  await otherHazard(secondWitness, 'Blocked footpath');
+  await otherHazard(unsureSender, 'Damaged footbridge railing');
+  assert.equal((await first('select status from public.reports where id=$1',[separate.id])).status,'reported');
+  assert.equal(Number(await countInFeed(separate.id)),1);
+  await assert.rejects(runAs(otherCitizen, localOnly, [separate.id]), /GPS fix is required/);
+  await runAs(lgu,"select public.advance_report_status($1,'rejected','Fixture hazard closed')",[separate.id]);
+  await assert.rejects(runAs(secondWitness, confirm, [separate.id]), /closed/);
   assert.equal((await first('select status from public.reports where id=$1',[corroborated.id])).status,'verified');
   assert.ok(await first("select id from public.emergency_delivery where kind='dispatch_gap' and event_id=$1 and user_id=$2",[corroborated.id,lgu.id]));
   assert.ok(await first("select id from public.notifications where title='Corroborated report needs MDRRMO review' and report_id=$1 and user_id=$2",[corroborated.id,lgu.id]));
   const corroboratedTarget = (await query("select user_id from public.emergency_delivery where kind='hazard_confirmed' and event_id=$1",[corroborated.id])).rows.map(row => row.user_id).sort();
   assert.deepEqual(corroboratedTarget,[...localRecipients,...[teams[2],teams[3]].flatMap(team => [team.admin.id,team.member.id])].sort());
 
+  console.log('PASS Corroboration shows the real threshold, retries count once, unrelated reports and SOS stay separate, and verification alerts only mapped teams.');
   console.log('PASS Every hazard label routes to the expected teams, required review offices receive scoped alerts, and a barangay-verified hazard reaches MDRRMO before municipal dispatch.');
 
   await db.exec('drop schema net cascade');

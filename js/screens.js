@@ -264,15 +264,18 @@ const UG = (() => {
       '</div>';
     }).join('') + '</div>';
   }
-  function corrMeter(n){
+  function corrMeter(n, status = 'reported'){
     const pct = Math.min(100, Math.round(n / 3 * 100));
     const cls = n >= 3 ? 'var(--ug-prepared)' : 'var(--ug-warning)';
+    const note = n >= 3 ? 'Corroboration threshold reached.'
+      : status === 'reported' ? 'The reporter counts once. The report needs ' + (3 - n) + ' more independent nearby confirmation' + (n === 2 ? '.' : 's.')
+      : '';
     return '<div class="ug-col ug-gap6" style="gap:6px">' +
       '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dimmer">Independent Corroborations</span>' +
       '<span class="ug-mono" style="color:' + cls + '">' + Math.min(n,3) + ' / 3</span></div>' +
       '<div style="height:5px;border-radius:3px;background:rgba(var(--ug-tint, 255,255,255),.09);overflow:hidden">' +
       '<div style="height:100%;width:' + pct + '%;background:' + cls + ';border-radius:3px"></div></div>' +
-      '<div class="ug-dimmer" style="font-size:11px">' + (n >= 3 ? 'Threshold reached. This report is auto-verified.' : (3 - n) + ' more nearby confirmation' + (3 - n === 1 ? '' : 's') + ' within 6 hours will auto-verify it.') + '</div>' +
+      (note ? '<div class="ug-dimmer" style="font-size:11px">' + note + '</div>' : '') +
     '</div>';
   }
 
@@ -600,7 +603,7 @@ const UG_SCREENS = (() => {
             '<span style="font-size:13px;font-weight:600">' + esc(mine.hazard) + '</span></div>' +
             '<div class="ug-dimmer ug-mono" style="font-size:11px;margin-top:3px">' + esc(mine.id) + ' &middot; ' + esc(mine.time) + '</div>' +
             '<div class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.45">' + esc(mine.desc.slice(0, 74)) + '&hellip;</div></div>' +
-          '</div>' + U.corrMeter(st.corr[mine.id] || mine.corr) +
+          '</div>' + U.corrMeter(st.corr[mine.id] || mine.corr, mine.status) +
         '</div>' +
       '</button>'
       ) : '') +
@@ -731,23 +734,15 @@ const UG_SCREENS = (() => {
     return '<div class="ug-col" style="gap:16px">' +
       '<div class="ug-card ug-tick"><div class="ug-card-b ug-col" style="gap:12px;align-items:center;text-align:center;padding:22px 18px">' +
         '<span style="width:52px;height:52px;border-radius:16px;display:grid;place-items:center;background:rgba(47,208,138,.14);color:var(--ug-prepared);border:1px solid rgba(47,208,138,.32)">' + I('check', 26) + '</span>' +
-        '<h3 style="font-size:16px">Report Submitted</h3>' +
-        '<p class="ug-dim" style="font-size:12px;line-height:1.5">Your hazard report is now in the ' + esc((st.lastReport && st.lastReport.brgy) || 'barangay') + ' queue. Responders see it immediately.</p>' +
+        '<h3 style="font-size:16px">' + (st.lastReport?.id ? 'Report submitted' : 'Report saved offline') + '</h3>' +
+        '<p class="ug-dim" style="font-size:12px;line-height:1.5">' +
+          (st.lastReport?.id ? 'Your hazard report is in the ' + esc(st.lastReport.brgy || 'barangay') + ' queue.' :
+            'UniGuard will send your report when you reconnect.') + '</p>' +
         '<span class="ug-badge ug-badge--id" style="font-size:11px">' + id + '</span>' +
       '</div></div>' +
 
-      '<div class="ug-card"><div class="ug-card-h"><h3>Crowd Corroboration</h3>' + U.badge('reported', '1 of 3') + '</div>' +
-        '<div class="ug-card-b ug-col" style="gap:12px">' + U.corrMeter(1) +
-        '<div class="ug-hr"></div>' +
-        '<div class="ug-lab">Corroborating Reports</div>' +
-        '<div class="ug-rows" style="margin:0 -16px -16px">' +
-          '<div class="ug-row"><span class="r-dot" style="background:var(--ug-signal)"></span><div class="r-main"><div class="r-t">You (' + esc(sess(st).name) + ')</div>' +
-            '<div class="r-m"><span>' + I('clock', 12) + 'just now</span><span>' + I('pin', 12) + esc((st.lastReport && st.lastReport.brgy) || 'your barangay') + '</span></div></div></div>' +
-          '<div class="ug-row" style="opacity:.5"><span class="r-dot" style="background:var(--ug-line-strong)"></span><div class="r-main"><div class="r-t">Awaiting Second Report</div>' +
-            '<div class="r-m"><span>Same barangay &middot; same hazard &middot; within 6 hours</span></div></div></div>' +
-          '<div class="ug-row" style="opacity:.5"><span class="r-dot" style="background:var(--ug-line-strong)"></span><div class="r-main"><div class="r-t">Awaiting Third Report</div>' +
-            '<div class="r-m"><span>Auto-verification triggers at three</span></div></div></div>' +
-        '</div></div></div>' +
+      (st.lastReport?.id ? '<div class="ug-card"><div class="ug-card-h"><h3>Crowd Corroboration</h3></div>' +
+        '<div class="ug-card-b">' + U.corrMeter(st.lastReport.corr ?? 1, st.lastReport.status) + '</div></div>' : '') +
 
       '<div class="ug-card"><div class="ug-card-h"><h3>What Happens Next</h3></div>' +
         '<div class="ug-card-b">' + U.pipeline('reported') + '</div></div>' +
@@ -829,7 +824,7 @@ const UG_SCREENS = (() => {
     /* the server decides verification (061); the screen never promotes a
        report to verified on its own count */
     const status = i.status;
-    const auto = status === 'verified' && corr >= 3;
+    const auto = status === 'verified' && corr >= 3 && !i.verified_by_role && !i.is_sos;
     /* the report-status tracker: a compact visual progress bar that maps the
        four pipeline stages to Processing → Verified → Deployed → Resolved in
        the user's wording. The existing U.pipeline() still renders the verbose
@@ -884,14 +879,15 @@ const UG_SCREENS = (() => {
       /* timestamped history log, newest first */
       historyCard(i, st, true, 'History') +
 
-      '<div class="ug-card"><div class="ug-card-h"><h3>Corroboration</h3></div>' +
-        '<div class="ug-card-b ug-col" style="gap:12px">' + U.corrMeter(corr) +
-          (i.mine
+      (i.is_sos ? '' : '<div class="ug-card"><div class="ug-card-h"><h3>Corroboration</h3></div>' +
+        '<div class="ug-card-b ug-col" style="gap:12px">' + U.corrMeter(corr, i.status) +
+          (['resolved', 'rejected'].includes(i.status) ? '<div class="ug-note">This report is closed.</div>' : i.mine
   ? '<div class="ug-note">You filed this report, so you cannot confirm it yourself. Other residents in your barangay can.</div>'
   : ((st.corrDone || {})[i.uuid || i.id]
       ? '<button class="ug-btn ug-btn--sm rd-confirmed" disabled>' + I('check', 15) + 'Confirmed</button>'
-      : '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('confirm-corr', attr({ id: i.uuid || i.id })) + '>' + I('check', 15) + 'Confirm This Hazard Is Still There</button>')) +
-        '</div></div>' +
+      : '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('confirm-corr', attr({ id: i.uuid || i.id })) +
+        (st.corrBusy ? ' disabled' : '') + '>' + I('check', 15) + 'Confirm This Hazard Is Still There</button>')) +
+        '</div></div>') +
 
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-between" style="gap:8px">' +
         '<div class="ug-dim" style="font-size:12px">Need help right now?</div>' +
@@ -2113,7 +2109,7 @@ const UG_SCREENS = (() => {
             (open ? '<div class="iq-more">' +
               '<div class="iq-facts">' +
                 '<div><span>Reporter &amp; location</span><b>' + esc(i.id) + '</b><small class="iq-mono">' + (i.lat != null ? 'Coordinates: ' + esc(UG_GEO.fmt(i.lat, i.lng)) : 'No map pin on this report') + '</small></div>' +
-                '<div><span>Corroboration</span><b>' + (i.corr || 0) + ' of 3 required confirmations</b><small>' + (i.corr >= 3 ? 'Threshold reached: verified automatically' : 'Awaiting more citizen field reports') + '</small></div>' +
+                '<div><span>Corroboration</span><b>' + (i.corr || 0) + ' of 3 required confirmations</b><small>' + (i.is_sos ? 'SOS follows the response status' : i.corr >= 3 ? 'Corroboration threshold reached' : i.status === 'reported' ? 'Awaiting more independent confirmations' : 'Report already reviewed') + '</small></div>' +
                 '<div><span>Dispatch / team</span><b>' + esc(team) + '</b><small>' + esc(by || ' ') + '</small></div>' +
               '</div>' +
               '<div class="iq-more-f"><button class="iq-link"' + A('open-incident', attr({ id: i.id })) + '>' + I('pin', 14) + 'Open full record &amp; map</button>' +
@@ -2134,7 +2130,6 @@ const UG_SCREENS = (() => {
       A('nav', attr({ route: 'incidents' })) + '>Back to incidents</button></div>';
     const corr = st.corr[i.id] != null ? st.corr[i.id] : i.corr;
     const status = (corr >= 3 && i.status === 'reported') ? 'verified' : i.status;
-    const corrRows = [];
     /* escalation badges for the detail header */
     const escBadges = (i.is_severity_bypass && i.status === 'reported'
         ? '<span class="ug-badge ug-badge--emergency" style="font-size:11px">Life-safety bypass</span>' : '') +
@@ -2223,14 +2218,12 @@ const UG_SCREENS = (() => {
             (request.assigned_dispatch_id ? 'assigned' : 'requested') + '</b><p>' + esc(request.details) + '</p></div>' : '') +
           dispatchRecords(i) +
           ratingCard(i, false) +
-          '<div class="ug-card"><div class="ug-card-h"><h3>Crowd Corroboration</h3>' + U.badge(corr >= 3 ? 'resolved' : 'warning', corr + ' of 3') + '</div>' +
-            '<div class="ug-card-b ug-col" style="gap:10px">' + U.corrMeter(corr) +
-              corrRows.map((n, k) =>
-              '<div class="ug-rowf ug-gap10" style="gap:9px"><span class="ug-av" style="width:26px;height:26px;font-size:11px">' + esc(n.split(' ').map(w => w[0]).join('')) + '</span>' +
-                '<span style="font-size:12px">' + esc(n) + '</span>' +
-                '<span class="ug-dimmer ug-mono" style="font-size:11px;margin-left:auto">' + (k + 1) + 'm ago</span></div>').join('') +
-              '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('confirm-corr', attr({ id: i.uuid || i.id })) + '>' + I('plus', 14) + 'Log Corroboration</button>' +
-            '</div></div>' +
+          (i.is_sos ? '' : '<div class="ug-card"><div class="ug-card-h"><h3>Crowd Corroboration</h3>' +
+            U.badge(corr >= 3 ? 'resolved' : 'warning', corr + ' of 3') + '</div>' +
+            '<div class="ug-card-b ug-col" style="gap:10px">' + U.corrMeter(corr, i.status) +
+            (!i.mine && !['resolved', 'rejected'].includes(i.status) && !st.corrDone?.[i.uuid || i.id]
+              ? '<button class="ug-btn ug-btn--sm ug-btn--ghost"' + A('confirm-corr', attr({ id: i.uuid || i.id })) +
+                (st.corrBusy ? ' disabled' : '') + '>' + I('plus', 14) + 'Log Corroboration</button>' : '') + '</div></div>') +
           '<div class="ug-card"><div class="ug-card-h"><h3>Assignment</h3></div><div class="ug-card-b ug-col" style="gap:11px">' +
             [['Barangay scope', i.brgy], ['Assigned units', i.units ? i.units + ' deployed' : 'None Yet'], ['Priority', U.SEV[i.sev].label]]
               .map(x => '<div class="ug-rowf ug-between" style="gap:10px;font-size:12px"><span class="ug-dim">' + esc(x[0]) + '</span><span style="font-weight:600">' + esc(x[1]) + '</span></div>').join('') +

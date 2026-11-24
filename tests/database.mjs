@@ -46,10 +46,11 @@ try {
     if (version === '031') {
       await db.exec("insert into public.road_status(road_name,status) values ('Fixture Road','caution')");
     }
-    if (version === '081') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 081 through 084.');
-    if (version === '082') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 082 through 084.');
-    if (version === '083') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 083, then 084.');
-    if (version === '084') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 084.');
+    if (version === '081') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 081 through 085.');
+    if (version === '082') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 082 through 085.');
+    if (version === '083') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 083 through 085.');
+    if (version === '084') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 084, then 085.');
+    if (version === '085') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 085.');
     try { await db.exec(await readMigration(file)); }
     catch (error) { throw Error(file + ': ' + error.message, { cause: error }); }
     if (version === '010') {
@@ -87,14 +88,15 @@ try {
   await db.exec(await readMigration('082_shelter_occupancy_and_analytics.sql'));
   await db.exec(await readMigration('083_alert_receipts_and_report_register.sql'));
   await db.exec(await readMigration('084_sos_and_dispatch_delivery.sql'));
+  await db.exec(await readMigration('085_corroboration_reliability.sql'));
   console.log('PASS Fresh migration chain, legacy hazard and road records, staged help requests and escalation replay.');
   const checkerResults = await db.exec(checkerSql);
   const milestones = checkerResults.find((result) => result.rows?.some((row) => row.migration === '076_super_admin_notifications.sql'))?.rows || [];
   assert.ok(milestones.length > 0);
   assert.deepEqual(milestones.filter((row) => row.status !== 'INSTALLED'), []);
   assert.equal(recommendation(checkerResults),
-    'CURRENT: schema features through 084 are installed.');
-  console.log('Applied the entire 001–084 chain in embedded PostgreSQL with Auth/Storage fixtures.');
+    'CURRENT: schema features through 085 are installed.');
+  console.log('Applied the entire 001–085 chain in embedded PostgreSQL with Auth/Storage fixtures.');
   await db.exec(`
     insert into auth.users(id,email) values
       ('00000000-0000-4000-8000-000000000001', 'actor@example.test'),

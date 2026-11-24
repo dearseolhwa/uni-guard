@@ -909,6 +909,8 @@
     UG_ALARM.stopPendingSos();
     Repo.resetScopedData();
     S.myReportPage = null;
+    S.corrBusy = null;
+    S.nearNotice = '';
     S.users = null;
     S.audit = null;
     S.responders = [];
@@ -939,6 +941,8 @@
       S.declaring = false;
       S.declarationRequestId = null;
       S.myReportPage = null;
+      S.corrBusy = null;
+      S.nearNotice = '';
       S.users = null;
       S.audit = null;
       UG.DATA.queuedReports = [];
@@ -2364,7 +2368,7 @@
             const filed = result.row?.brgy || r.brgy;
             S.myReportPage = null;
             toast('Report ' + result.row.id + ' submitted to the ' + filed + ' queue', 'prepared');
-            S.lastReport = { id: result.row.id, brgy: filed };
+            S.lastReport = { id: result.row.id, brgy: filed, corr: result.row.corr, status: result.row.status };
           }
         }
         S.route = 'report-done';
@@ -2377,34 +2381,38 @@
       render();
     },
 
-        'confirm-corr': async (d) => {
-      if (window.UG_CORR_DONE && window.UG_CORR_DONE.has(d.id)) return;
-      /* from the resident home ("Reported Near You") the outcome shows inline
-         on the card and the button turns into "Confirmed" */
+    'confirm-corr': async (d) => {
+      const owner = S.session;
+      if (!owner || S.corrBusy || window.UG_CORR_DONE.has(d.id)) return;
       const home = d.from === 'home';
-      if (home) {
-        if (S.corrBusy) return;
-        S.corrBusy = d.id; S.nearNotice = ''; render();
-      }
-      let pos = null;
-      try { pos = await UG_FEATURES.locate(); } catch (e) { /* no GPS: the barangay rule applies */ }
-      let msg = '';
+      S.corrBusy = d.id;
+      S.nearNotice = '';
+      render();
+
+      let msg;
+      let tone = 'prepared';
       try {
-        const res = await Repo.corroborate(d.id, '', pos);
-        S.corrDone = Object.assign({}, S.corrDone, { [d.id]: true }); window.UG_CORR_DONE.save(d.id);
-        if (res && res.verified) { msg = 'Thank you. Enough neighbours confirmed it, so the report is now verified.'; if (!home) toast('Three corroborations reached. This report is verified.', 'prepared'); }
-        else { msg = 'Thank you for confirming this hazard.'; if (!home) toast('Corroboration logged: ' + ((res && res.corroborations) || 0) + ' of ' + UG_CONFIG.CORROBORATION_THRESHOLD, 'warning'); }
-      } catch (e) {
-        if (/report_corroborations_unique|duplicate|already/i.test((e && e.message) || '')) {
-          S.corrDone = Object.assign({}, S.corrDone, { [d.id]: true }); window.UG_CORR_DONE.save(d.id);
-          msg = 'You already confirmed this report.';
-        } else msg = (e && e.message) || 'Could not confirm the report.';
-        if (!home) toast(msg, 'warning');
+        const pos = await UG_FEATURES.locate().catch(() => null);
+        if (S.session !== owner) return;
+        const result = await Repo.corroborate(d.id, '', pos);
+        if (S.session !== owner) return;
+        S.corrDone = Object.assign({}, S.corrDone, { [d.id]: true });
+        window.UG_CORR_DONE.save(d.id);
+        if (result?.already_confirmed) msg = 'You already confirmed this report.';
+        else if (result?.auto_verified_now) msg = 'Your confirmation brought this report to the verification threshold.';
+        else msg = 'Your confirmation was recorded.';
+      } catch (error) {
+        if (S.session !== owner) return;
+        msg = error?.message || 'Could not confirm the report.';
+        tone = 'warning';
       }
+      S.corrBusy = null;
       if (home) {
-        S.corrBusy = null; S.nearNotice = msg;
-        setTimeout(() => { if (S.nearNotice === msg) { S.nearNotice = ''; render(); } }, 5000);
-      }
+        S.nearNotice = msg;
+        setTimeout(() => {
+          if (S.session === owner && S.nearNotice === msg) { S.nearNotice = ''; render(); }
+        }, 5000);
+      } else toast(msg, tone);
       render();
     },
 

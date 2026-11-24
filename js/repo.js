@@ -916,6 +916,7 @@ const Repo = (function () {
   async function corroborate(reportUuid, note, pos) {
     const c = client();
     if (!c) {
+      if (!UG_CONFIG.DEV) throw new Error('Connect to UniGuard to confirm this report.');
       const row = (UG.DATA.incidents || []).find((i) => i.uuid === reportUuid || i.id === reportUuid);
       if (row) {
         row.corr = Math.min(3, (row.corr || 0) + 1);
@@ -924,7 +925,7 @@ const Repo = (function () {
       emit();
       return { verified: row && row.status === 'verified', corroborations: row ? row.corr : 0 };
     }
-        const { data, error } = await c.rpc('corroborate_report', {
+    const { data, error } = await c.rpc('corroborate_report', {
       p_report_id: reportUuid, p_note: note || '',
       p_lat: pos ? pos.lat : null, p_lng: pos ? pos.lng : null
     });

@@ -281,10 +281,19 @@ The routing rules cover the departments with UniGuard roles. The duty officer
 can assign additional responders when needed and coordinates with agencies
 such as the electric utility that lack an account or routing integration.
 
+## Corroboration release
+
+Apply [085](../migrations/085_corroboration_reliability.sql) after 084, then
+release web build `uniguard-v572`. In staging, submit a regular hazard and
+confirm it from two other resident accounts. Verify that the meter shows
+one, two, then three independent residents and the mapped response teams
+get the confirmed-hazard alert. Test a repeated confirmation and separate
+reports under Others with different descriptions.
+
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `084_sos_and_dispatch_delivery.sql`.
+`001_align_core_tables.sql` through `085_corroboration_reliability.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
 and record each full filename. Migration 011 installs `pg_trgm` before creating
 its index. Apply `045_super_admin_improvements.sql`, followed by 046 and 047. Migration 043 promotes the account matching its

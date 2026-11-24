@@ -150,7 +150,12 @@ with checks(sort_order, migration, installed, evidence) as (
               and policyname='reports_read_assigned_dispatch') and
       exists (select 1 from pg_trigger where tgrelid=to_regclass('public.reports') and tgname='reports_notify_review') and
       exists (select 1 from pg_trigger where tgrelid=to_regclass('public.emergency_delivery') and tgname='emergency_delivery_wake'),
-      'Assigned report visibility, staffed routing and immediate emergency worker wake')
+      'Assigned report visibility, staffed routing and immediate emergency worker wake'),
+    (85, '085_corroboration_reliability.sql',
+      to_regprocedure('public.corroboration_nearby_reports(uuid)') is not null and
+      exists (select 1 from pg_proc where oid = to_regprocedure('public.corroborate_report(uuid,text,double precision,double precision)')
+            and position('already_confirmed' in prosrc) > 0),
+      'Shared corroboration count and retry-safe confirmations')
 )
 select migration,
        case when installed then 'INSTALLED' else 'MISSING' end as status,
@@ -201,29 +206,33 @@ with current_state as (
     exists (select 1 from pg_policies where schemaname='public' and tablename='reports'
             and policyname='reports_read_assigned_dispatch') and
       exists (select 1 from pg_trigger where tgrelid=to_regclass('public.reports') and tgname='reports_notify_review') and
-      exists (select 1 from pg_trigger where tgrelid=to_regclass('public.emergency_delivery') and tgname='emergency_delivery_wake') as has_084
+      exists (select 1 from pg_trigger where tgrelid=to_regclass('public.emergency_delivery') and tgname='emergency_delivery_wake') as has_084,
+    to_regprocedure('public.corroboration_nearby_reports(uuid)') is not null and
+      exists (select 1 from pg_proc where oid = to_regprocedure('public.corroborate_report(uuid,text,double precision,double precision)')
+            and position('already_confirmed' in prosrc) > 0) as has_085
 )
 select case
   when not has_067 then 'STOP: the database is behind 067 or has gaps. Share the full results before applying the update.'
   when not has_045 then 'STOP: the Super Admin improvements from 045 are missing. Review the full milestone results.'
-  when not has_068 then 'NEXT: apply 068, then continue in filename order through 084.'
-  when not has_069 then 'NEXT: apply 069, then continue in filename order through 084.'
-  when not has_070 then 'NEXT: apply 070, then continue in filename order through 084.'
-  when not has_071 then 'NEXT: apply 071, then continue in filename order through 084.'
-  when not has_072 then 'NEXT: apply 072, then continue in filename order through 084.'
-  when not has_073 then 'NEXT: apply 073, then continue in filename order through 084.'
-  when not has_074 then 'NEXT: apply 074, then 075 through 084.'
-  when not has_075 then 'READY: apply 075 through 084.'
-  when not has_076 then 'READY: apply 076 through 084.'
-  when not has_077 then 'READY: apply 077 through 084.'
-  when not has_078 then 'READY: apply 078 through 084.'
-  when not has_079 then 'READY: apply 079 through 084.'
-  when not has_080 then 'READY: apply 080 through 084.'
-  when not has_081 then 'READY: apply 081 through 084.'
-  when not has_082 then 'READY: apply 082 through 084.'
-  when not has_083 then 'READY: apply 083, then 084.'
-  when not has_084 then 'READY: apply 084.'
-  else 'CURRENT: schema features through 084 are installed.'
+  when not has_068 then 'NEXT: apply 068, then continue in filename order through 085.'
+  when not has_069 then 'NEXT: apply 069, then continue in filename order through 085.'
+  when not has_070 then 'NEXT: apply 070, then continue in filename order through 085.'
+  when not has_071 then 'NEXT: apply 071, then continue in filename order through 085.'
+  when not has_072 then 'NEXT: apply 072, then continue in filename order through 085.'
+  when not has_073 then 'NEXT: apply 073, then continue in filename order through 085.'
+  when not has_074 then 'NEXT: apply 074, then 075 through 085.'
+  when not has_075 then 'READY: apply 075 through 085.'
+  when not has_076 then 'READY: apply 076 through 085.'
+  when not has_077 then 'READY: apply 077 through 085.'
+  when not has_078 then 'READY: apply 078 through 085.'
+  when not has_079 then 'READY: apply 079 through 085.'
+  when not has_080 then 'READY: apply 080 through 085.'
+  when not has_081 then 'READY: apply 081 through 085.'
+  when not has_082 then 'READY: apply 082 through 085.'
+  when not has_083 then 'READY: apply 083 through 085.'
+  when not has_084 then 'READY: apply 084, then 085.'
+  when not has_085 then 'READY: apply 085.'
+  else 'CURRENT: schema features through 085 are installed.'
 end as recommendation
 from current_state;
 
