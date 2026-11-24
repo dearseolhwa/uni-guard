@@ -251,7 +251,8 @@ const Repo = (function () {
       distribution_at: r.distribution_at,
       contact_person: r.contact_person || '', contact_phone: r.contact_phone || '',
       eligibility: arr(r.eligibility), required_docs: arr(r.required_docs),
-      note: r.note || '', active: r.active !== false
+      note: r.note || '', active: r.active !== false,
+      escort_status: r.escort_status || 'none', escort_note: r.escort_note || '', escort_unit_id: r.escort_unit_id || null
     };
   }
   function toBeneficiary(b) {

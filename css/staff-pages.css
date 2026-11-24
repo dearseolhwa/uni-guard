@@ -810,7 +810,8 @@ input.an-sel { padding-right: 14px; background-image: none; }
 .du-row { cursor: pointer; }
 .du-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .du-who > div { min-width: 0; }
-.du-who b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.du-unit-name { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; background: none; border: 0; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.du-unit-name:hover { text-decoration: underline; }
 .du-av { width: 36px; height: 36px; flex: none; border-radius: 12px; display: grid; place-items: center; background: rgba(var(--bg-ice-rgb, 245,245,245),.45);
   border: 1px solid var(--bg-line, #E5E5E5); color: var(--bg-mid, #525252); }
 .du-av svg { width: 15px; height: 15px; }
@@ -840,9 +841,30 @@ input.an-sel { padding-right: 14px; background-image: none; }
 .du-none > span svg { width: 14px; height: 14px; }
 .du-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
 .du-pair .rl-table { min-width: 560px; }
+.du-field { display: none; }
 
 @media (max-width: 1100px) {
   .du-pair { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1023px) {
+  .du .rl-tablewrap { overflow: visible; }
+  .du .du-table { display: block; min-width: 0; }
+  .du-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .du-table tbody, .du-table tbody tr { display: block; }
+  .du-table tbody tr { padding: 10px 16px; }
+  .du-table tbody tr + tr { border-top: 1px solid var(--bg-line, #E5E5E5); }
+  .du-table td:not(.du-none) {
+    display: grid; grid-template-columns: minmax(68px, 28%) minmax(0, 1fr);
+    align-items: start; gap: 10px; padding: 6px 0; max-width: none; border-bottom: 0;
+    text-align: left; white-space: normal; overflow-wrap: anywhere;
+  }
+  .du-field { display: block; color: var(--bg-mid, #525252); font-size: 11px; font-weight: 600; }
+  .du-value { min-width: 0; }
+  .du-table td.r { grid-template-columns: minmax(0, 1fr); gap: 7px; padding-top: 9px; }
+  .du-table td.du-none { display: block; padding: 10px 0; text-align: left; }
+  .du-unit-name { white-space: normal; overflow-wrap: anywhere; }
+  .du-acts { justify-content: flex-start; flex-wrap: wrap; }
+  .du-b { min-height: 40px; max-width: 100%; white-space: normal; }
 }
 @media (max-width: 640px) {
   .du-tool { padding: 14px 16px; }

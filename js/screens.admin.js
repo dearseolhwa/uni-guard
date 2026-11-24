@@ -524,64 +524,73 @@ const UG_ADMIN = (function () {
     const dot = (v, on) => '<span class="du-dot' + (on ? ' is-on' : '') + '"><i></i>' + esc(cap(v)) + '</span>';
     const cardHead = (icon, title, right) => '<div class="rl-ch"><h2>' + I(icon, 15) + esc(title) + '</h2><div class="rl-ch-r">' + (right || '') + '</div></div>';
     const count = (n, word) => '<span class="rl-count">' + n + ' ' + word + (n === 1 ? '' : 's') + '</span>';
-    const none = (cols, icon, text) => '<tr><td colspan="' + cols + '" class="du-none"><span>' + I(icon, 15) + '</span>' + esc(text) + '</td></tr>';
-    const btn = (act, label, icon, extra, cls) => '<button class="rl-ghost du-b' + (cls ? ' ' + cls : '') + '" data-act="' + act + '"' + extra + '>' + (icon ? I(icon, 13) : '') + esc(label) + '</button>';
+    const btn = (act, label, icon, extra, cls) => '<button type="button" class="rl-ghost du-b' + (cls ? ' ' + cls : '') + '" data-act="' + act + '"' + extra + '>' + (icon ? I(icon, 13) : '') + esc(label) + '</button>';
+    const table = (columns, records, render, empty, rowAttrs = () => '') => {
+      const head = columns.map(([label, cls]) => '<th scope="col" role="columnheader" class="' + (cls === 'c' || cls === 'r' ? cls : '') + '">' + esc(label) + '</th>').join('');
+      const rows = records.map((record) => '<tr role="row"' + rowAttrs(record) + '>' +
+        render(record).map((value, index) => {
+          const [label, cls] = columns[index];
+          return '<td role="cell" class="' + (cls || '') + '"><span class="du-field" aria-hidden="true">' + esc(label) + '</span><div class="du-value">' + value + '</div></td>';
+        }).join('') + '</tr>').join('');
+      return '<div class="rl-tablewrap"><table class="rl-table du-table" role="table">' +
+        '<thead role="rowgroup"><tr role="row">' + head + '</tr></thead><tbody role="rowgroup">' +
+        (rows || '<tr role="row"><td role="cell" colspan="' + columns.length + '" class="du-none"><span>' + I(empty[0], 15) + '</span>' + esc(empty[1]) + '</td></tr>') +
+        '</tbody></table></div>';
+    };
 
-    const unitRow = (u) => '<tr class="du-row" data-act="open-unit" data-id="' + esc(u.id) + '">' +
-      '<td><div class="du-who"><span class="du-av">' + I(TYPE_ICON[u.unit_type] || 'truck', 15) + '</span>' +
-        '<div><b>' + esc(u.name) + '</b><small>' + esc(u.address || 'No address on file') + '</small></div></div></td>' +
-      '<td class="c"><span class="du-pill">' + esc(u.unit_type === 'Rescue' ? 'LGU Rescue' : u.unit_type || '—') + '</span></td>' +
-      '<td class="rl-mono du-num">' + esc(u.contact_number || '—') + '</td>' +
-      '<td>' + dot(u.status || 'no status', /avail|stand|ready|on/i.test(u.status || '')) + '</td>' +
-      '<td class="c"><span class="du-act' + (u.active ? ' is-on' : '') + '">' + esc(u.active ? T('admin.unitDetailActive') : T('admin.unitDetailInactive')) + '</span></td>' +
-      '<td class="r"><div class="du-acts">' +
+    const unitRow = (u) => [
+      '<div class="du-who"><span class="du-av">' + I(TYPE_ICON[u.unit_type] || 'truck', 15) + '</span>' +
+        '<div><button type="button" class="du-unit-name" data-act="open-unit" data-id="' + esc(u.id) + '">' + esc(u.name) + '</button><small>' + esc(u.address || 'No address on file') + '</small></div></div>',
+      '<span class="du-pill">' + esc(u.unit_type === 'Rescue' ? 'LGU Rescue' : u.unit_type || '—') + '</span>',
+      esc(u.contact_number || '—'),
+      dot(u.status || 'no status', /avail|stand|ready|on/i.test(u.status || '')),
+      '<span class="du-act' + (u.active ? ' is-on' : '') + '">' + esc(u.active ? T('admin.unitDetailActive') : T('admin.unitDetailInactive')) + '</span>',
+      '<div class="du-acts">' +
         btn('admin-edit-unit', T('action.edit'), 'settings', ' data-id="' + esc(u.id) + '" title="' + esc(T('action.edit')) + '"') +
         btn('admin-unit-accounts', T('admin.unitAccount'), 'users', ' data-id="' + esc(u.id) + '" title="' + esc(T('admin.unitAccountHint')) + '"') +
         /* 050 (Oct 25 2026): the LGU can manage any unit's equipment */
         btn('admin-unit-equipment', 'Equipment', 'shield', ' data-id="' + esc(u.id) + '" data-unit-type="' + esc(u.unit_type) + '" data-unit-name="' + esc(u.name) + '" title="Equipment"') +
         (superAdmin && u.active ? btn('admin-deactivate-unit', 'Deactivate', 'x', ' data-id="' + esc(u.id) + '"', 'du-del') : '') +
-      '</div></td>' +
-    '</tr>';
-    const requestRow = (r) => '<tr>' +
-      '<td class="du-num">' + esc(UG_UTIL.absTime(r.created_at) || '—') + '</td>' +
-      '<td><b>' + esc(unitName(r.unit_id)) + '</b></td>' +
-      '<td class="c"><span class="du-pill">' + esc(cap(r.kind)) + '</span></td>' +
-      '<td class="du-txt">' + esc(r.details || '—') + '</td>' +
-      '<td>' + dot(r.status, r.status === 'pending') + '</td>' +
-      '<td class="r">' + (!superAdmin && r.status === 'pending' ? '<div class="du-acts">' +
+      '</div>'
+    ];
+    const requestRow = (r) => [
+      esc(UG_UTIL.absTime(r.created_at) || '—'),
+      '<b>' + esc(unitName(r.unit_id)) + '</b>',
+      '<span class="du-pill">' + esc(cap(r.kind)) + '</span>',
+      esc(r.details || '—'),
+      dot(r.status, r.status === 'pending'),
+      !superAdmin && r.status === 'pending' ? '<div class="du-acts">' +
         btn('admin-decide-request', T('action.approve'), 'check', ' data-id="' + esc(r.id) + '" data-decision="approved"', 'du-go') +
-        btn('admin-decide-request', T('action.decline'), '', ' data-id="' + esc(r.id) + '" data-decision="declined"') + '</div>' : '<span class="du-done">' + (r.status === 'pending' ? 'Awaiting duty staff' : 'Decided') + '</span>') + '</td>' +
-    '</tr>';
+        btn('admin-decide-request', T('action.decline'), '', ' data-id="' + esc(r.id) + '" data-decision="declined"') + '</div>' : '<span class="du-done">' + (r.status === 'pending' ? 'Awaiting duty staff' : 'Decided') + '</span>'
+    ];
     /* A2 row: a dispatch help request */
-    const helpRow = (h) => '<tr>' +
-      '<td class="du-num">' + esc(UG_UTIL.absTime(h.created_at) || '—') + '</td>' +
-      '<td class="c"><span class="du-pill">' + esc(cap(h.kind)) + '</span></td>' +
-      '<td class="du-txt">' + esc(h.message || '—') + '</td>' +
-      '<td>' + dot(h.status || 'sent', (h.status || 'sent') === 'sent') + '</td>' +
-      '<td class="r">' +
+    const helpRow = (h) => [
+      esc(UG_UTIL.absTime(h.created_at) || '—'),
+      '<span class="du-pill">' + esc(cap(h.kind)) + '</span>',
+      esc(h.message || '—'),
+      dot(h.status || 'sent', (h.status || 'sent') === 'sent'),
+      '<div class="du-acts">' +
         (!superAdmin && (h.status === 'sent' || !h.status) ? btn('help-request-update', 'Acknowledge', 'check', ' data-id="' + esc(h.id) + '" data-next="acknowledged"', 'du-go') : '') +
         (!superAdmin && h.status === 'acknowledged' && !h.support_dispatch_id ? btn('dispatch-request-backup', 'Assign backup', 'truck',
           ' data-id="' + esc(h.id) + '" data-dispatch="' + esc(h.dispatch_id) + '"', 'du-go') : '') +
         (h.support_dispatch_id ? '<span class="du-done">Backup assigned</span>' : '') +
         (!superAdmin && h.status === 'acknowledged' ? btn('help-request-update', 'Resolve', 'check', ' data-id="' + esc(h.id) + '" data-next="resolved"', 'du-go') : '') +
         (h.status === 'resolved' ? '<span class="du-done">Resolved</span>' : '') +
-      '</td>' +
-    '</tr>';
+        (superAdmin && h.status !== 'resolved' && !h.support_dispatch_id ? '<span class="du-done">Awaiting duty staff</span>' : '') +
+      '</div>'
+    ];
     /* D3 row: a relief distribution with escort requested/confirmed */
-    const escortRow = (r) => '<tr>' +
-      '<td><b>' + esc(r.title || '') + '</b><small>' + esc(r.barangay ? 'Brgy. ' + r.barangay : '') + '</small></td>' +
-      '<td>' + dot(r.escort_status, r.escort_status === 'requested') + '</td>' +
-      '<td class="du-txt">' + esc(r.escort_note || '—') + '</td>' +
-      '<td>' + esc(r.escort_unit_id ? unitName(r.escort_unit_id) : '—') + '</td>' +
-      '<td class="r">' + (r.escort_status === 'requested'
-        ? btn('relief-escort-confirm', 'Confirm escort', 'check', ' data-id="' + esc(r.id) + '"', 'du-go')
-        : '<span class="du-done">Confirmed</span>') + '</td>' +
-    '</tr>';
+    const escortRow = (r) => [
+      '<b>' + esc(r.title || '') + '</b><small>' + esc(r.barangay ? 'Brgy. ' + r.barangay : '') + '</small>',
+      dot(r.escort_status, r.escort_status === 'requested'),
+      esc(r.escort_note || '—'),
+      esc(r.escort_unit_id ? unitName(r.escort_unit_id) : '—'),
+      r.escort_status === 'requested'
+        ? '<span class="du-done">Awaiting PNP confirmation</span>'
+        : '<span class="du-done">Confirmed</span>'
+    ];
 
     const pending = requests.filter((r) => r.status === 'pending').length;
-    const openHelp = helpReqs.filter((h) => h.status !== 'resolved').length;
-    const activeN = allUnits.filter((u) => u.active).length;
-    const table = (headCells, rows) => '<div class="rl-tablewrap"><table class="rl-table du-table"><thead><tr>' + headCells + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 
     return '<div class="ug-col du" style="gap:20px">' +
       head(T('admin.dispatchUnitsTitle'), T('admin.dispatchUnitsSub'),
@@ -597,36 +606,35 @@ const UG_ADMIN = (function () {
             '<input class="rl-in" data-field="unitSearch" value="' + esc(st.unitSearch || '') + '" placeholder="Search name, type or address" aria-label="' + esc(T('action.search')) + '">' +
             (st.unitSearch ? '<button data-act="unit-clear-search" aria-label="' + esc(T('action.clear')) + '">' + I('x', 11) + '</button>' : '') + '</span>' +
         '</div>' +
-        table('<th>' + esc(T('label.name')) + ' / ' + esc(T('label.address')) + '</th><th class="c">' + esc(T('label.type')) + '</th><th>' + esc(T('label.contact')) + '</th><th>' + esc(T('label.status')) + '</th><th class="c">' + esc(T('label.active')) + '</th><th class="r">' + esc(T('label.actions')) + '</th>',
-          shown.length ? shown.map(unitRow).join('') : none(6, st.unitSearch ? 'search' : 'truck', st.unitSearch || typeF !== 'All' ? 'No units match this search' : T('admin.noUnits'))) +
+        table([[T('label.name') + ' / ' + T('label.address')], [T('label.type'), 'c'], [T('label.contact'), 'rl-mono du-num'],
+          [T('label.status')], [T('label.active'), 'c'], [T('label.actions'), 'r']], shown, unitRow,
+          [st.unitSearch ? 'search' : 'truck', st.unitSearch || typeF !== 'All' ? 'No units match this search' : T('admin.noUnits')],
+          (u) => ' class="du-row" data-act="open-unit" data-id="' + esc(u.id) + '"') +
       '</section>' +
       '<section class="rl-card">' +
         cardHead('inbox', 'Municipal dispatch requests') +
-        table('<th>When</th><th>Request</th><th>Status</th><th class="r">Action</th>',
-          (UG.DATA.municipalDispatchRequests || []).map((r) => '<tr><td>' +
-            esc(UG_UTIL.absTime(r.requested_at)) + '</td><td>' + esc(r.details) + '</td><td>' +
-            (r.assigned_dispatch_id ? 'Assigned' : 'Awaiting assignment') + '</td><td class="r">' +
-            btn('open-incident', 'Open incident', 'doc', ' data-id="' + esc(r.report_id) + '"') + '</td></tr>').join('') ||
-            none(4, 'inbox', 'No municipal dispatch requests')) +
+        table([['When'], ['Request'], ['Status'], ['Action', 'r']], UG.DATA.municipalDispatchRequests || [],
+          (r) => [esc(UG_UTIL.absTime(r.requested_at)), esc(r.details), r.assigned_dispatch_id ? 'Assigned' : 'Awaiting assignment',
+            btn('open-incident', 'Open incident', 'doc', ' data-id="' + esc(r.report_id) + '"')], ['inbox', 'No municipal dispatch requests']) +
       '</section>' +
       /* A1 support requests */
       '<section class="rl-card">' +
         cardHead('inbox', T('admin.supportRequestInbox'), (pending ? '<span class="rl-count">' + pending + ' pending</span>' : '') + count(requests.length, 'request')) +
-        table('<th>' + esc(T('label.when')) + '</th><th>' + esc(T('label.unit')) + '</th><th class="c">' + esc(T('label.kind')) + '</th><th>' + esc(T('label.details')) + '</th><th>' + esc(T('label.status')) + '</th><th class="r">' + esc(T('label.action')) + '</th>',
-          requests.length ? requests.map(requestRow).join('') : none(6, 'inbox', T('admin.noSupportRequests'))) +
+        table([[T('label.when'), 'du-num'], [T('label.unit')], [T('label.kind'), 'c'], [T('label.details'), 'du-txt'],
+          [T('label.status')], [T('label.action'), 'r']], requests, requestRow, ['inbox', T('admin.noSupportRequests')]) +
       '</section>' +
       '<div class="du-pair">' +
         /* A2 inbox */
         '<section class="rl-card">' +
           cardHead('alert', 'Dispatch help requests', count(helpReqs.length, 'request')) +
-          table('<th>When</th><th class="c">Kind</th><th>Message</th><th>Status</th><th class="r">Action</th>',
-            helpReqs.length ? helpReqs.map(helpRow).join('') : none(5, 'check', 'No help requests')) +
+          table([['When', 'du-num'], ['Kind', 'c'], ['Message', 'du-txt'], ['Status'], ['Action', 'r']],
+            helpReqs, helpRow, ['check', 'No help requests']) +
         '</section>' +
         /* D3 escort list */
         '<section class="rl-card">' +
           cardHead('shield', 'Relief escorts', count(escortRows.length, 'escort')) +
-          table('<th>Distribution</th><th>Escort</th><th>Note</th><th>Unit</th><th class="r">Action</th>',
-            escortRows.length ? escortRows.map(escortRow).join('') : none(5, 'shield', 'No active escorts')) +
+          table([['Distribution'], ['Escort'], ['Note', 'du-txt'], ['Unit'], ['Action', 'r']],
+            escortRows, escortRow, ['shield', 'No active escorts']) +
         '</section>' +
       '</div>' +
     '</div>';
