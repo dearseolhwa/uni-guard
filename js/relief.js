@@ -62,7 +62,7 @@ const UG_RELIEF = (function () {
   ];
 
   function ensureInventory() {
-    if (typeof Repo !== 'undefined' && Repo.client()) return;
+    if (!UG_CONFIG.DEV || (typeof Repo !== 'undefined' && Repo.client())) return;
     if (!UG.DATA.inventory) UG.DATA.inventory = JSON.parse(JSON.stringify(DEFAULT_INVENTORY));
     if (!UG.DATA.distributionLog) UG.DATA.distributionLog = JSON.parse(JSON.stringify(DEFAULT_DISTRIBUTIONS_LOG));
   }
@@ -78,6 +78,9 @@ const UG_RELIEF = (function () {
        These were previously both lumped under "Shelter", which made the inventory table confusing.
        The migration 044_super_admin_improvements.sql reclassifies existing rows in the database to match. */
   const INV_CATEGORIES = ['Food', 'Water', 'Medical', 'Equipment', 'Shelter Supplies', 'Hygiene'];
+  function inventoryCategory(value) {
+    return value === 'Shelter' ? 'Shelter Supplies' : value;
+  }
   const CAT_COLOR = {
     Food: 'var(--ug-prepared)', Water: 'var(--ug-signal)', Medical: 'var(--ug-emergency)',
     Equipment: 'var(--ug-advisory)', 'Shelter Supplies': 'var(--ug-warning)',
@@ -238,8 +241,15 @@ const UG_RELIEF = (function () {
       U.badge(authorized ? 'open' : 'id', authorized ? 'Self' : 'Rep') + '</div>';
   }
     /* officials only manage their own barangay; LGU sees everything */
+  function stockReady() {
+    return UG.DATA.reliefInventoryReady && navigator.onLine !== false;
+  }
   function canManageStock(session) {
-    return !!(UG.DATA.reliefInventoryReady && session && session.role === 'lgu_ldrrmc' && !session.superAdmin);
+    return !!(stockReady() && session?.role === 'lgu_ldrrmc' && !session.superAdmin);
+  }
+  function canRecordStock(session) {
+    return !!(stockReady() && session && !session.superAdmin &&
+      (session.role === 'lgu_ldrrmc' || (session.role === 'barangay_official' && session.barangay)));
   }
 
   function scopedBrgy(st) {
@@ -273,7 +283,7 @@ const UG_RELIEF = (function () {
     const all = UG.DATA.inventory || [];
     const cat = st.invCatFilter || 'all';
     const q = (st.invSearch || '').trim().toLowerCase();
-    const list = all.filter((i) => cat === 'all' || i.category === cat)
+    const list = all.filter((i) => cat === 'all' || inventoryCategory(i.category) === cat)
       .filter((i) => !q ||
         (i.name || '').toLowerCase().indexOf(q) >= 0 ||
         (i.id || '').toLowerCase().indexOf(q) >= 0 ||
@@ -311,7 +321,7 @@ const UG_RELIEF = (function () {
     const tab = st.reliefTab || 'distributions';
     const mine = scopedBrgy(st);
     const low = lowStockItems();
-    const canRecord = UG.DATA.reliefInventoryReady && st.session && !st.session.superAdmin;
+    const canRecord = canRecordStock(st.session);
     const sub = mine ? 'Distribution schedules, beneficiaries, relief stock and what was handed out in Barangay ' + mine + '.'
       : 'Manage distributions, track stock levels, and record every pack handed out per barangay and family.';
     const main = tab === 'distributions' ? '<button class="ug-btn ug-btn--signal rl-main"' + A('relief-add') + '>' + I('plus', 15) + 'Add Distribution</button>'
@@ -412,18 +422,18 @@ const UG_RELIEF = (function () {
      the items grouped by category, each with a stock bar against its
      reorder point and Distribute / Restock / Edit. */
   function stockSourceNote() {
-    if (UG.DATA.reliefInventoryReady && navigator.onLine !== false) return '';
-    return '<p class="ug-note">' + (Repo.client() ? 'Shared ledger unavailable or offline. Stock shown may be outdated.' :
-      'Preview data. Connect to Supabase to use the shared ledger.') + '</p>';
+    if (stockReady()) return '';
+    return '<p class="ug-note">' + (UG_CONFIG.DEV && !Repo.client() ? 'Preview data. Connect to Supabase to use the shared ledger.' :
+      'Shared ledger unavailable or offline. Stock shown may be outdated.') + '</p>';
   }
 
   function dInventory(st) {
     const vis = visibleInventory(st);
     const all = vis.all, cat = vis.cat, list = vis.list, mine = vis.mine, q = vis.q;
     const low = all.filter((i) => (i.stock || 0) <= (i.reorder || 0));
-    const totalUnits = all.reduce((n, i) => n + (i.stock || 0), 0);
-    const cats = [['all', 'All', all.length]].concat(INV_CATEGORIES.map((c) => [c, c, all.filter((i) => i.category === c).length]).filter((c) => c[2] > 0));
-    const groups = INV_CATEGORIES.concat(['Other']).map((c) => ({ c: c, items: list.filter((i) => (INV_CATEGORIES.indexOf(i.category) >= 0 ? i.category : 'Other') === c) })).filter((g) => g.items.length);
+    const inStock = all.filter((i) => i.stock > 0).length;
+    const cats = [['all', 'All', all.length]].concat(INV_CATEGORIES.map((c) => [c, c, all.filter((i) => inventoryCategory(i.category) === c).length]).filter((c) => c[2] > 0));
+    const groups = INV_CATEGORIES.concat(['Other']).map((c) => ({ c: c, items: list.filter((i) => (INV_CATEGORIES.includes(inventoryCategory(i.category)) ? inventoryCategory(i.category) : 'Other') === c) })).filter((g) => g.items.length);
     return stockSourceNote() + '<section class="rl-card">' +
       '<div class="rl-ch"><h2>' + I('layers', 15) + 'Resource Inventory</h2><div class="rl-ch-r">' +
         '<span class="rl-count">Shared warehouse stock</span>' +
@@ -432,7 +442,7 @@ const UG_RELIEF = (function () {
       '<div class="rl-body">' +
         '<div class="rl-figs">' +
           '<div><span>Items</span><b>' + all.length.toLocaleString() + '</b></div>' +
-          '<div><span>Units on hand</span><b>' + totalUnits.toLocaleString() + '</b></div>' +
+          '<div><span>Items in stock</span><b>' + inStock.toLocaleString() + '</b></div>' +
           '<div class="' + (low.length ? 'is-warn' : '') + '"><span>Low stock</span><b>' + low.length.toLocaleString() + '</b></div>' +
         '</div>' +
         '<div class="rl-tool">' +
@@ -470,7 +480,7 @@ const UG_RELIEF = (function () {
         '<div class="rl-bar"><i style="width:' + Math.max(pct, (i.stock || 0) > 0 ? 4 : 0) + '%"></i></div></div>' +
       '<div class="rl-inv-r"><span class="rl-mono rl-qty">' + (i.stock || 0).toLocaleString() + ' ' + esc(i.unit || '') + '<em>/ reorder ' + (i.reorder || 0) + '</em></span>' +
         '<div class="rl-acts">' +
-          (UG.DATA.reliefInventoryReady && session && !session.superAdmin ? '<button class="rl-ghost" data-act="rec-add" data-item="' + esc(i.id) + '"' + ((i.stock || 0) <= 0 ? ' disabled' : '') + ' title="Record goods handed out">' + I('download', 12) + 'Distribute</button>' : '') +
+          (canRecordStock(session) ? '<button class="rl-ghost" data-act="rec-add" data-item="' + esc(i.id) + '"' + ((i.stock || 0) <= 0 ? ' disabled' : '') + ' title="Record goods handed out">' + I('download', 12) + 'Distribute</button>' : '') +
           (canManageStock(session) ? '<button class="rl-ghost" data-act="inv-restock" data-id="' + esc(i.id) + '">' + I('plus', 12) + 'Restock</button>' +
           '<button class="rl-icon" data-act="inv-edit" data-id="' + esc(i.id) + '" title="Edit" aria-label="Edit ' + esc(i.name) + '">' + I('settings', 13) + '</button>' : '') +
         '</div></div>' +
@@ -487,7 +497,8 @@ const UG_RELIEF = (function () {
     const out = (i.stock || 0) <= 0;
     const status = out ? 'Out of stock' : low ? 'Low stock' : 'In stock';
     const statusTone = out ? 'var(--ug-emergency)' : low ? 'var(--ug-warning)' : 'var(--ug-prepared)';
-    const catColor = CAT_COLOR[i.category] || 'var(--ug-ink-2)';
+    const category = inventoryCategory(i.category);
+    const catColor = CAT_COLOR[category] || 'var(--ug-ink-2)';
     const pct = i.reorder > 0 ? Math.min(100, Math.round((i.stock || 0) / Math.max(i.reorder * 2, 1) * 100)) : 100;
     const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
     UG_FEATURES.modal({
@@ -495,7 +506,7 @@ const UG_RELIEF = (function () {
       body:
         '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:14px">' +
           '<div class="ug-rowf ug-between" style="gap:10px;align-items:center">' +
-            '<span class="ug-chip" style="background:' + catColor + '22;color:' + catColor + '">' + esc(i.category) + '</span>' +
+            '<span class="ug-chip" style="background:' + catColor + '22;color:' + catColor + '">' + esc(category) + '</span>' +
             '<span class="ug-badge" style="background:' + statusTone + '22;color:' + statusTone + ';border-color:' + statusTone + '55">' + esc(status) + '</span>' +
           '</div>' +
           '<div>' +
@@ -507,7 +518,7 @@ const UG_RELIEF = (function () {
         '<div style="margin-top:14px">' +
           kv('Item ID', i.id) +
           kv('Item name', i.name) +
-          kv('Category', i.category) +
+          kv('Category', category) +
           kv('Unit of measure', i.unit) +
           kv('In stock', (i.stock || 0) + ' ' + (i.unit || '')) +
           kv('Reorder threshold', (i.reorder || 0) + ' ' + (i.unit || '')) +
@@ -574,10 +585,9 @@ const UG_RELIEF = (function () {
     const mine = vis.mine, brgyFilter = vis.brgyFilter, filtered = vis.filtered;
     const barangays = mine ? [mine] : ['All'].concat(U.DATA.barangays);
     const per = {};
-    filtered.forEach((r) => { const k = r.barangay || 'Unspecified'; per[k] = (per[k] || 0) + (r.qty || 0); });
+    filtered.forEach((r) => { const k = r.barangay || 'Unspecified'; per[k] = (per[k] || 0) + 1; });
     const perRows = Object.keys(per).sort((x, y) => per[y] - per[x]);
     const max = perRows.length ? per[perRows[0]] : 1;
-    const total = filtered.reduce((n, r) => n + (r.qty || 0), 0);
     return stockSourceNote() + '<section class="rl-card">' +
       '<div class="rl-ch"><h2>' + I('doc', 15) + 'Distribution Records</h2><div class="rl-ch-r">' +
         (mine ? '<span class="rl-count">' + I('pin', 12) + esc(mine) + '</span>'
@@ -585,7 +595,7 @@ const UG_RELIEF = (function () {
         '<button class="rl-ghost"' + A('rec-download') + (filtered.length ? '' : ' disabled') + '>' + I('download', 13) + 'CSV</button>' +
       '</div></div>' +
       '<div class="rl-body rl-rec">' +
-        '<div><h3 class="rl-h3">' + (mine ? 'Total handed out' : 'Per-barangay totals') + '<em>' + total.toLocaleString() + ' units</em></h3>' +
+        '<div><h3 class="rl-h3">' + (mine ? 'Distribution activity' : 'Records by barangay') + '<em>' + filtered.length.toLocaleString() + ' records</em></h3>' +
           (perRows.length ? '<ul class="rl-per">' + perRows.map((b) => '<li><div><span>' + esc(b) + '</span><b class="rl-mono">' + per[b].toLocaleString() + '</b></div><div class="rl-bar"><i style="width:' + Math.max(4, Math.round(per[b] / max * 100)) + '%"></i></div></li>').join('') + '</ul>'
             : '<p class="rl-muted">No distributions recorded yet.</p>') + '</div>' +
         '<div><h3 class="rl-h3">Goods handed out<em>' + filtered.length + ' records</em></h3>' +
@@ -610,6 +620,6 @@ const UG_RELIEF = (function () {
 
   return { mRelief, mReliefVerify, dRelief, fmtDate, fmtDateTime, head,
     visibleSchedules, visibleBeneficiaries, visibleInventory, visibleRecords, scopedBrgy,
-    ensureInventory, lowStockItems, DEFAULT_INVENTORY, DEFAULT_DISTRIBUTIONS_LOG,
+    ensureInventory, inventoryCategory, canManageStock, canRecordStock, lowStockItems, DEFAULT_INVENTORY, DEFAULT_DISTRIBUTIONS_LOG,
     INV_CATEGORIES, CAT_COLOR, RELIEF_TABS, invDetailModal, distDetailModal };
 })();

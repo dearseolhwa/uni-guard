@@ -367,6 +367,33 @@ async function corroborationControls(browser, app) {
   } finally { await context.close(); }
 }
 
+async function reliefSupplyControls(browser, app) {
+  const {page, context} = await fixture(browser, app);
+  try {
+    await enter(page, app, 'lgu_ldrrmc', 'relief');
+    await page.evaluate(() => {
+      UG.DATA.reliefInventoryReady = true;
+      UG.DATA.inventory = [
+        {id: 'fixture-tent', name: 'Fixture tent', category: 'Shelter', unit: 'tents', stock: 4, reorder: 1, updated_at: '2020-01-01'},
+        {id: 'fixture-water', name: 'Fixture water', category: 'Water', unit: 'litres', stock: 0, reorder: 3, updated_at: '2020-01-01'}
+      ];
+      UG_APP.S.reliefTab = 'inventory';
+      UG_APP.render();
+    });
+    assert.ok(await page.getByText('Items in stock', {exact: true}).isVisible());
+    assert.equal(await page.getByText('Units on hand', {exact: true}).count(),0);
+    await page.getByRole('tab', {name: /Shelter Supplies/}).click();
+    assert.ok(await page.getByRole('button', {name: 'Fixture tent', exact: true}).isVisible());
+    assert.equal(await page.getByRole('button', {name: 'Fixture water', exact: true}).count(),0);
+    await page.getByRole('button', {name: 'Edit Fixture tent'}).click();
+    assert.equal(await page.locator('[data-inv-cat]').inputValue(),'Shelter Supplies');
+    await page.getByRole('button', {name: 'Cancel', exact: true}).click();
+    await page.getByRole('button', {name: 'Distribute', exact: true}).click();
+    assert.deepEqual(await page.locator('[data-rec-item] option').evaluateAll(options => options.map(option => option.value)),['fixture-tent']);
+    console.log('PASS Relief inventory groups legacy shelter supplies, identifies item types, and offers only stock on hand for distribution.');
+  } finally { await context.close(); }
+}
+
 module.exports = async function verifyRoleAudits(browser, app) {
   await dispatchFailure(browser, app);
   await advisoryDelivery(browser, app);
@@ -374,5 +401,6 @@ module.exports = async function verifyRoleAudits(browser, app) {
   await productionAuth(browser, app);
   await urgentReceipts(browser, app);
   await corroborationControls(browser, app);
+  await reliefSupplyControls(browser, app);
   await roleSweep(browser, app);
 };

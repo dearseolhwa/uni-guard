@@ -70,6 +70,17 @@ export async function verifyBackendAudit(db) {
   const ledger = `select i.stock,l.voided_at is not null as voided
     from public.relief_inventory i join public.relief_distribution_log l on l.item_id=i.id where l.id=$1`;
   assert.deepEqual(await rows(ledger, [distributionId]), [{stock: 18, voided: false}]);
+  await as('official', distribute, distribution);
+  assert.deepEqual(await rows(ledger, [distributionId]), [{stock: 18, voided: false}]);
+  await assert.rejects(as('official', "select public.record_relief_stock_distribution($1,$2,19,$3,'Fixture family')",
+    ['fixture-insufficient-stock',stockId,local.name]), /Insufficient stock/);
+  assert.deepEqual(await rows('select id from public.relief_distribution_log where id=$1',['fixture-insufficient-stock']),[]);
+  const editStock = "select public.save_relief_item($1,'Fixture relief stock','Hygiene',$2,18,1,'','',$3)";
+  const current = (await rows('select updated_at::text as version from public.relief_inventory where id=$1',[stockId]))[0].version;
+  await assert.rejects(as('duty',editStock,[stockId,'boxes',current]),/recorded distributions in its current unit/);
+  await as('duty',editStock,[stockId,'units',current]);
+  await assert.rejects(as('duty',editStock,[stockId,'units',current]),/This item changed/);
+
   await db.query('update public.relief_inventory set stock=2147483647 where id=$1', [stockId]);
   const voidStock = 'select public.void_relief_stock_distribution($1)';
   await assert.rejects(as('duty', voidStock, [distributionId]), /outside its supported range/);
@@ -78,6 +89,31 @@ export async function verifyBackendAudit(db) {
   await as('duty', voidStock, [distributionId]);
   await as('duty', voidStock, [distributionId]);
   assert.deepEqual(await rows(ledger, [distributionId]), [{stock: 20, voided: true}]);
+  const operation = randomUUID();
+  await as('duty','select public.adjust_relief_stock($1,5,$2)',[stockId,operation]);
+  await as('duty','select public.adjust_relief_stock($1,5,$2)',[stockId,operation]);
+  assert.deepEqual(await rows(ledger,[distributionId]),[{stock:25,voided:true}]);
+
+  const [{id: incident}] = await as('resident', `insert into public.reports
+    (hazard_type,hazard_other_text,description,severity,lat,lng)
+     values ('Others','Fixture supply response','Fixture supply response','warning',16.0223,120.2312) returning id`);
+  await as('duty',"select public.advance_report_status($1,'verified','Fixture verified')",[incident]);
+  const dispatchEquipment = `select public.dispatch_report_v2(
+    $1,'Barangay Response Team','Bring the generator',now()+interval '15 minutes',null,null,array[$2::uuid]
+  ) as assignment`;
+  const [{assignment}] = await as('official', dispatchEquipment,[incident,equipment.id]);
+  const equipmentState = 'select status from public.dispatch_equipment where id=$1';
+  assert.deepEqual(await rows(equipmentState,[equipment.id]),[{status:'deployed'}]);
+  await as('official',"select public.decline_dispatch($1,'Fixture unit cannot respond')",[assignment.id]);
+  assert.deepEqual(await rows(equipmentState,[equipment.id]),[{status:'available'}]);
+  assert.deepEqual(await rows('select released_at is not null as released from public.dispatch_equipment_use where dispatch_id=$1',[assignment.id]),[{released:true}]);
+  const [{assignment: reassigned}] = await as('official',dispatchEquipment,[incident,equipment.id]);
+  await as('official',"select public.dispatch_respond($1,'acknowledged')",[reassigned.id]);
+  await as('official',"select public.dispatch_respond($1,'done')",[reassigned.id]);
+  assert.deepEqual(await rows(equipmentState,[equipment.id]),[{status:'available'}]);
+  assert.deepEqual(await rows('select released_at is not null as released from public.dispatch_equipment_use where dispatch_id=$1',[reassigned.id]),[{released:true}]);
+  console.log('PASS Supply restock and distribution retries apply once, stale edits cannot change stock, and completed or declined dispatch returns barangay equipment.');
+
 
   await db.query('insert into auth.sessions(id,user_id) values ($1,$2)', [randomUUID(), users.removed]);
   await as('admin', 'select public.remove_staff_account($1)', [users.removed]);

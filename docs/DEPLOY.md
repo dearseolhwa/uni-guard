@@ -290,10 +290,19 @@ one, two, then three independent residents and the mapped response teams
 get the confirmed-hazard alert. Test a repeated confirmation and separate
 reports under Others with different descriptions.
 
+## Relief supplies release
+
+Apply [086](../migrations/086_relief_supply_units.sql) after 085, then release
+web build `uniguard-v573`. When an item has active distribution records, create a
+separate item if you need to track a different unit of measure. The original
+item keeps the unit used by those distributions so a void can restore stock
+correctly. Inventory totals count item types and distribution records.
+Quantities appear per item with their units.
+
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `085_corroboration_reliability.sql`.
+`001_align_core_tables.sql` through `086_relief_supply_units.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
 and record each full filename. Migration 011 installs `pg_trgm` before creating
 its index. Apply `045_super_admin_improvements.sql`, followed by 046 and 047. Migration 043 promotes the account matching its

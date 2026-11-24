@@ -4934,7 +4934,7 @@
     'inv-detail': (d) => { if (typeof UG_RELIEF !== 'undefined' && UG_RELIEF.invDetailModal) UG_RELIEF.invDetailModal(d.id); },
 
     'inv-add': () => {
-      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) { toast('Only MDRRMO staff can manage warehouse stock', 'warning'); return; }
+      if (!UG_RELIEF.canManageStock(S.session)) { toast('An MDRRMO duty account and a live stock ledger are required.', 'warning'); return; }
       const cats = UG_RELIEF.INV_CATEGORIES.map((c) => '<option>' + c + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Add a stock item',
@@ -4978,10 +4978,10 @@
     },
 
     'inv-edit': (d) => {
-      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
+      if (!UG_RELIEF.canManageStock(S.session)) return;
       const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
       if (!i || !i.updated_at) return;
-      const cats = UG_RELIEF.INV_CATEGORIES.map((c) => '<option' + (i.category === c ? ' selected' : '') + '>' + c + '</option>').join('');
+      const cats = UG_RELIEF.INV_CATEGORIES.map((c) => '<option' + (UG_RELIEF.inventoryCategory(i.category) === c ? ' selected' : '') + '>' + c + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Edit stock item · ' + i.name,
         body:
@@ -5019,7 +5019,7 @@
     },
 
     'inv-restock': (d) => {
-      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
+      if (!UG_RELIEF.canManageStock(S.session)) return;
       const i = (UG.DATA.inventory || []).find((x) => x.id === d.id);
       if (!i) return;
       UG_FEATURES.modal({
@@ -5045,11 +5045,12 @@
 
     'rec-add': (d) => {
       if (!requireRole(['lgu_ldrrmc', 'barangay_official']) || isSuperAdmin()) { toast('Only officials can record distributions', 'warning'); return; }
-      if (!UG.DATA.reliefInventoryReady) { toast('Connect to the shared ledger first', 'warning'); return; }
-      if (!(UG.DATA.inventory || []).length) { toast('Add a stock item first', 'warning'); return; }
+      if (!UG_RELIEF.canRecordStock(S.session)) { toast('Connect to the shared ledger and check your barangay assignment.', 'warning'); return; }
+      const available = (UG.DATA.inventory || []).filter((i) => i.stock > 0);
+      if (!available.length) { toast('There are no items in stock to distribute.', 'warning'); return; }
       const pre = (d && d.item) || '';
       const own = (S.session && S.session.role === 'barangay_official' && S.session.barangay) || '';
-      const items = (UG.DATA.inventory || []).map((i) => '<option value="' + UG_UTIL.esc(i.id) + '"' + (i.id === pre ? ' selected' : '') + '>' + UG_UTIL.esc(i.name + ' (' + (i.stock || 0) + ' ' + i.unit + ' in stock)') + '</option>').join('');
+      const items = available.map((i) => '<option value="' + UG_UTIL.esc(i.id) + '"' + (i.id === pre ? ' selected' : '') + '>' + UG_UTIL.esc(i.name + ' (' + (i.stock || 0) + ' ' + i.unit + ' in stock)') + '</option>').join('');
       const brgys = (own ? [own] : UG.DATA.barangays).map((b) => '<option' + (b === own ? ' selected' : '') + '>' + UG_UTIL.esc(b) + '</option>').join('');
       UG_FEATURES.modal({
         title: 'Record a distribution',
@@ -5083,7 +5084,7 @@
     },
 
     'rec-del': async (d) => {
-      if (!requireRole(['lgu_ldrrmc']) || isSuperAdmin()) return;
+      if (!UG_RELIEF.canManageStock(S.session)) return;
       const record = (UG.DATA.distributionLog || []).find((r) => r.id === d.id);
       if (!record) return;
       const ok = await UG_FEATURES.confirm({
