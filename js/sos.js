@@ -110,50 +110,53 @@ const UG_SOS = (function () {
      position (shared by the responders, migration 057) */
   function tracking(st) {
     const last = st.lastSos;
-    const mineOpen = (UG.DATA.sosLog || []).find((x) => x.report_id && x.status !== 'resolved' &&
-      (!st.session || !x.user_id || x.user_id === st.session.id));
-    const reportId = (last && last.report_id) || (mineOpen && mineOpen.report_id);
-    if (!reportId) return '';
+    const mine = (UG.DATA.sosLog || []).filter((x) => !st.session || !x.user_id || x.user_id === st.session.id);
+    const recent = mine.find((x) => x.id === last?.id) || (!last ? mine[0] : null);
+    const reportId = recent?.report_id || last?.report_id;
+    if (!recent && !reportId) return '';
     const inc = (UG.DATA.incidents || []).find((i) => i.uuid === reportId);
-    if (inc && inc.status === 'resolved') return '';
     const teams = (UG.DATA.dispatches || {})[reportId] || [];
+    const waiting = recent?.status !== 'resolved' && teams.length && teams.every((d) => d.dispatch_status === 'declined');
     const units = UG.DATA.unitsById || {};
     const stepLabel = { sent: 'Sent', acknowledged: 'Acknowledged', en_route: 'On the way', on_scene: 'Arrived',
       done: 'Done', declined: 'Declined', under_control: 'Under control', fire_out: 'Fire out', on_hold: 'On hold',
       transporting: 'Transporting', arrived_hospital: 'At the hospital' };
     const clock = (v) => v ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    const rows = teams.filter((d) => d.dispatch_status !== 'declined').map((d) => {
+    const rows = teams.map((d) => {
       const unit = units[d.unit_id];
-      const far = (d.last_lat != null && inc && inc.lat != null) ? UG_UTIL.distanceM(d.last_lat, d.last_lng, inc.lat, inc.lng) : null;
+      const active = !['declined', 'done'].includes(d.dispatch_status);
+      const far = (active && d.last_lat != null && d.last_lng != null && inc?.lat != null && inc.lng != null) ? UG_UTIL.distanceM(d.last_lat, d.last_lng, inc.lat, inc.lng) : null;
       return '<div class="ug-col" style="gap:4px;padding:9px 0;border-bottom:1px solid var(--ug-line)">' +
         '<div class="ug-rowf ug-between" style="gap:8px;font-size:13px"><span style="font-weight:700">' + I('truck', 13) + ' ' + esc(d.team) +
           (unit ? '<span class="ug-dim" style="font-weight:600"> · ' + esc(unit.name) + '</span>' : '') + '</span>' +
-          '<span class="ug-badge ug-badge--dispatched">' + esc(stepLabel[d.dispatch_status] || d.dispatch_status || 'Sent') + '</span></div>' +
+          '<span class="ug-badge ug-badge--' + (d.dispatch_status === 'declined' ? 'closed' : 'dispatched') + '">' + esc(stepLabel[d.dispatch_status] || d.dispatch_status || 'Sent') + '</span></div>' +
         '<div class="ug-rowf ug-wrap" style="gap:4px 12px;font-size:12px">' +
           (far != null
             ? '<span style="font-weight:600;color:var(--ug-st-dispatched)">' + I('radar', 12) + ' ' + esc(UG_UTIL.fmtDistance(far)) + ' away</span>' +
               '<span class="ug-dimmer">updated ' + esc(UG_UTIL.relTime({ created_at: d.last_loc_at })) + '</span>'
-            : '<span class="ug-dimmer">Waiting for the team\'s GPS</span>') +
-          (d.eta && d.dispatch_status !== 'on_scene' && d.dispatch_status !== 'done' ? '<span class="ug-dim">ETA ' + esc(clock(d.eta)) + '</span>' : '') +
+            : active ? '<span class="ug-dimmer">Waiting for the team\'s GPS</span>' : '') +
+          (d.eta && ['sent', 'acknowledged', 'en_route'].includes(d.dispatch_status) ? '<span class="ug-dim">ETA ' + esc(clock(d.eta)) + '</span>' : '') +
         '</div>' +
-        (unit && unit.contact_number ? '<a class="ug-dim" style="font-size:12px" href="tel:' + esc(unit.contact_number.replace(/\s+/g, '')) + '">' + I('phone', 12) + ' ' + esc(unit.contact_number) + '</a>' : '') +
+        (active && unit && unit.contact_number ? '<a class="ug-dim" style="font-size:12px" href="tel:' + esc(unit.contact_number.replace(/\s+/g, '')) + '">' + I('phone', 12) + ' ' + esc(unit.contact_number) + '</a>' : '') +
       '</div>';
     }).join('');
-    return '<div class="ug-card" style="border-left:3px solid var(--ug-st-dispatched)"><div class="ug-card-h"><h3>Help on the way</h3>' +
-        '<span class="ug-chip is-on">' + I('radar', 13) + 'Live</span></div>' +
+    return '<div class="ug-card" style="border-left:3px solid var(--ug-st-dispatched)"><div class="ug-card-h"><h3>SOS response status</h3></div>' +
       '<div class="ug-card-b ug-col" style="gap:8px">' +
         /* has a person seen it yet? (migration 064 records who) */
         (() => {
-          const me = mineOpen || (UG.DATA.sosLog || []).find((x) => x.report_id === reportId);
+          const me = recent;
           if (!me) return '';
+          if (me.status === 'resolved') return '<p class="sos-seen is-ok">' + I('check', 13) + '<span>Resolved' +
+            (me.resolved_by_name ? ' by ' + esc(me.resolved_by_name) : '') + '</span></p>';
           return me.status === 'sent'
             ? '<p class="sos-seen is-wait">' + I('clock', 13) + '<span>Sent. Waiting for an official to see it…</span></p>'
             : '<p class="sos-seen is-ok">' + I('check', 13) + '<span>Seen by ' + esc(me.acknowledged_by_office || 'an official') +
                 (me.acknowledged_by_name ? ' (' + esc(me.acknowledged_by_name) + ')' : '') +
                 (me.acknowledged_at ? ' · ' + esc(UG_UTIL.relTime({ created_at: me.acknowledged_at })) : '') + '</span></p>';
         })() +
-        (rows || '<p class="ug-dim" style="font-size:12px;line-height:1.5">Your SOS is with the duty officer. The responding team will appear here as soon as it is sent.</p>') +
-        (inc ? '<button class="ug-btn ug-btn--signal ug-btn--block" style="margin-top:4px"' + A('open-incident', attr({ id: inc.id })) + '>' + I('pin', 15) + 'Track response team</button>' : '') +
+        (waiting ? '<p class="ug-note">The assigned teams couldn’t respond. LDRRMO staff have been notified to assign a replacement. Call the LDRRMO if you still need immediate help.</p>' : '') +
+        (rows || (recent?.status === 'resolved' ? '' : '<p class="ug-dim" style="font-size:12px;line-height:1.5">A responding team will appear here when an assignment is available.</p>')) +
+        (inc ? '<button class="ug-btn ug-btn--signal ug-btn--block" style="margin-top:4px"' + A('open-incident', attr({ id: inc.id })) + '>' + I('pin', 15) + 'View the linked report</button>' : '') +
       '</div></div>';
   }
 

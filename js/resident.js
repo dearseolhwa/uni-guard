@@ -212,8 +212,10 @@ const UG_RW = (() => {
   /* one report's full record (dispatch tracking, ratings, corroboration) stays
      the shared detail screen, with a way back to the list */
   function reportDetail(st) {
+    const back = st.reportBackRoute || 'reports';
+    const label = back === 'map' ? 'Hazard Map' : back === 'sos' ? 'SOS' : back === 'home' ? 'Home' : 'My Reports';
     return '<div class="ug-col" style="gap:20px">' +
-      '<button class="rw-back"' + A('nav', attr({ route: 'reports' })) + '><span style="display:flex;transform:rotate(180deg)">' + I('chevron', 16) + '</span>Back to My Reports</button>' +
+      '<button class="rw-back"' + A('nav', attr({ route: back })) + '><span style="display:flex;transform:rotate(180deg)">' + I('chevron', 16) + '</span>Back to ' + label + '</button>' +
       '<div class="rw-legacy">' + UG_SCREENS.mobileBody(Object.assign({}, st, { route: 'report-detail' })) + '</div>' +
     '</div>';
   }
@@ -225,6 +227,40 @@ const UG_RW = (() => {
     if (day.toDateString() === today.toDateString()) return 'Distributing Now';
     return day.getTime() > today.getTime() ? 'Scheduled' : 'Completed';
   }
+  function documentExample(label) {
+    if (/authori[sz]ation|representative letter|sulat ng pahintulot/i.test(label)) {
+      return '<p>Include the date, both full names, the relief program and claim date, and the beneficiary’s signature. Add the representative’s signature or ID copies if the organizer asks for them.</p>' +
+        '<div class="rw-doc-sample"><strong>Sample authorization letter</strong>' +
+          '<p>[Date]</p><p>To the relief distribution desk:</p>' +
+          '<p>I, [beneficiary’s full name], authorize [representative’s full name] to claim my [name of relief assistance] at [distribution site] on [claim date].</p>' +
+          '<p>[Beneficiary’s signature over printed name]<br>[Representative’s signature over printed name, if required]</p></div>';
+    }
+    if (/indigen/i.test(label)) {
+      return '<p>Ask your barangay hall for a Certificate of Indigency for the relief program.</p>' +
+        '<div class="rw-doc-sample"><strong>Example of what to check</strong><p>Barangay name · Your full name · Purpose or program · Date issued · Signature of the issuing official</p></div>';
+    }
+    if (/residenc|proof of address/i.test(label)) {
+      return '<p>Examples include a barangay certificate of residency or a recent utility bill showing the household address. Ask the relief desk which proof it accepts and what to bring if the bill is under someone else’s name.</p>';
+    }
+    if (/\bid\b|identification|passport|lisensiya/i.test(label)) {
+      const examples = /government/i.test(label) ? 'National ID, Philippine passport, or driver’s license' : 'National ID, Philippine passport, or driver’s license. Ask if a barangay or school ID is also accepted';
+      return '<p>Examples: ' + esc(examples) + '.</p>' +
+        '<div class="rw-doc-sample rw-id-sample"><div aria-hidden="true">' + I('users', 22) + '</div><div>' +
+          '<strong>Sample photo ID</strong><p>Full name · [Your name]<br>Valid until · [Expiry date, if shown]</p></div></div>' +
+        '<p>Check that the details are readable and that the ID is still valid.</p>';
+    }
+    return '<p>Ask the relief desk for an example of this document and where to get it.</p>';
+  }
+
+  function reliefDocuments(docs, section) {
+    return '<div class="rw-doc-list">' + docs.map((label) =>
+      '<details class="rw-doc" data-relief-disclosure="' + esc(section + '|' + label) + '">' +
+        '<summary>' + I('doc', 15) + '<span>' + esc(label) + '</span>' + I('chevdn', 14) + '</summary>' +
+        '<div class="rw-doc-example">' + documentExample(label) +
+          '<p class="rw-help">Check the schedule or call the relief desk to confirm which documents it accepts and whether to bring originals or copies.</p></div>' +
+      '</details>').join('') + '</div>';
+  }
+
   function hubCard(r) {
     const state = schedState(r.distribution_at);
     const elig = r.eligibility || [], docs = r.required_docs || [];
@@ -247,27 +283,19 @@ const UG_RW = (() => {
         '<div><span>' + I('clock', 14) + 'When</span><b>' + esc(UG_RELIEF.fmtDate(r.distribution_at) || 'To be announced') + '</b></div>' +
         (r.contact_person || r.contact_phone ? '<div><span>' + I('phone', 14) + 'Contact</span><b>' + esc([r.contact_person, r.contact_phone].filter(Boolean).join(' · ')) + '</b></div>' : '') +
       '</div>' +
-      (elig.length ? '<div class="rw-hub2-sec"><p class="rw-kicker">Who can claim</p><div class="rw-chips">' + elig.map((e) => '<span>' + I('check', 12) + esc(e) + '</span>').join('') + '</div></div>' : '') +
-      (docs.length ? '<div class="rw-hub2-sec"><p class="rw-kicker">Bring these</p><div class="rw-chips rw-chips--doc">' + docs.map((d) => '<span>' + I('doc', 12) + esc(d) + '</span>').join('') + '</div></div>' : '') +
       /* phone: when/contact as two icon lines */
       '<div class="rw-hub2-m">' +
         '<p>' + I('clock', 15) + '<span>' + esc(UG_RELIEF.fmtDate(r.distribution_at) || 'To be announced') + '</span></p>' +
         (r.contact_person || r.contact_phone ? '<p>' + I('phone', 15) + '<span>' + esc([r.contact_person, r.contact_phone].filter(Boolean).join(' · ')) + '</span></p>' : '') +
       '</div>' +
+      (elig.length ? '<div class="rw-hub2-requirements"><p class="rw-kicker">Who can claim</p><div class="rw-chips">' + elig.map((e) => '<span>' + I('check', 12) + esc(e) + '</span>').join('') + '</div></div>' : '') +
+      (docs.length ? '<div class="rw-hub2-requirements"><p class="rw-kicker">Bring these</p>' + reliefDocuments(docs, 'schedule-' + r.id) + '</div>' : '') +
       (r.note ? '<p class="rw-hub2-note">' + I('info', 14) + '<span>' + esc(r.note) + '</span></p>' : '') +
       '<div class="rw-hub-acts">' +
         (hasPos ? '<a class="rw-sbtn rw-sbtn--red" style="flex:1" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.lat, r.lng) + '">' + I('route', 14) + 'Navigate with Waze</a>'
           : '<span class="rw-help" style="flex:1">No map location on file for this distribution.</span>') +
         (r.contact_phone ? '<a class="rw-callbtn" href="' + telOf(r.contact_phone) + '">' + I('phone', 14) + '<span>Call</span></a>' : '') +
       '</div>' +
-      /* phone: who can claim and what to bring fold away under "Requirements" */
-      (elig.length || docs.length
-        ? '<details class="rw-hub2-req"><summary><span>Requirements</span><em>' +
-            [elig.length ? elig.length + ' who can claim' : '', docs.length ? docs.length + ' to bring' : ''].filter(Boolean).join(' · ') + '</em>' + I('chevdn', 15) + '</summary>' +
-            (elig.length ? '<p class="rw-kicker">Who can claim</p><ul>' + elig.map((e) => '<li>' + I('check', 14) + '<span>' + esc(e) + '</span></li>').join('') + '</ul>' : '') +
-            (docs.length ? '<p class="rw-kicker">Bring these</p><ul>' + docs.map((d) => '<li>' + I('doc', 14) + '<span>' + esc(d) + '</span></li>').join('') + '</ul>' : '') +
-          '</details>'
-        : '') +
     '</article>';
   }
   function hubsFor(st) {
@@ -303,20 +331,19 @@ const UG_RW = (() => {
 
       '<div class="ug-col rw-rules-wrap" style="gap:16px">' +
         '<div class="rw-rules-h"><div class="rw-iconhead" style="gap:10px"><span class="rw-ico rw-ico--sm">' + I('users', 16) + '</span><h3 class="rw-caps">Claiming Rules &amp; Guidelines</h3></div>' +
-          '<div class="rw-seg2">' + seg('all', 'All Requirements') + seg('eligibility', 'Eligibility') + seg('documents', 'Required IDs') + '</div></div>' +
+          '<div class="rw-seg2">' + seg('all', 'All Requirements') + seg('eligibility', 'Eligibility') + seg('documents', 'Documents') + '</div></div>' +
         '<div class="rw-grid ' + (tab === 'all' ? 'rw-grid--2' : '') + '" style="gap:24px">' +
           (tab !== 'documents' ? '<section class="rw-rule"><div class="rw-iconhead rw-rule-h"><span class="rw-ico">' + I('users', 20) + '</span><div><h4>Eligibility &amp; Allocation Criteria</h4><p>Lingayen MSWDO Calamity Guidelines</p></div></div>' +
             '<ul class="rw-ticks rw-ticks--lg">' + (elig.length ? elig.map((e) => '<li>' + I('check', 16) + '<span>' + esc(e) + '</span></li>').join('')
               : '<li class="rw-none">No eligibility criteria published for this barangay yet.</li>') + '</ul></section>' : '') +
-          (tab !== 'eligibility' ? '<section class="rw-rule"><div class="rw-iconhead rw-rule-h"><span class="rw-ico rw-ico--grey">' + I('doc', 20) + '</span><div><h4>Required Documents for Claiming</h4><p>Bring valid proof of residency</p></div></div>' +
-            '<ul class="rw-nums">' + (docs.length ? docs.map((d, n) => '<li><b>' + (n + 1) + '</b><span>' + esc(d) + '</span></li>').join('')
-              : '<li class="rw-none">No required documents published for this barangay yet.</li>') + '</ul></section>' : '') +
+          (tab !== 'eligibility' ? '<section class="rw-rule"><div class="rw-iconhead rw-rule-h"><span class="rw-ico rw-ico--grey">' + I('doc', 20) + '</span><div><h4>Required Documents for Claiming</h4><p>Open a document to see an example.</p></div></div>' +
+            (docs.length ? reliefDocuments(docs, 'guide') : '<p class="rw-none">No required documents published for this barangay yet.</p>') + '</section>' : '') +
         '</div>' +
       '</div>' +
 
-      '<details class="rw-details"><summary>' + I('info', 20) + '<span>Claiming for someone else?</span>' + I('chevdn', 16) + '</summary>' +
-        '<div><p>The distribution desk will check your name against the list of authorized representatives. Bring these:</p>' +
-          '<ul>' + ['A signed authorization letter from the beneficiary', 'Your valid ID'].map((x) => '<li>' + I('check', 16) + esc(x) + '</li>').join('') + '</ul></div></details>' +
+      '<details class="rw-details" data-relief-disclosure="representative"><summary>' + I('info', 20) + '<span>Claiming for someone else?</span>' + I('chevdn', 16) + '</summary>' +
+        '<div><p>Ask the relief desk if representatives can claim for this schedule and how to register. Open the documents below to see what to prepare.</p>' +
+          reliefDocuments(['Signed authorization letter from the beneficiary', 'Your valid ID'], 'representative') + '</div></details>' +
     '</div>';
   }
   function reliefAllModal(st) {
@@ -328,6 +355,17 @@ const UG_RW = (() => {
         '<p class="rw-hint" style="margin:16px 0 0">Official Lingayen MSWDO &amp; DSWD Relief Registry</p></div>',
       footer: '<button class="ug-btn" data-modal-close>Close</button>'
     });
+  }
+
+  function reliefDetailModal(st, id) {
+    const schedule = hubsFor(st).find((row) => String(row.id) === id);
+    if (!schedule) return false;
+    UG_FEATURES.modal({
+      title: 'Relief schedule',
+      body: '<div class="ug-rw rw-modal-body">' + hubCard(schedule) + '</div>',
+      footer: '<button class="ug-btn" data-modal-close>Close</button>'
+    });
+    return true;
   }
 
   /* ================================================================ guides */
@@ -488,31 +526,37 @@ const UG_RW = (() => {
     const L = st.mapLayers || {};
     const me = st.rwMe;
     const out = [];
-    const push = (o) => { if (UG_GEO.isNum(o.lat) && UG_GEO.isNum(o.lng)) out.push(o); };
+    const push = (o) => {
+      o.mapped = UG_GEO.classify(o.lat, o.lng) === 'ok';
+      o.dist = o.mapped && me ? UG_UTIL.distanceM(me.lat, me.lng, o.lat, o.lng) : null;
+      out.push(o);
+    };
     const brgy = (n) => n ? 'Brgy. ' + n : '';
     if (L.hazards) (U.DATA.incidents || []).filter((i) => i.status !== 'resolved' && i.status !== 'rejected').forEach((i) => {
       const lv = MapView.PIN_LEVEL[i.sev] || MapView.PIN_LEVEL.advisory;
-      push({ k: 'r' + i.uuid, lat: i.lat, lng: i.lng, icon: 'hazard', color: lv.color, title: i.hazard,
+      push({ action: 'open-incident', id: i.uuid || i.id, lat: i.lat, lng: i.lng, icon: 'hazard', color: lv.color, title: i.hazard,
         detail: [lv.word + ' danger', MapView.REPORT_STATUS[i.status] || i.status, brgy(i.brgy)].filter(Boolean).join(' · '),
         rank: SEV_RANK[i.sev] != null ? SEV_RANK[i.sev] : 3 });
     });
     if (L.roadStatus) (U.DATA.roadStatus || []).filter((r) => r.status && r.status !== 'passable').forEach((r) => {
       const rd = MapView.PIN_ROAD[r.status] || MapView.PIN_ROAD.under_repair;
-      push({ k: 'd' + r.id, lat: r.lat, lng: r.lng, icon: rd.icon, color: rd.color, title: r.road_name || 'Road',
+      push({ action: 'open-road-detail', id: r.id, lat: r.lat, lng: r.lng, icon: rd.icon, color: rd.color, title: r.road_name || 'Road',
         detail: [rd.word, brgy(r.barangay)].filter(Boolean).join(' · '), rank: r.status === 'blocked' ? 3 : 4 });
     });
     if (L.centers) (U.DATA.centers || []).forEach((c) => {
       const sh = MapView.PIN_SHELTER[c.status] || MapView.PIN_SHELTER.closed;
       const left = Math.max(0, (c.cap || 0) - (c.occ || 0));
-      push({ k: 'c' + c.id, lat: c.lat, lng: c.lng, icon: 'shelter', color: sh.color, title: c.name,
+      push({ action: 'open-center-detail', id: c.uuid || c.id, lat: c.lat, lng: c.lng, icon: 'shelter', color: sh.color, title: c.name,
         detail: [sh.word, c.status === 'open' ? left + ' of ' + c.cap + ' spaces left' : '', brgy(c.brgy)].filter(Boolean).join(' · '),
         rank: c.status === 'open' ? 5 : 6 });
     });
     if (L.relief) (U.DATA.relief || []).filter((r) => r.active !== false).forEach((r) =>
-      push({ k: 'v' + r.id, lat: r.lat, lng: r.lng, icon: 'relief', color: MapView.PIN_RELIEF, title: r.title || 'Relief distribution',
+      push({ action: 'rw-relief-detail', id: r.id, lat: r.lat, lng: r.lng, icon: 'relief', color: MapView.PIN_RELIEF, title: r.title || 'Relief distribution',
         detail: [r.location_name, r.distribution_at ? UG_RELIEF.fmtDate(r.distribution_at) : ''].filter(Boolean).join(' · '), rank: 7 }));
-    out.forEach((p) => { p.dist = me ? UG_UTIL.distanceM(me.lat, me.lng, p.lat, p.lng) : null; });
-    out.sort((a, b) => me ? a.dist - b.dist : a.rank - b.rank);
+    out.sort((a, b) => {
+      if (me && a.mapped !== b.mapped) return a.mapped ? -1 : 1;
+      return a.dist != null && b.dist != null ? a.dist - b.dist || a.rank - b.rank : a.rank - b.rank;
+    });
     return out;
   }
   function counts() {
@@ -557,16 +601,16 @@ const UG_RW = (() => {
         '<button class="rw-locate"' + A('rw-map-locate') + '>' + I('target', 16) + (st.rwLocating ? 'Finding you…' : st.rwMe ? 'Update my location' : 'Show my location') + '</button>' +
       '</div>' +
       '<div class="rw-map-grid">' +
-        '<section class="rw-panel rw-panel--flush"><div class="rw-ph"><div><h3 style="display:flex;align-items:center;gap:10px">On the map <span class="rw-cnt-red rw-mono">' + places.length + '</span></h3>' +
-            '<p>' + (st.rwMe ? 'Sorted by distance from you.' : 'Most urgent first. Tap "Show my location" to sort by distance.') + '</p></div></div>' +
+        '<section class="rw-panel rw-panel--flush"><div class="rw-ph"><div><h3 style="display:flex;align-items:center;gap:10px">Hazards and places <span class="rw-cnt-red rw-mono">' + places.length + '</span></h3>' +
+            '<p>' + (st.rwMe ? 'Sorted by distance when a location is available.' : 'Most urgent first. Show your location to sort by distance.') + ' Select any entry for details.</p></div></div>' +
           (places.length
-            ? '<ul class="rw-places" data-rw-places>' + places.map((p, k) =>
-                '<li' + (k >= PREVIEW ? ' class="rw-more" hidden' : '') + '><button' + A('rw-map-go', attr({ lat: p.lat, lng: p.lng })) + '>' +
+            ? '<ul class="rw-places" id="rw-places" data-rw-places>' + places.map((p, k) =>
+                '<li' + (k >= PREVIEW ? ' class="rw-more"' + (st.rwPlacesExpanded ? '' : ' hidden') : '') + '><button type="button"' + A(p.action, attr({ id: p.id })) + '>' +
                   '<span class="rw-pl-ico rw-lg-pin">' + MapView.pinHtml(p.icon, p.color, 24) + '</span>' +
-                  '<span class="rw-pl-t"><b>' + esc(p.title) + '</b><small>' + esc(p.detail) + '</small></span>' +
+                  '<span class="rw-pl-t"><b>' + esc(p.title) + '</b><small>' + esc([p.detail, p.mapped ? '' : 'Location not pinned'].filter(Boolean).join(' · ')) + '</small></span>' +
                   (p.dist != null ? '<span class="rw-pl-d rw-mono">' + esc(UG_UTIL.fmtDistance(p.dist)) + '</span>' : '') +
-                  '<span class="rw-pl-pin">' + I('pin', 16) + '</span></button></li>').join('') + '</ul>' +
-              (places.length > PREVIEW ? '<button class="rw-showall"' + A('rw-places-all') + ' data-more="Show all (' + places.length + ')" data-less="Show fewer">Show all (' + places.length + ')</button>' : '')
+                  '<span class="rw-pl-pin" aria-hidden="true">' + I('chevron', 16) + '</span></button></li>').join('') + '</ul>' +
+              (places.length > PREVIEW ? '<button class="rw-showall"' + A('rw-places-all') + ' aria-controls="rw-places" aria-expanded="' + !!st.rwPlacesExpanded + '" data-more="Show all (' + places.length + ')" data-less="Show fewer">' + (st.rwPlacesExpanded ? 'Show fewer' : 'Show all (' + places.length + ')') + '</button>' : '')
             : '<div class="rw-zero" style="padding:40px 24px">' + I('pin', 32) + '<p>' + (allOn ? 'Nothing to show right now. No open hazards, closures, shelters or relief points.' : 'Nothing to show. Turn on more items above.') + '</p></div>') +
         '</section>' +
         '<section class="rw-panel rw-panel--flush rw-legend' + (st.rwLegendClosed ? '' : ' is-open') + '">' +
@@ -707,7 +751,7 @@ const UG_RW = (() => {
       : status === 'sent' ? 'Help has been alerted' : 'What is the emergency?';
     const sub = status === 'error' ? (last.message || 'Could not send the SOS. Call the LDRRMO now.')
       : sending ? 'Finding your location. Keep your phone still.'
-      : status === 'sent' ? (last.team ? last.team + (/,/.test(last.team) ? ' have' : ' has') + ' been sent to your location. Stay where you are if it is safe.' : 'Stay where you are if it is safe. Responders may call you.')
+      : status === 'sent' ? 'Stay where you are if it is safe. Responders may call you. Follow the response status below.'
       : 'Tap the kind of emergency. We send your location right away.';
     return '<div class="ug-col rw-sos-page" style="gap:16px">' +
       lead('Sends your location to the Lingayen LDRRMO and your barangay responders.') +
@@ -772,6 +816,6 @@ const UG_RW = (() => {
       '</aside>';
   }
 
-  return { report, reportDone, myReports, reportDetail, relief, reliefAllModal, guides, faqs, map, settings, offline, sos, phoneTabs, phoneBar, phoneMenu };
+  return { report, reportDone, myReports, reportDetail, relief, reliefAllModal, reliefDetailModal, guides, faqs, map, settings, offline, sos, phoneTabs, phoneBar, phoneMenu };
 })();
 window.UG_RW = UG_RW;

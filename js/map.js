@@ -297,6 +297,7 @@ const MapView = (function () {
       fallback: false,
       unbounded: !!opts.unbounded,
       fit: !!opts.fit,
+      tracking: !!opts.tracking,
       data: { incidents: [], centers: [], relief: [], roadStatus: [], units: [] },
       visible: { hazards: true, relief: true, centers: true, roadStatus: true },
       spider: null,                              /* { anchorLatLng, members: [...] } while open */
@@ -304,27 +305,18 @@ const MapView = (function () {
     };
 
     addLocateControl(map);
-    /* the spider lives in map space, so panning (including a popup's
-       auto-pan) keeps it valid; a zoom changes the pixel geometry, and a
-       click on the empty map means "put it back". */
-    ['zoomstart', 'resize'].forEach((ev) => {
-      map.on(ev, () => { if (ctx && ctx.spider) closeSpider(true); });
+    map.on('click', () => { if (ctx && ctx.map === map && ctx.spider) closeSpider(); });
+    /* Panning, including popup auto-pan, leaves distances between markers
+       unchanged. Rebuild only after a zoom, carrying any selected popup along. */
+    map.on('zoomend', () => {
+      if (ctx && ctx.map === map && !ctx._redrawing) redraw();
     });
-    map.on('click', () => { if (ctx && ctx.spider) closeSpider(); });
-    /* clusters are pixel-distance groups: they are only meaningful at the zoom
-       they were computed for. Recompute whenever the view settles (the initial
-       fit-to-records changes the zoom right after mount, and every user zoom
-       or pan can pull a group apart or push one together). Panning never
-       changes container-point distances, and while a spider is open the drawn
-       geometry is the spider's, not the clusters' — so both cases skip. */
-    ['zoomend', 'moveend'].forEach((ev) => {
-      map.on(ev, () => { if (ctx && !ctx.spider && !ctx._redrawing) redraw(); });
-    });
-    if (opts.incidents) setIncidents(opts.incidents);
+    if (ctx.tracking) setResponse(opts.incidents[0], opts.units || []);
+    else if (opts.incidents) setIncidents(opts.incidents);
     if (opts.centers) setCenters(opts.centers);
     if (opts.relief) setRelief(opts.relief);
     if (opts.roadStatus) setRoadStatus(opts.roadStatus);
-    if (opts.units) setUnits(opts.units);
+    if (opts.units && !ctx.tracking) setUnits(opts.units);
     if (opts.layers) setLayers(opts.layers);
     if (opts.reportPin) setReportPin(opts.reportPin, opts.onPinDrop, opts.onPinOutside);
 
@@ -340,6 +332,7 @@ const MapView = (function () {
       } catch (e) {}
     }
     map.on('popupopen', (e) => {
+      if (ctx && ctx.map === map) ctx.openPopup = e.popup;
       const el = e.popup && e.popup.getElement && e.popup.getElement();
       if (!el) return;
       el.querySelectorAll('.ug-pop-btn[data-act]').forEach((b) => {
@@ -350,10 +343,17 @@ const MapView = (function () {
         };
       });
     });
-    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 100);
-    setTimeout(() => { try { map.invalidateSize(); fitOnce(); } catch (e) {} }, 400);
+    map.on('popupclose', (e) => {
+      if (ctx && ctx.openPopup === e.popup) ctx.openPopup = null;
+    });
+    if (ctx.tracking) fitOnce();
+    const settle = () => {
+      if (ctx?.map !== map) return;
+      try { map.invalidateSize({ pan: false }); fitOnce(); } catch (e) {}
+    };
+    setTimeout(settle, 100);
     /* phones settle their layout later (address bar, fonts): one more pass */
-    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 1200);
+    setTimeout(settle, 1200);
     return ctx;
   }
 
@@ -488,8 +488,9 @@ const MapView = (function () {
           ['check', REPORT_STATUS[item.status] || String(item.status || '').replace(/_/g, ' ')],
           ['time', item.created_at ? 'Reported ' + ago(item.created_at) : ''],
           ['people', UG_UTIL.corroborationLabel ? UG_UTIL.corroborationLabel(item.corr) : ''],
-          ['note', item.mine ? 'Your report · ' + item.id : (residentMap() ? '' : item.id)]],
-        act: { act: 'open-incident', id: item.uuid || item.id },
+          ['note', item.mine ? 'Your report · ' + item.id : (residentMap() && !ctx.tracking ? '' : item.id)],
+          ['note', ctx.tracking ? item.location_note || item.desc : '']],
+        act: ctx.tracking ? null : { act: 'open-incident', id: item.uuid || item.id },
         actLabel: item.mine ? 'View my report' : 'View details'
       }));
       if (!residentMap()) {
@@ -511,8 +512,8 @@ const MapView = (function () {
     } else if (cat === 'units') {
       marker.bindPopup(pinPopup({
         title: item.team + (item.name ? ' · ' + item.name : ''), tag: item.statusLabel || 'Responding', color: PIN_UNIT,
-        advice: 'A response team on its way to ' + (item.code || 'the report') + '.',
-        facts: [['time', item.at ? 'Updated ' + ago(item.at) : '']]
+        advice: 'Response assignment for ' + (item.code || 'this report') + '.',
+        facts: [['time', item.at ? 'Location updated ' + ago(item.at) : ''], ['time', item.eta ? 'ETA ' + item.eta : '']]
       }));
       marker.options.title = item.team + ' (responding)';
     } else if (cat === 'relief') {
@@ -520,10 +521,10 @@ const MapView = (function () {
       marker.bindPopup(pinPopup({
         title: item.title || 'Relief distribution', tag: 'Relief handout', color: PIN_RELIEF,
         advice: 'Food and supplies are handed out here.',
-        facts: [['calendar', when], ['place', item.location_name || ''],
-          ['people', item.barangay ? 'For Barangay ' + item.barangay : 'For everyone in Lingayen']],
+        facts: [['calendar', when], ['place', [item.location_name, item.address].filter(Boolean).join(', ')],
+          ['place', item.barangay ? 'Barangay ' + item.barangay : 'Municipality-wide']],
         extra: '<div class="p-act">' + wazeButtonHtml(item.lat, item.lng, 'Waze') + '</div>',
-        act: { act: 'nav', route: 'relief' }, actLabel: 'View schedule'
+        act: residentMap() ? { act: 'rw-relief-detail', id: item.id } : { act: 'nav', route: 'relief' }, actLabel: 'View schedule'
       }));
       marker.options.title = item.title || item.location_name || 'Relief distribution';
     } else {
@@ -531,10 +532,43 @@ const MapView = (function () {
       marker.bindPopup(pinPopup({
         title: item.road_name || 'Road', tag: rd.word, color: rd.color, advice: rd.meaning,
         facts: [['place', brgy(item.barangay)], ['note', item.note || ''],
-          ['time', item.updated_at ? 'Updated ' + ago(item.updated_at) : '']]
+          ['time', item.updated_at ? 'Updated ' + ago(item.updated_at) : '']],
+        act: residentMap() ? { act: 'open-road-detail', id: item.id } : null,
+        actLabel: 'View road details'
       }));
       marker.options.title = (item.road_name || 'Road') + ' — ' + rd.word;
     }
+    const popup = marker.getPopup();
+    popup.options.recordKey = recordKey(cat, item);
+    if (ctx.tracking) popup.options.maxHeight = 160;
+    bindMarkerTap(marker, () => marker.openPopup());
+  }
+
+  function recordKey(cat, item) {
+    const id = item.uuid || item.id;
+    return id == null ? null : cat + ':' + id;
+  }
+
+  function bindMarkerTap(marker, action) {
+    if (!residentMap()) return;
+    marker.on('add', () => {
+      const el = marker.getElement();
+      if (!el) return;
+      let start;
+      el.addEventListener('touchstart', (event) => {
+        start = event.touches.length === 1 ? event.touches[0] : null;
+      }, { passive: true });
+      el.addEventListener('touchcancel', () => { start = null; });
+      el.addEventListener('touchend', (event) => {
+        const end = event.changedTouches[0];
+        const tapped = start && end && !event.touches.length &&
+          Math.hypot(end.clientX - start.clientX, end.clientY - start.clientY) <= 10;
+        start = null;
+        if (!tapped) return;
+        if (event.cancelable) event.preventDefault();
+        action();
+      });
+    });
   }
 
   /* --------------------------------------------------------------- clustering
@@ -623,6 +657,8 @@ const MapView = (function () {
     ctx._redrawing = true;
     closeSpider(true);
     const L = window.L;
+    const open = ctx.openPopup;
+    const selectedKey = open?.options.recordKey;
     ctx.layer.clearLayers();
     ctx.circleLayer.clearLayers();
 
@@ -642,6 +678,7 @@ const MapView = (function () {
     }
 
     const items = collectItems();
+    if (open && !items.some((record) => recordKey(record.cat, record.item) === selectedKey)) ctx.map.closePopup(open);
 
     /* strip: records the gate could not place — say so instead of silently
        dropping them (the LGU then fixes the coordinates at the source) */
@@ -687,6 +724,7 @@ const MapView = (function () {
     }
 
     const clusters = buildClusters(items);
+    let selectedMarker = null;
     clusters.forEach((cl) => {
       if (cl.members.length === 1) {
         const m = cl.members[0];
@@ -694,14 +732,28 @@ const MapView = (function () {
         const marker = L.marker(m.ll, { icon: mk.icon, riseOnHover: true, zIndexOffset: mk.z || 0, keyboard: true });
         bindItemPopup(marker, m.cat, m.item);
         marker.addTo(ctx.layer);
+        if (selectedKey && marker.getPopup().options.recordKey === selectedKey) selectedMarker = marker;
       } else {
         const bubble = L.marker(cl.members[0].ll, { icon: clusterIcon(cl.members), riseOnHover: true, zIndexOffset: 800 });
         cl.bubble = bubble;
         bubble.on('click', () => openCluster(cl));
+        bindMarkerTap(bubble, () => openCluster(cl));
         bubble.on('keypress', (e) => { if (e.originalEvent && e.originalEvent.key === 'Enter') openCluster(cl); });
         bubble.addTo(ctx.layer);
       }
     });
+    if (selectedMarker) {
+      selectedMarker.openPopup();
+    } else if (selectedKey) {
+      // The selected marker may have moved into a cluster as positions changed.
+      const record = items.find((m) => recordKey(m.cat, m.item) === selectedKey);
+      if (record) {
+        const marker = L.marker(record.ll);
+        bindItemPopup(marker, record.cat, record.item);
+        L.popup({ recordKey: selectedKey, maxHeight: ctx.tracking ? 160 : null }).setLatLng(record.ll)
+          .setContent(marker.getPopup().getContent()).openOn(ctx.map);
+      }
+    }
     ctx._redrawing = false;
   }
 
@@ -709,8 +761,7 @@ const MapView = (function () {
      The members of a cluster sit at (or near) one true point. Spiderfying
      never moves a record's coordinate: each member is DISPLAYED on a leader
      line around the real position (the same approach markercluster uses) and
-     its popup keeps the real coordinates. Any pan/zoom/resize closes the
-     spider and the honest map returns. */
+     its popup keeps the real coordinates. Zooming recomputes the clusters. */
   function openCluster(cl) {
     if (!ctx || ctx.fallback) return;
     const L = window.L;
@@ -734,8 +785,7 @@ const MapView = (function () {
     const radius = Math.min(SPIDER_BASE_R + 7 * Math.sqrt(n), 64);
     ctx.spider = { anchor: anchor, markers: [], lines: [], bubble: null };
 
-    /* the bubble makes way for its members while the spider is open; any pan
-       or zoom closes the spider and the bubble comes back */
+    /* the bubble makes way for its members until the spider closes */
     if (cl.bubble) {
       try { ctx.map.removeLayer(cl.bubble); } catch (e) {}
       ctx.spider.bubble = cl.bubble;
@@ -804,6 +854,17 @@ const MapView = (function () {
   function setUnits(list) {
     if (!ctx || ctx.fallback) return;
     ctx.data.units = list || [];
+    redraw();
+  }
+
+  function setResponse(incident, units) {
+    if (!ctx || ctx.fallback) return;
+    const key = JSON.stringify([[incident.uuid, incident.hazard, incident.lat, incident.lng, incident.sev,
+      incident.status, incident.brgy, incident.corr, incident.location_note, incident.desc], units]);
+    if (ctx.responseKey === key) return;
+    ctx.responseKey = key;
+    ctx.data.incidents = [incident];
+    ctx.data.units = units;
     redraw();
   }
 
@@ -925,7 +986,8 @@ const MapView = (function () {
      for diagnostics, tests and future integrations — the screen code never
      needs it, it talks through the setters above. */
   const getMap = () => (ctx && !ctx.fallback) ? ctx.map : null;
+  const hasOpenPopup = () => !!ctx?.openPopup;
 
-  return { mount, destroy, owns, getMap, setIncidents, setCenters, setRelief, setRoadStatus, setUnits, setLayers, setReportPin, invalidate, isFallback, wazeButtonHtml,
+  return { mount, destroy, owns, getMap, hasOpenPopup, setIncidents, setCenters, setRelief, setRoadStatus, setUnits, setResponse, setLayers, setReportPin, invalidate, isFallback, wazeButtonHtml,
     pinHtml, pinGlyph, PIN_SIZE, PIN_LEVEL, PIN_SHELTER, PIN_ROAD, PIN_RELIEF, REPORT_STATUS };
 })();

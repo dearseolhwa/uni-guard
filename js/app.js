@@ -233,6 +233,7 @@
     const bgNavLeft = prevBgNav ? prevBgNav.scrollLeft : 0;
     const prevNear = q('.rw-rows--scroll');
     const nearTop = prevNear ? prevNear.scrollTop : 0;
+    const openRelief = new Set(qa('[data-relief-disclosure][open]', root).map((el) => el.dataset.reliefDisclosure));
     S.view = viewFor();
     S.role = S.session ? S.session.role : 'citizen';
     if (S.session) {
@@ -256,6 +257,9 @@
     const nextResponseMap = q('[data-response-report]');
     if (responseMap && nextResponseMap && responseMap.dataset.responseReport === nextResponseMap.dataset.responseReport &&
         MapView.owns(responseMap)) nextResponseMap.replaceWith(responseMap);
+    if (S.route === 'relief') {
+      qa('[data-relief-disclosure]', root).forEach((el) => { el.open = openRelief.has(el.dataset.reliefDisclosure); });
+    }
 
     /* keep the address bar on the screen being shown (one history entry
        per screen), and remember which item a detail screen showed so
@@ -392,8 +396,10 @@
       (byReport[i.uuid] || []).forEach((d) => {
         if (d.last_lat == null || d.last_lng == null) return;
         if (d.dispatch_status === 'done' || d.dispatch_status === 'declined') return;
-        out.push({ lat: d.last_lat, lng: d.last_lng, team: d.team, name: (units[d.unit_id] || {}).name || '',
-          statusLabel: UNIT_STATUS[d.dispatch_status] || d.dispatch_status, code: i.id, at: d.last_loc_at });
+        out.push({ id: d.id, lat: d.last_lat, lng: d.last_lng, team: d.team, name: (units[d.unit_id] || {}).name || '',
+          statusLabel: UNIT_STATUS[d.dispatch_status] || d.dispatch_status, code: i.id, at: d.last_loc_at,
+          eta: d.eta && ['sent', 'acknowledged', 'en_route'].includes(d.dispatch_status)
+            ? new Date(d.eta).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '' });
       });
     });
     return out;
@@ -474,10 +480,10 @@
           /* already showing: move the responding teams in place */
           if (MapView.owns(t.el)) {
             const teams = respondingUnits(t.only);
-            MapView.setUnits(teams);
+            MapView.setResponse(t.only, teams);
             if (t.tracking && teams.length && t.el.dataset.hasTeamFix !== 'true') {
               t.el.dataset.hasTeamFix = 'true';
-              fitResponseMap(t.only);
+              if (!MapView.hasOpenPopup()) fitResponseMap(t.only);
             }
           }
           continue;
@@ -490,6 +496,7 @@
           relief: t.tracking ? [] : UG.DATA.relief || [],
           roadStatus: t.tracking ? [] : UG.DATA.roadStatus || [],
           fit: t.tracking,
+          tracking: t.tracking,
           zoom: 15
         });
         if (t.tracking && respondingUnits(t.only).length) t.el.dataset.hasTeamFix = 'true';
@@ -631,8 +638,13 @@
       return;
     }
     if (route === 'sos') {
-      /* the LGU console SOS screen reads the recent SOS log; refresh on entry */
-      try { UG.DATA.sosLog = await Repo.listSos(); } catch (e) { }
+      const owner = S.session;
+      if (Repo.online() && UG_PWA.state.online) {
+        try {
+          const rows = await Repo.listSos();
+          if (S.session === owner) UG.DATA.sosLog = rows;
+        } catch (e) { /* keep the last known status during an outage */ }
+      }
       render();
       return;
     }
@@ -1660,12 +1672,24 @@
       loadRouteData(d.route);
     },
     'open-advisory': (d) => { S.openId = d.id; S.route = 'advisory-detail'; render(); },
-    'open-incident': (d) => { S.openId = d.id; S.route = S.role === 'citizen' ? 'report-detail' : 'incident'; render(); loadDispatchesFor(d.id); },
+    'open-incident': (d) => {
+      S.openId = d.id;
+      S.reportBackRoute = S.route === 'map' || S.route === 'sos' || S.route === 'home' ? S.route : 'reports';
+      S.route = S.role === 'citizen' ? 'report-detail' : 'incident';
+      render();
+      loadDispatchesFor(d.id);
+    },
     'response-fit-map': () => {
       const el = q('[data-response-report]');
       if (el && MapView.owns(el)) fitResponseMap((UG.DATA.incidents || []).find((i) => i.uuid === el.dataset.responseReport));
     },
-    'open-report': (d) => { S.openId = d.id; S.route = 'report-detail'; render(); loadDispatchesFor(d.id); },
+    'open-report': (d) => {
+      S.openId = d.id;
+      S.reportBackRoute = S.route === 'home' ? 'home' : 'reports';
+      S.route = 'report-detail';
+      render();
+      loadDispatchesFor(d.id);
+    },
     'open-sos-detail': (d) => { UG_SOS.sosDetailModal(S, d.id); },
     'sos-filter': (d) => { S.sosFilter = d.v; render(); },
     'sos-search-clear': () => { S.sosSearch = ''; render(); },
@@ -1853,6 +1877,7 @@
         closed: ['Closed', 'Not taking evacuees right now.']
       }[st];
       const hasPos = typeof c.lat === 'number' && typeof c.lng === 'number';
+      const phone = String(c.contact_phone || c.contact_number || '').replace(/[^\d+]/g, '');
       const row = (icon, k, v) => v ? '<div class="cd-row"><span class="cd-ri">' + I(icon, 14) + '</span><span class="cd-rk">' + esc(k) + '</span><b>' + esc(v) + '</b></div>' : '';
       UG_FEATURES.modal({
         title: c.name || 'Evacuation center',
@@ -1866,10 +1891,12 @@
           '<div class="cd-rows">' +
             row('pin', 'Barangay', c.brgy ? 'Brgy. ' + c.brgy : '') +
             row('doc', 'Location', c.note || '') +
-            row('phone', 'Contact', c.contact || c.contact_number || '') +
+            row('phone', 'Contact', [c.contact_person, c.contact_phone || c.contact_number].filter(Boolean).join(' · ') || c.contact || '') +
+            row('check', 'Facilities', (c.facilities || []).join(', ')) +
             row('target', 'Coordinates', hasPos ? UG_GEO.fmt(c.lat, c.lng) : 'Not recorded') +
           '</div>',
         footer: '<button class="ug-btn" data-modal-close>Close</button>' +
+          (phone ? '<a class="ug-btn" href="tel:' + esc(phone) + '">' + I('phone', 14) + 'Call shelter</a>' : '') +
           (hasPos && UG_GEO.canNavigate(c.lat, c.lng)
             ? '<a class="ug-btn cd-go" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(c.lat, c.lng) + '">' + I('route', 14) + 'Navigate with Waze</a>' : ''),
         onMount: (wrap) => { wrap.classList.add('cd-modal'); }
@@ -2189,6 +2216,10 @@
       if (S.rwReport) loadDispatchesFor(d.id);
     },
     'rw-relief-all': () => { UG_RW.reliefAllModal(S); },
+    'rw-relief-detail': (d) => {
+      if (S.role !== 'citizen') return;
+      if (!UG_RW.reliefDetailModal(S, d.id)) toast('This schedule is no longer available for your barangay.', 'info');
+    },
     'rw-guide-pick': (d) => { S.guideHazard = d.v; S.rwGuideQ = ''; render(); },
     'rw-faq': (d) => {
       S.rwFaqOpen = Object.assign({}, S.rwFaqOpen, { [d.id]: !d.open });
@@ -2197,7 +2228,6 @@
     'rw-faq-clear': () => { S.faqSearch = ''; S.rwFaqCat = 'All'; S.rwFaqOpen = {}; render(); },
     /* Hazard Map: the list, zoom and "show my location" act on the live map in
        place; a render() would rebuild it and lose the view */
-    'rw-map-go': (d) => { rwFly(parseFloat(d.lat), parseFloat(d.lng), 17); },
     'rw-map-zoom': (d) => { const m = MapView.getMap && MapView.getMap(); if (m) m.setZoom(m.getZoom() + (parseInt(d.d, 10) || 1)); },
     'rw-map-all': () => {
       Object.keys(S.mapLayers).forEach((k) => { S.mapLayers[k] = true; });
@@ -2208,8 +2238,10 @@
       if (!list) return;
       const more = list.querySelectorAll('.rw-more');
       const show = more.length && more[0].hidden;
+      S.rwPlacesExpanded = !!show;
       more.forEach((li) => { li.hidden = !show; });
       el.textContent = show ? el.dataset.less : el.dataset.more;
+      el.setAttribute('aria-expanded', String(!!show));
     },
     'rw-legend': (d, el) => {
       const box = el.closest('.rw-legend');
@@ -5689,7 +5721,7 @@
   });
 
   /* a button in a map popup (js/map.js): only the actions a popup offers */
-  const MAP_POPUP_ACTIONS = ['open-incident', 'open-center-detail', 'nav'];
+  const MAP_POPUP_ACTIONS = ['open-incident', 'open-center-detail', 'open-road-detail', 'rw-relief-detail', 'nav'];
   document.addEventListener('ug:map-action', (e) => {
     const d = (e && e.detail) || {};
     if (!S.session || MAP_POPUP_ACTIONS.indexOf(d.act) === -1 || !APP_ACTIONS[d.act]) return;

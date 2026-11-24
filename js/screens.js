@@ -824,6 +824,7 @@ const UG_SCREENS = (() => {
     const id = st.openId;
     const i = U.DATA.incidents.find(x => x.id === id || x.uuid === id);
     if (!i) return '<div class="ug-note">This report is unavailable.</div>';
+    const privateSos = i.verified_by_name === 'SOS' && !i.mine && !(U.DATA.sosLog || []).some((row) => row.report_id === i.uuid);
     const corr = st.corr[i.id] != null ? st.corr[i.id] : i.corr;
     /* the server decides verification (061); the screen never promotes a
        report to verified on its own count */
@@ -855,9 +856,9 @@ const UG_SCREENS = (() => {
         '<div class="ug-rowf ug-between" style="gap:8px">' + U.sevBadge(i.sev) + U.stageBadge(status) + '</div>' +
         '<h2 style="font-size:18px">' + esc(i.hazard) + '</h2>' +
         '<div class="ug-dimmer ug-mono" style="font-size:11px">' + esc(i.id) + ' &middot; ' + esc(i.time) + ' &middot; ' + esc(i.brgy) + '</div>' +
-        U.photo(i, 'bn-img') +
-        '<p class="ug-dim" style="font-size:13px;line-height:1.55">' + esc(i.desc) + '</p>' +
-        (i.location_note ? '<div class="ug-dim" style="font-size:12px"><b>Exact address / landmark:</b> ' + esc(i.location_note) + '</div>' : '') +
+        (privateSos ? '' : U.photo(i, 'bn-img')) +
+        '<p class="ug-dim" style="font-size:13px;line-height:1.55">' + esc(privateSos ? 'Emergency SOS reported in this barangay.' : i.desc || 'No description was provided.') + '</p>' +
+        (!privateSos && i.location_note ? '<div class="ug-dim" style="font-size:12px"><b>Exact address / landmark:</b> ' + esc(i.location_note) + '</div>' : '') +
         (i.mine && (Date.now() - (Date.parse(i.created_at || '') || 0)) <= 15 * 60000 && status === 'reported'
           ? '<button class="ug-btn ug-btn--sm" style="align-self:flex-start"' + A('start-edit-report', attr({ id: i.id })) + '>' + I('settings', 14) + 'Edit this report</button>'
           : (i.mine && status === 'reported' ? '<div class="ug-dimmer" style="font-size:11px">The 15-minute edit window has closed.</div>' : '')) +
@@ -910,10 +911,11 @@ const UG_SCREENS = (() => {
       '<span class="ug-badge ug-badge--dispatched">' + label + '</span></div>' +
       '<div class="ug-map" data-map="detail" data-response-report="' + esc(incident.uuid) +
       '" aria-label="Map of your incident and responding teams" style="height:clamp(240px,38vh,380px);border:0;border-radius:0">' + U.mapSVG({}) + '</div>' +
-      '<div class="ug-card-b"><p class="ug-dim" style="font-size:12px">' +
+      '<div class="ug-card-b ug-col" style="gap:8px"><p class="ug-dim" style="font-size:12px">' +
       (gps.length ? 'The map shows the incident and each team’s latest shared position.' :
         'The incident pin is shown now. Team markers appear when responders share a GPS location.') +
-      '</p><button class="ug-btn ug-btn--sm" data-act="response-fit-map">' + I('map', 14) + 'Show incident and teams</button></div></section>';
+      '</p><p class="ug-dim" style="font-size:12px"><b>Incident:</b> ' + esc([incident.hazard, incident.brgy && 'Brgy. ' + incident.brgy, incident.location_note].filter(Boolean).join(' · ')) +
+      '</p><button class="ug-btn ug-btn--sm" style="align-self:flex-start" data-act="response-fit-map">' + I('map', 14) + 'Show incident and teams</button></div></section>';
   }
 
     /* dispatch records for one incident: every team sent (any number), which
