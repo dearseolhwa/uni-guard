@@ -12,7 +12,15 @@ const Repo = (function () {
   let sb = null;
   let subscribed = false;
   let lastDataSig = '';    /* raw rows of the last successful load, see loadAll */
-  const photoCache = {};   /* storage path -> signed url */
+  const photoCache = new Map();
+  const PHOTO_TTL = 3600;
+  const photoUrl = (path) => {
+    const saved = photoCache.get(path);
+    return saved && saved.refreshAfter > Date.now() ? saved.url : null;
+  };
+  const cachePhoto = (path, url, started) => photoCache.set(path, {
+    url, refreshAfter: started + (PHOTO_TTL - 60) * 1000
+  });
 
   const state = {
     source: 'local',       /* 'supabase' | 'offline' | 'local' */
@@ -121,7 +129,7 @@ const Repo = (function () {
            : (Array.isArray(r.report_corroborations) ? r.report_corroborations.length : 0),
       thumb: r.photo_path ? 'remote' : null,
       remote_photo: r.photo_path || null,
-      photo_url: photoCache[r.photo_path] || null,
+      photo_url: photoUrl(r.photo_path),
       units: r.assigned_units || 0,
       lat: r.lat, lng: r.lng,
       mine: r.is_mine === true,
@@ -184,7 +192,9 @@ const Repo = (function () {
       lat: c.lat, lng: c.lng,
       facilities: facilities,
       contact_person: c.contact_person || '',
-      contact_phone: c.contact_phone || ''
+      contact_phone: c.contact_phone || '',
+      needs_patrol: c.needs_patrol === true,
+      needs_patrol_at: c.needs_patrol_at || null
     };
   }
 
@@ -360,10 +370,11 @@ const Repo = (function () {
        team wrote to a different table and the KPI never moved. */
     const dispatchCount = totalDispatchedTeams();
     const assignedUnits = inc.reduce((n, i) => n + (i.units || 0), 0);
+    const open = inc.filter((row) => !['resolved', 'rejected'].includes(row.status));
     return {
       incidents: inc.length,
-      openIncidents: inc.filter((i) => i.status !== 'resolved').length,
-      emergency: inc.filter((i) => i.sev === 'emergency' && i.status !== 'resolved').length,
+      openIncidents: open.length,
+      emergency: open.filter((row) => row.sev === 'emergency').length,
       advisories: adv.length,
       liveAdvisories: adv.filter((a) => a.severity !== 'prepared').length,
       preparedness: adv.filter((a) => a.severity === 'prepared').length,
@@ -432,11 +443,13 @@ const Repo = (function () {
     recomputeKpis();
   }
 
+  let scopeEpoch = 0;
   function profileScope(p = state.profile) {
-    return p ? JSON.stringify([p.id, p.role, p.barangay_id, p.dispatch_unit_id, p.unit_role, p.is_super_admin]) : null;
+    return p ? JSON.stringify([scopeEpoch, p.id, p.role, p.barangay_id, p.dispatch_unit_id, p.unit_role, p.is_super_admin]) : null;
   }
 
   function resetScopedData() {
+    scopeEpoch++;
     state.resourceSync = {};
     state.lastSync = null;
     state.lastError = null;
@@ -445,16 +458,19 @@ const Repo = (function () {
     state.loading = false;
     lastDataSig = '';
     UG.DATA.myReportRows = [];
-    if (!client()) return;
+    if (!client() && UG_CONFIG.DEV) return;
     for (const key of ['incidents', 'advisories', 'centers', 'hotlines', 'notifications', 'sosLog', 'relief',
       'beneficiaries', 'guides', 'faqs', 'roadWork', 'roadStatus', 'inventory', 'distributionLog', 'municipalDispatchRequests',
       'myCorroborations', 'users', 'audit', 'changeRequests', 'dispatchUnits', 'dispatchHelpRequests', 'unitRequests',
-      'dispatchEquipment', 'replacementQueue']) {
+      'dispatchEquipment', 'equipmentCatalog', 'replacementQueue', 'othersReview', 'responders', 'sosNotifications']) {
       UG.DATA[key] = [];
     }
     for (const key of ['dispatches', 'unitsById', 'reportHistory', 'reportHistoryAt', 'reportHandlers']) UG.DATA[key] = {};
     UG.DATA.detailReport = null;
-    Object.keys(photoCache).forEach((key) => delete photoCache[key]);
+    UG.DATA.detailAdvisory = null;
+    photoCache.clear();
+    UG.DATA.analytics = null;
+    UG.DATA.subscribedDevices = null;
     state.source = 'offline';
     recomputeKpis();
     refreshDerived();
@@ -463,8 +479,10 @@ const Repo = (function () {
   /* opts.silent: a background refresh (realtime event, poll). It skips the
      "loading" repaint and only repaints when the rows actually changed, so the
      open screen is not rebuilt every few seconds for nothing. */
+  let loadRevision = 0;
   async function loadAll(opts) {
     opts = opts || {};
+    const revision = ++loadRevision;
     state.loading = true;
     state.error = null;
     if (!opts.silent) emit();
@@ -473,7 +491,7 @@ const Repo = (function () {
     if (!c) {
       state.source = typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'local';
       /* only seed the demo data if we have nothing else to show */
-      if (!(UG.DATA.incidents && UG.DATA.incidents.length)) reseedLocal();
+      if (UG_CONFIG.DEV && !(UG.DATA.incidents && UG.DATA.incidents.length)) reseedLocal();
       state.loading = false;
       state.lastSync = new Date().toISOString();
       emit();
@@ -482,29 +500,33 @@ const Repo = (function () {
 
     const profile = state.profile;
     const scope = profileScope(profile);
+    const current = () => loadRevision === revision && profileScope() === scope;
     if (!profile) { state.loading = false; return state; }
     try {
       const role = profile ? profile.role : 'citizen';
       const brgyId = profile ? profile.barangay_id : null;
       const seesReplacementQueue = role === 'barangay_official' || (role === 'lgu_ldrrmc' && !profile.is_super_admin);
 
-      let reportsQuery = c.from('reports_feed').select('*').order('created_at', { ascending: false }).limit(300);
+      const reportsQuery = c.from('reports_feed').select('*').order('created_at', { ascending: false }).limit(300);
+      let hotlineQuery = c.from('emergency_hotlines').select('*');
+      if (role === 'citizen') hotlineQuery = hotlineQuery.eq('active', true);
 
       const [reports, advisories, centers, hotlines, notifications, subscriptions, assignments, relief, beneficiaries, guides, faqs, roadWork, roadStatus,
              dispatches, units, ratings, sos, municipalRequests, stock, replacements] = await Promise.all([
         reportsQuery,
         c.from('advisories').select('*').order('published_at', { ascending: false }).limit(100),
         c.from('evacuation_centers').select('*').order('name'),
-        c.from('emergency_hotlines').select('*').order('agency_name'),
+        hotlineQuery.order('agency_name'),
         c.from('notifications').select('*').order('created_at', { ascending: false }).limit(100),
-        c.from('push_subscriptions').select('id', { count: 'exact', head: true }),
+        role === 'lgu_ldrrmc' ? c.rpc('emergency_push_device_count')
+          : c.from('push_subscriptions').select('id', { count: 'exact', head: true }),
         c.from('report_assignments').select('report_id').is('released_at', null),
         c.from('relief_distributions').select('*').order('distribution_at', { ascending: false }).limit(100),
         ['lgu_ldrrmc', 'barangay_official'].includes(role)
-          ? c.from('authorized_beneficiaries').select('*').order('barangay, beneficiary_name').limit(800)
+          ? c.from('authorized_beneficiaries').select('*').order('barangay').order('beneficiary_name').limit(800)
           : Promise.resolve({ data: [] }),
-        c.from('preparedness_guides').select('*').order('hazard_type, phase, sort_order').limit(300),
-        c.from('faqs').select('*').order('sort_order, created_at').limit(100),
+        c.from('preparedness_guides').select('*').order('hazard_type').order('phase').order('sort_order').limit(300),
+        c.from('faqs').select('*').order('sort_order').order('created_at').limit(100),
         c.from('road_work_posts').select('*').order('created_at', { ascending: false }).limit(60),
         c.from('road_status').select('*').order('updated_at', { ascending: false }).limit(120),
         /* every team on the reports this account can see (RLS scopes it), so
@@ -522,7 +544,7 @@ const Repo = (function () {
         seesReplacementQueue ? c.from('dispatch_replacement_queue').select('*')
           .order('waiting_since').limit(100) : Promise.resolve({ data: [] })
       ]);
-      if (profileScope() !== scope) return state;
+      if (!current()) return state;
       /* load change requests in parallel — the Super Admin hotlines page and
          the LGU/BO "your pending requests" section both read this. */
       try { await loadChangeRequests(); } catch (e) {}
@@ -530,11 +552,11 @@ const Repo = (function () {
          "Confirmed" on every device; ignored if 061 is not applied yet */
       try {
         const mc = await c.rpc('my_corroborations');
-        if (profileScope() === scope && mc && !mc.error && Array.isArray(mc.data)) {
+        if (current() && mc && !mc.error && Array.isArray(mc.data)) {
           UG.DATA.myCorroborations = mc.data.map((x) => (x && typeof x === 'object') ? (x.my_corroborations || x.report_id || Object.values(x)[0]) : x).filter(Boolean);
         }
       } catch (e) {}
-      if (profileScope() !== scope) return state;
+      if (!current()) return state;
       const resources = { reports, advisories, shelters: centers, hotlines, notifications, relief, guides, faqs,
         roads: roadStatus, 'road works': roadWork, dispatches, 'dispatch units': units, SOS: sos,
         'municipal requests': municipalRequests, assignments, ratings, 'push subscriptions': subscriptions };
@@ -559,6 +581,7 @@ const Repo = (function () {
       if (opts.silent && sig === lastDataSig && state.hasSynced && state.source === 'supabase') {
         state.loading = false;
         if (!incomplete) state.lastSync = syncedAt;
+        resolvePhotos().catch(() => {});
         return state;
       }
       lastDataSig = sig;
@@ -613,7 +636,7 @@ const Repo = (function () {
       if (faqs && !faqs.error && faqs.data) UG.DATA.faqs = faqs.data.map(toFaq);
       if (roadWork && !roadWork.error && roadWork.data) UG.DATA.roadWork = roadWork.data.map(toRoadWork);
       if (roadStatus && !roadStatus.error && roadStatus.data) UG.DATA.roadStatus = roadStatus.data.map(toRoadStatus);
-      if (!subscriptions?.error) UG.DATA.subscribedDevices = subscriptions?.count || 0;
+      if (!subscriptions?.error) UG.DATA.subscribedDevices = subscriptions?.count ?? subscriptions?.data ?? 0;
       UG.DATA.scope = { role: role, barangay_id: brgyId };
 
       recomputeKpis();
@@ -627,49 +650,43 @@ const Repo = (function () {
         if (window.UG_CACHE) window.UG_CACHE.storeSnapshot(UG.DATA);
       }
       emit();
-      resolvePhotos();
+      resolvePhotos().catch(() => {});
 
       subscribe();
       return state;
     } catch (e) {
-      if (profileScope() !== scope) return state;
-      /* A failed retry must NOT overwrite real data we already loaded. Only
-         reseed the sample data on the very first boot, when the store is still
-         empty — once we have synced even once, keep the last-known real rows
-         so the dashboard still shows live records instead of demo text. */
+      if (!current()) return state;
       state.lastError = (e && e.message) || 'Could not reach the server';
       state.error = state.lastError;
-      /* keep retrying in the background, so a portal that opened offline
-         recovers by itself once the server answers */
       startPoll();
-      const isEmpty = !(UG.DATA.incidents && UG.DATA.incidents.length) && !state.hasSynced;
-      if (isEmpty) {
-        state.source = 'offline';
-        reseedLocal();
-      } else {
-        /* keep the last-known real data; only flip the source flag so the
-           connectivity banner shows "offline" without nuking the dashboard. */
-        state.source = 'offline';
-        recomputeKpis();
-        refreshDerived();
-      }
+      state.source = 'offline';
+      refreshDerived();
       state.loading = false;
       emit();
       return state;
     }
   }
-    async function resolvePhotos() {
+  async function resolvePhotos() {
     const c = client();
     if (!c) return;
     const scope = profileScope();
-    const need = (UG.DATA.incidents || []).filter((i) => i.remote_photo && !photoCache[i.remote_photo]);
-    if (!need.length) return;
-    const paths = Array.from(new Set(need.map((i) => i.remote_photo)));
-    const { data, error } = await c.storage.from('reports').createSignedUrls(paths, 3600);
+    const paths = [...new Set((UG.DATA.incidents || []).map((row) => row.remote_photo)
+      .filter((path) => path && !photoUrl(path)))];
+    if (!paths.length) return;
+
+    const started = Date.now();
+    const { data, error } = await c.storage.from('reports').createSignedUrls(paths, PHOTO_TTL);
     if (error || !data || profileScope() !== scope) return;
-    data.forEach((row) => { if (row.signedUrl && row.path) photoCache[row.path] = row.signedUrl; });
-    (UG.DATA.incidents || []).forEach((i) => { if (i.remote_photo) i.photo_url = photoCache[i.remote_photo] || null; });
-    emit();
+    data.forEach((row) => {
+      if (row.signedUrl && row.path) cachePhoto(row.path, row.signedUrl, started);
+    });
+    let changed = false;
+    (UG.DATA.incidents || []).forEach((row) => {
+      if (!row.remote_photo) return;
+      const url = photoUrl(row.remote_photo);
+      if (row.photo_url !== url) { row.photo_url = url; changed = true; }
+    });
+    if (changed) emit();
   }
 
   /* ------------------------------------------------------------- realtime */
@@ -886,8 +903,13 @@ const Repo = (function () {
   async function signedPhotoUrl(path) {
     const c = client();
     if (!c || !path) return null;
-    const { data, error } = await c.storage.from('reports').createSignedUrl(path, 60 * 60);
-    if (error) return null;
+    const cached = photoUrl(path);
+    if (cached) return cached;
+    const scope = profileScope();
+    const started = Date.now();
+    const { data, error } = await c.storage.from('reports').createSignedUrl(path, PHOTO_TTL);
+    if (error || !data?.signedUrl || profileScope() !== scope) return null;
+    cachePhoto(path, data.signedUrl, started);
     return data.signedUrl;
   }
 
@@ -1007,6 +1029,20 @@ const Repo = (function () {
     return data;
   }
 
+  function findAdvisory(id) {
+    return (UG.DATA.advisories || []).find((row) => row.id === id) ||
+      (UG.DATA.detailAdvisory?.id === id ? UG.DATA.detailAdvisory : null);
+  }
+
+  async function loadAdvisory(id) {
+    const c = client();
+    if (!c) return findAdvisory(id);
+    const scope = profileScope();
+    const { data, error } = await c.from('advisories').select('*').eq('id', id).maybeSingle();
+    if (error) fail(error);
+    return data && profileScope() === scope ? toAdvisory(data) : null;
+  }
+
   /* -------------------------------------------------------------- advisories */
   /* advisories.delivery_mode only accepts 'push' | 'in_app' (migration 048). */
   function normaliseDeliveryMode(v) {
@@ -1017,6 +1053,7 @@ const Repo = (function () {
     input = Object.assign({}, input, { delivery_mode: normaliseDeliveryMode(input.delivery_mode) });
     const c = client();
     if (!c) {
+      if (!UG_CONFIG.DEV) throw new Error('Connect to the server to publish this advisory.');
       UG.DATA.advisories.unshift({
         id: 'local-' + Date.now(), title: input.title, body: input.body, severity: input.severity,
         type: input.kind === 'preparedness' ? 'Preparedness' : 'Emergency', kind: input.kind,
@@ -1033,59 +1070,33 @@ const Repo = (function () {
       emit();
       return { local: true };
     }
-    const { data: userData } = await c.auth.getUser();
-    const { data, error } = await c.from('advisories').insert({
-      author_id: userData && userData.user ? userData.user.id : null,
-      title: input.title, body: input.body, severity: input.severity, kind: input.kind,
-      affected_area: input.affected_area || (input.citywide ? UG_GEO.PLACE.areaAll : 'Selected barangays'),
-      citywide: input.citywide !== false,
-      expires_at: input.expires_at || null,
-      published_at: new Date().toISOString(),
-      alert_type: input.alert_type || 'general',
-      language: input.language || 'en',
-      /* delivery preference — 'push' or 'in_app' (column added by
-         migration 048; without it PostgREST rejects the insert). */
-      delivery_mode: input.delivery_mode
-    }).select('*').single();
+    const { data, error } = await c.rpc('publish_advisory', {
+      p_request_id: input.request_id,
+      p_advisory: {
+        title: input.title, body: input.body, severity: input.severity, kind: input.kind,
+        citywide: input.citywide === true, expires_at: input.expires_at || null, alert_type: input.alert_type,
+        language: input.language, delivery_mode: input.delivery_mode
+      },
+      p_barangay_ids: input.barangayIds || []
+    });
     if (error) fail(error);
-
-    /* the advisory is saved; anything that fails from here is reported back
-       (data.notifyWarning) instead of silently leaving residents un-notified */
-    if (input.barangayIds && input.barangayIds.length) {
-      const { error: tErr } = await c.from('advisory_targets').insert(input.barangayIds.map((b) => ({ advisory_id: data.id, barangay_id: b })));
-      if (tErr) data.notifyWarning = 'The advisory was saved, but its barangay could not be set (' + tErr.message + '), so no one was notified.';
-    }
-    /* fan out the in-app notification to targeted residents */
-    if (!data.notifyWarning) {
-      const { data: reached, error: fErr } = await c.rpc('fanout_advisory', { p_advisory_id: data.id });
-      if (fErr) data.notifyWarning = 'The advisory was saved, but residents could not be notified: ' + fErr.message;
-      else data.reached = typeof reached === 'number' ? reached : null;
-    }
-
-    /* Web Push — sent ONLY when the duty officer picked "push" delivery.
-       The DOCX asks for a choice: emergency advisories push, informational
-       advisories stay in the inbox without a push. Honoured here so the
-       publish path matches what the composer let the user select. */
-    if (input.delivery_mode === 'push' && window.UG_PUSH_DISPATCH !== false) {
-      try {
-        await c.functions.invoke('push-dispatch', {
-          body: {
-            title: input.title,
-            body: input.body,
-            severity: input.severity || 'advisory',
-            advisoryId: data.id,
-            /* the barangays the advisory is aimed at, so the push reaches only
-               them (and a barangay official's push is allowed) */
-            barangayIds: (input.barangayIds && input.barangayIds.length) ? input.barangayIds : undefined,
-            area: input.affected_area || UG_GEO.PLACE.areaAll,
-            url: './index.html#/advisory-detail'
-          }
-        });
-      } catch (e) { /* push is an enhancement; the advisory + in-app fan-out already succeeded */ }
-    }
-
+    if (data.delivery_mode === 'push') data.delivery = await sendAdvisoryPush(c, data);
     await loadAll();
     return data;
+  }
+
+  async function sendAdvisoryPush(c, advisory) {
+    if (window.UG_PUSH_DISPATCH === false) return null;
+    try {
+      const { data, error } = await c.functions.invoke('push-dispatch', {
+        body: {
+          title: advisory.title, body: advisory.body, severity: advisory.severity,
+          advisoryId: advisory.id, barangayIds: advisory.barangay_ids, area: advisory.affected_area,
+          url: './index.html?advisory=' + encodeURIComponent(advisory.id) + '#advisory-detail'
+        }
+      });
+      return error || !data?.ok ? { unconfirmed: true } : data;
+    } catch (e) { return { unconfirmed: true }; }
   }
 
   /* ----------------------------------------------------------------- centres */
@@ -1098,6 +1109,26 @@ const Repo = (function () {
       return row;
     }
     const { data, error } = await c.from('evacuation_centers').update(patch).eq('id', id).select('*').single();
+    if (error) fail(error);
+    await loadAll();
+    return data;
+  }
+
+  async function setShelterOccupancy(center, value, isDelta) {
+    const c = client();
+    if (!c) {
+      if (!UG_CONFIG.DEV) throw new Error('Connect to the server to update this shelter.');
+      if (center.status === 'closed') throw new Error('Open the shelter before updating its occupancy.');
+      const occupancy = isDelta ? Math.max(0, Math.min(center.cap, center.occ + value)) : value;
+      if (occupancy < 0 || occupancy > center.cap) throw new Error('Occupancy must be between zero and the shelter capacity.');
+      const status = center.cap > 0 && occupancy === center.cap ? 'full' : 'open';
+      Object.assign(center, { occ: occupancy, status });
+      emit();
+      return { occupancy, capacity: center.cap, status };
+    }
+    const { data, error } = await c.rpc('set_shelter_occupancy', {
+      p_center_id: center.uuid || center.id, p_value: value, p_is_delta: isDelta
+    });
     if (error) fail(error);
     await loadAll();
     return data;
@@ -1193,33 +1224,31 @@ const Repo = (function () {
   /* -------------------------------------------------------- declare emergency */
   /* Runs through the declare_emergency() server function: it is LGU only, it
      writes an audit row, and it returns the real subscribed device count. */
-    async function declareEmergency(payload) {
+  async function declareEmergency(payload) {
     const c = client();
-    if (!c) return { local: true, devices: 0, notified: 0 };
-    const title = (payload && payload.title) || 'Emergency declaration: municipality-wide response activated';
-    const body = (payload && payload.body) ||
-      'The Lingayen LDRRMO has declared a municipality-wide emergency. Follow official instructions, move to the nearest open evacuation center if advised, and keep monitoring UniGuard advisories.';
-    const area = (payload && payload.area) || UG_GEO.PLACE.areaAll;
+    if (!c) {
+      if (UG_CONFIG.DEV) return { local: true, devices: 0, notified: 0 };
+      throw new Error('Connect to the server to declare an emergency.');
+    }
+    const title = payload.title;
+    const body = payload.body;
+    const area = payload.area || UG_GEO.PLACE.areaAll;
     const { data, error } = await c.rpc('declare_emergency', { p_title: title, p_body: body, p_area: area });
     if (error) fail(error);
+    data.delivery = await sendAdvisoryPush(c, {
+      id: data.advisory_id, title, body, severity: 'emergency', affected_area: area
+    });
     await loadAll();
-    if (window.UG_PUSH_DISPATCH !== false && data && data.advisory_id) {
-      /* best effort: hand the advisory to the push gateway */
-      try {
-        await c.functions.invoke('push-dispatch', {
-          body: { title: title, body: body, severity: 'emergency', advisoryId: data.advisory_id, area: area }
-        });
-      } catch (e) { /* push is an enhancement; the advisory is already published */ }
-    }
     return data;
   }
 
   async function subscribedDeviceCount() {
     const c = client();
-    if (!c) return 0;
-    const { count, error } = await c.from('push_subscriptions').select('id', { count: 'exact', head: true });
-    if (error) return UG.DATA.subscribedDevices || 0;
-    return count || 0;
+    if (!c) return null;
+    const role = window.UG_APP?.S.session?.role || state.profile?.role;
+    const result = role === 'lgu_ldrrmc' ? await c.rpc('emergency_push_device_count')
+      : await c.from('push_subscriptions').select('id', { count: 'exact', head: true });
+    return result.error ? null : result.count ?? result.data ?? null;
   }
 
   /* Live figures from the SQL views when the project is connected, so the console
@@ -1260,8 +1289,8 @@ const Repo = (function () {
      Scope (LGU = municipality-wide, official = own barangay, citizen = none)
      is enforced inside the functions; the UI only reflects it. */
   async function analytics(fromISO, toISO) {
-    const from = fromISO || new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
-    const to = toISO || new Date().toISOString().slice(0, 10);
+    const from = fromISO || UG_EXPORT.isoDate(Date.now() - 29 * 86400000);
+    const to = toISO || UG_EXPORT.todayIso();
     const c = client();
     if (!c) {
       const byHazard = {};
@@ -1300,8 +1329,8 @@ const Repo = (function () {
 
     let avgDispatchSeconds = null, avgResolveSeconds = null;
     if (resp && !resp.error && resp.data) {
-      const d = resp.data.map((r) => Number(r.seconds_to_dispatch)).filter((n) => isFinite(n) && n >= 0);
-      const s = resp.data.map((r) => Number(r.seconds_to_resolve)).filter((n) => isFinite(n) && n >= 0);
+      const d = resp.data.filter((r) => r.seconds_to_dispatch != null).map((r) => Number(r.seconds_to_dispatch)).filter((n) => isFinite(n) && n >= 0);
+      const s = resp.data.filter((r) => r.seconds_to_resolve != null).map((r) => Number(r.seconds_to_resolve)).filter((n) => isFinite(n) && n >= 0);
       avgDispatchSeconds = d.length ? Math.round(d.reduce((a, b) => a + b, 0) / d.length) : null;
       avgResolveSeconds = s.length ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : null;
     }
@@ -1550,33 +1579,25 @@ const Repo = (function () {
   async function loadDispatchDirectory() {
     const c = client();
     if (!c) return;
-    try {
-      const [units, equipment, requests, helpReqs, escorts, catalog] = await Promise.all([
-        c.from('dispatch_units').select('*').order('unit_type', { ascending: true }),
-        c.from('dispatch_equipment').select('*').order('created_at', { ascending: false }),
-        c.from('unit_requests').select('*').order('created_at', { ascending: false }).limit(50),
-        /* A2 (Oct 24 2026): dispatch help requests. RLS lets the LGU see all. */
-        c.from('dispatch_help_requests').select('*').order('created_at', { ascending: false }).limit(50),
-        /* D3 (Oct 24 2026): relief distributions with escort_status active.
-           The existing relief loader already pulls everything; we just
-           refresh here so the LGU console's escort list is current. */
-        c.from('relief_distributions').select('*').order('distribution_at', { ascending: false }).limit(100),
-        /* 050 (Oct 25 2026): equipment_catalog — for the Add-equipment form's
-           Type dropdown. Small table (~30 rows), so we load it once with the
-           rest of the dispatch directory. */
-        c.from('equipment_catalog').select('*').order('unit_type', { ascending: true }).order('label', { ascending: true })
-      ]);
-      UG.DATA.dispatchUnits = units.data || [];
-      UG.DATA.dispatchEquipment = equipment.data || [];
-      UG.DATA.unitRequests = requests.data || [];
-      UG.DATA.dispatchHelpRequests = helpReqs.data || [];
-      /* 054: a failed catalog read used to leave the Type dropdown with
-         only "Other (custom)" and no hint why. Log it. */
-      if (catalog.error) console.warn('[repo] equipment_catalog load failed:', catalog.error);
-      UG.DATA.equipmentCatalog = catalog.data || [];
-      if (escorts.data) UG.DATA.relief = escorts.data.map(toRelief);
-      emit();
-    } catch (e) { /* directory is a read-only convenience */ }
+    const scope = profileScope();
+    const queries = {
+      dispatchUnits: c.from('dispatch_units').select('*').order('unit_type'),
+      dispatchEquipment: c.from('dispatch_equipment').select('*').order('created_at', { ascending: false }),
+      unitRequests: c.from('unit_requests').select('*').order('created_at', { ascending: false }).limit(50),
+      dispatchHelpRequests: c.from('dispatch_help_requests').select('*').order('created_at', { ascending: false }).limit(50),
+      equipmentCatalog: c.from('equipment_catalog').select('*').order('unit_type').order('label')
+    };
+    const results = await Promise.allSettled(Object.entries(queries).map(async ([key, query]) => {
+      const { data, error } = await query;
+      if (!error && profileScope() === scope) UG.DATA[key] = data || [];
+      return !!error;
+    }));
+    if (profileScope() !== scope) return;
+    const failed = results.some((result) => result.status === 'rejected' || result.value);
+    state.resourceSync['dispatch directory'] = {
+      failed, lastSuccess: failed ? state.resourceSync['dispatch directory']?.lastSuccess || null : new Date().toISOString()
+    };
+    emit();
   }
 
   /* ----------------------------------------------------- change requests
@@ -1741,8 +1762,8 @@ const Repo = (function () {
                        municipality-wide posts; the trigger will accept it. */ }
     }
     /* citywide posts have no barangay; otherwise the barangay_id is required. */
-    if (!input.citywide && !input.barangay) {
-      throw new Error('A barangay is required for a non-citywide road work post.');
+    if (!input.citywide && !barangayId) {
+      throw new Error('Choose a valid barangay before publishing road work.');
     }
     const payload = Object.assign({}, input, {
       author_id: userData && userData.user ? userData.user.id : null,
@@ -1758,8 +1779,10 @@ const Repo = (function () {
     delete payload.expected_hours;
     const { data, error } = await c.from('road_work_posts').insert(payload).select('*').single();
     if (error) fail(error);
-    /* fan out a notification to residents of the affected barangay */
-    try { await c.rpc('fanout_road_work', { p_post_id: data.id }); } catch (e) {}
+    try {
+      const { data: notified, error: notifyError } = await c.rpc('fanout_road_work', { p_post_id: data.id });
+      data.notified = notifyError ? null : notified;
+    } catch (e) { data.notified = null; }
     await loadAll(); return data;
   }
 
@@ -1807,14 +1830,24 @@ const Repo = (function () {
     return data;
   }
   async function fetchSosInbox(c) {
-    const [latest, pending] = await Promise.all([
-      c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100),
+    const ordered = () => c.from('sos_log').select('*').order('created_at', { ascending: false }).order('id');
+    const awaiting = new Set((UG.DATA.sosLog || []).filter((row) => row.needs_receipt).map((row) => row.id));
+    const [latest, active, pending] = await Promise.all([
+      ordered().limit(100),
+      ordered().neq('status', 'resolved'),
       c.rpc('list_pending_sos_receipts')
     ]);
-    if (latest.error && pending.error) return latest;
-    const rows = new Map((latest.data || []).map((row) => [row.id, row]));
+    if (latest.error && active.error && pending.error) return latest;
+    const rows = new Map();
+    for (const row of [...(latest.data || []), ...(active.data || [])]) {
+      rows.set(row.id, { ...row, needs_receipt: !!pending.error && awaiting.has(row.id) });
+    }
     for (const row of pending.data || []) rows.set(row.id, { ...row, needs_receipt: true });
-    return { data: Array.from(rows.values()), error: null, incomplete: !!(latest.error || pending.error) };
+    return {
+      data: [...rows.values()].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)),
+      error: null,
+      incomplete: !!(latest.error || active.error || pending.error)
+    };
   }
 
   async function listSos() {
@@ -1861,7 +1894,7 @@ const Repo = (function () {
     const c = client();
     if (!c) return [];
     const { data, error } = await c.from('others_hazard_review').select('*');
-    if (error) return [];
+    if (error) fail(error);
     return data || [];
   }
 
@@ -1974,10 +2007,10 @@ const Repo = (function () {
   }
 
   return {
-    client, online, queueUploadSession, state, onChange, resetScopedData, findReport, listMyReports, loadReport,
+    client, online, queueUploadSession, state, onChange, resetScopedData, findReport, listMyReports, loadReport, findAdvisory, loadAdvisory,
     loadAll, forceReload, subscribe, unsubscribe, setRefreshGate, autoDispatch, rateReport, reportHandlers,
     createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, lguVerify, barangayAt, reportHistory, updateReport,
-    createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,
+    createAdvisory, updateCenter, setShelterOccupancy, createCenter, createHotline, updateHotline, deleteHotline,
     markRead, markAllRead, listBarangays,
     declareEmergency, subscribedDeviceCount,
     analytics, analyticsFromViews, writeReliefStock, listUsers, adminUsers, adminAccountDirectory, adminEditStaffAccount, listAudit, listResponders, assignResponder,

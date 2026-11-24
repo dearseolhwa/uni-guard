@@ -47,6 +47,24 @@ const UG_PWA = (function () {
     }).catch(() => false);
   }
 
+  const savedAdvisoriesKey = (scope) => JSON.stringify([scope, 'saved-advisories']);
+
+  async function saveAdvisory(advisory) {
+    const scope = snapshotKey();
+    if (!scope || !advisory?.id) return false;
+    try {
+      await tx(STORE_SNAPSHOT, 'readwrite', (store) => {
+        const key = savedAdvisoriesKey(scope);
+        const request = store.get(key);
+        request.onsuccess = () => {
+          const saved = Array.isArray(request.result) ? request.result : [];
+          store.put([advisory, ...saved.filter((row) => row.id !== advisory.id)], key);
+        };
+      });
+      return snapshotKey() === scope;
+    } catch (e) { return false; }
+  }
+
   async function readSnapshot() {
     const key = snapshotKey();
     if (!key) return null;
@@ -58,7 +76,7 @@ const UG_PWA = (function () {
     const key = snapshotKey(session);
     return tx(STORE_SNAPSHOT, 'readwrite', (s) => {
       s.delete('data');
-      if (key) s.delete(key);
+      if (key) { s.delete(key); s.delete(savedAdvisoriesKey(key)); }
     }).catch(() => null);
   }
 
@@ -73,13 +91,21 @@ const UG_PWA = (function () {
   }
   async function hydrateFromCache() {
     const key = snapshotKey();
-    const snap = await readSnapshot();
-    if (!snap || snapshotKey() !== key) return false;
-    if (snap.hotlines && snap.hotlines.length) UG.DATA.hotlines = snap.hotlines;
-    if (snap.centers && snap.centers.length) UG.DATA.centers = snap.centers;
-    if (snap.advisories && snap.advisories.length) UG.DATA.advisories = snap.advisories;
-    if (snap.incidents && snap.incidents.length) UG.DATA.incidents = snap.incidents;
-    state.lastSync = snap.at;
+    if (!key) return false;
+    const [snap, saved] = await Promise.all([
+      readSnapshot(),
+      tx(STORE_SNAPSHOT, 'readonly', (store) => store.get(savedAdvisoriesKey(key))).catch(() => null)
+    ]);
+    if (snapshotKey() !== key || (!snap && !saved?.length)) return false;
+    if (snap?.hotlines) UG.DATA.hotlines = snap.hotlines;
+    if (snap?.centers) UG.DATA.centers = snap.centers;
+    if (snap?.incidents) UG.DATA.incidents = snap.incidents;
+    const advisories = new Map((snap?.advisories || []).map((row) => [row.id, row]));
+    for (const row of saved || []) {
+      if (!advisories.has(row.id)) advisories.set(row.id, row);
+    }
+    if (snap || saved?.length) UG.DATA.advisories = [...advisories.values()];
+    state.lastSync = snap?.at || null;
     return true;
   }
 
@@ -524,7 +550,7 @@ const UG_PWA = (function () {
     state, onChange, init, register, flushQueue, forceRefresh, retryNow,
     enqueue, upsertQueuedSos, listQueue, removeFromQueue, refreshQueueCount,
     storeSnapshot, readSnapshot, clearSnapshot, clearQueue, clearNotifications, dataScope: snapshotKey,
-    hydrateFromCache,
+    hydrateFromCache, saveAdvisory,
     enablePush, pushEnabled, pushSupported, releasePush
   };
 })();

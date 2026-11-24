@@ -44,6 +44,17 @@
     accuracy: null, error: '', busy: false, address: '', locationNote: '', mapDragging: false
   });
 
+  const blankAdvisory = (session) => ({
+    title: '', sev: 'warning', type: 'Emergency', area: session?.role === 'barangay_official'
+      ? session.barangay || '' : UG_GEO.PLACE.areaAll,
+    msg: '', lang: 'en', alertType: 'general', deliveryMode: 'push'
+  });
+
+  const blankRoadWork = (session) => ({
+    title: '', description: '', barangay: session?.role === 'barangay_official' ? session.barangay || '' : UG_GEO.PLACE.areaAll,
+    road_name: '', address: '', lat: null, lng: null, expected_hours: 6
+  });
+
   const S = {
     screen: 'auth',
     auth: blankAuth(),
@@ -76,11 +87,12 @@
     guideHazard: UG_HAZARDS.LIST[0].label, guidePhase: 'before',
     faqSearch: '',
     reportStatusFilter: 'all',
-    roadDraft: { title: '', description: '', barangay: UG_GEO.PLACE.areaAll, road_name: '', address: '', lat: null, lng: null, expected_hours: 6, citywide: false },
+    roadDraft: blankRoadWork(),
     sosSending: false, lastSos: null,
     mapLayers: { hazards: true, relief: true, centers: true, roadStatus: true },
     mapPanelOpen: false,
-    draft: { title: '', sev: 'warning', type: 'Emergency', area: UG_GEO.PLACE.areaAll, msg: '', lang: 'en', alertType: 'general', deliveryMode: 'push' },
+    draft: blankAdvisory(),
+    advisoryRequest: null, publishing: false, declaring: false,
     lastReport: null,
     report: blankReport()
   };
@@ -589,6 +601,22 @@
   }
 
   async function loadRouteData(route) {
+    const owner = S.session;
+    if (!owner || guardRoute(route) !== route) return;
+    if (route === 'advisory-detail') {
+      const id = S.openId;
+      if (!id || Repo.findAdvisory(id)) return;
+      try {
+        const row = await Repo.loadAdvisory(id);
+        if (owner === S.session && route === S.route && id === S.openId) {
+          UG.DATA.detailAdvisory = row;
+          render();
+        }
+      } catch (error) {
+        if (owner === S.session && route === S.route && id === S.openId) toast(error, 'warning');
+      }
+      return;
+    }
     /* Dispatch team: their data comes from UG_DISPATCH, not Repo. */
     if (S.session && S.session.role === 'dispatch_team' && typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.loadRoute) {
       try { await UG_DISPATCH.loadRoute(route); }
@@ -640,9 +668,11 @@
     if (route === 'users') {
       S.loading = true; S.error = null; render();
       try {
-        S.users = await Repo.listUsers();
-        UG.DATA.users = S.users;
+        const rows = await Repo.listUsers();
+        if (S.session !== owner) return;
+        S.users = UG.DATA.users = rows;
       } catch (e) {
+        if (S.session !== owner) return;
         console.error('[UniGuard] load accounts failed', e);
         S.error = (e && e.message) || 'Could not load accounts';
       }
@@ -652,13 +682,19 @@
     if (route === 'audit') {
       S.loading = true; S.error = null; render();
       try {
-        S.audit = await Repo.listAudit(200);
-        UG.DATA.audit = S.audit;
+        const rows = await Repo.listAudit(200);
+        if (S.session !== owner) return;
+        S.audit = UG.DATA.audit = rows;
       } catch (e) {
+        if (S.session !== owner) return;
         console.error('[UniGuard] load activity log failed', e);
         S.error = (e && e.message) || 'Could not load the audit log';
       }
       S.loading = false; render();
+      return;
+    }
+    if (route === 'analytics' && Repo.client() && UG_PWA.state.online) {
+      await APP_ACTIONS['an-apply']();
       return;
     }
     if (route === 'reports') {
@@ -666,7 +702,6 @@
       return;
     }
     if (route === 'sos') {
-      const owner = S.session;
       if (Repo.online() && UG_PWA.state.online) {
         try {
           const rows = await Repo.listSos();
@@ -677,8 +712,11 @@
       return;
     }
     if (route === 'others-review') {
-      try { UG.DATA.othersReview = await Repo.listOthersReview(); } catch (e) { UG.DATA.othersReview = []; }
-      render();
+      try {
+        const rows = await Repo.listOthersReview();
+        if (S.session === owner) UG.DATA.othersReview = rows;
+      } catch (e) { if (S.session === owner) toast(e, 'warning'); }
+      if (S.session === owner) render();
       return;
     }
     /* the operations dashboard, incident queue and command view all surface
@@ -781,8 +819,18 @@
     catch (e) { try { window.location.hash = route; } catch (e2) { } }
   }
 
-  /* audit F-25: #/admin-home is the Super Admin's screen only */
-  const guardRoute = (route) => (route === 'admin-home' && !isSuperAdmin()) ? homeRoute() : route;
+  const dispatchRoutes = new Set(['dispatch', 'dispatch-detail', 'equipment', 'roster', 'hospital',
+    'requests', 'contacts', 'analytics', 'notifications', 'dp-settings']);
+  const staffRoutes = new Set(['dashboard', 'incidents', 'incident', 'command', 'reporting', 'analytics']);
+  function guardRoute(route) {
+    const role = S.session?.role;
+    if (['admin-home', 'users', 'audit'].includes(route) && !isSuperAdmin()) return homeRoute();
+    if (role === 'dispatch_team') return dispatchRoutes.has(route) ? route : 'dispatch';
+    if (route === 'response-team' && role !== 'barangay_official') return homeRoute();
+    if (['others-review', 'dispatch-units'].includes(route) && role !== 'lgu_ldrrmc') return homeRoute();
+    if (role === 'citizen' && staffRoutes.has(route)) return 'home';
+    return route;
+  }
   const go = (route) => { route = guardRoute(route); S.route = route; S.openId = null; setHash(route); };
 
   /* ---------------------------------------------------- console navigation */
@@ -807,6 +855,8 @@
   /* Captured before boot: enterApp() writes the home route into the hash, so the
      route we arrived with has to be read now or it is lost. */
   const INITIAL_ROUTE = routeFromHash();
+  const linkAdvisory = new URLSearchParams(location.search).get('advisory');
+  let initialAdvisory = INITIAL_ROUTE === 'advisory-detail' && /^[0-9a-f-]{36}$/i.test(linkAdvisory || '') ? linkAdvisory : null;
   /* the Super Admin starts on their own home screen (js/screens.superadmin.js) */
   const homeRoute = () => (S.session && S.session.role === 'lgu_ldrrmc' && S.session.superAdmin && typeof UG_SUPERADMIN !== 'undefined')
     ? UG_SUPERADMIN.ROUTE
@@ -819,6 +869,13 @@
   function leaveApp(notice) {
     const owner = S.session;
     S.session = null;
+    UG_FEATURES.closeDialogs();
+    UG_REPORTING.reset();
+    UG_SUPERADMIN.reset();
+    toasts?.replaceChildren();
+    S.lastOpen = null;
+    S.loading = false;
+    S.error = null;
     MapView.destroy();
     try { UG_DISPATCH.signedOut(); } catch (e) { }
     UG_URGENT.dismiss();
@@ -827,6 +884,7 @@
     S.myReportPage = null;
     S.users = null;
     S.audit = null;
+    S.responders = [];
     S.auth = blankAuth();
     S.auth.notice = notice;
     go('home');
@@ -837,7 +895,20 @@
 
   function enterApp(session, message) {
     if (!hasSameScope(S.session, session)) {
+      UG_FEATURES.closeDialogs();
+      UG_REPORTING.reset();
+      UG_SUPERADMIN.reset();
+      UG_DISPATCH.signedOut();
       Repo.resetScopedData();
+      S.lastOpen = null;
+      S.responders = [];
+      S.loading = false;
+      S.error = null;
+      S.draft = blankAdvisory(session);
+      S.roadDraft = blankRoadWork(session);
+      S.advisoryRequest = null;
+      S.publishing = false;
+      S.declaring = false;
       S.myReportPage = null;
       S.users = null;
       S.audit = null;
@@ -882,6 +953,11 @@
     refreshQueuedList().catch(() => {});
     UG_PWA.refreshQueueCount();
     autoPush(false);
+    if (initialAdvisory && session.role !== 'dispatch_team') {
+      const id = initialAdvisory;
+      initialAdvisory = null;
+      APP_ACTIONS['open-advisory']({ id });
+    }
     if (S.route === 'admin-home') loadRouteData('admin-home');
   }
 
@@ -1182,21 +1258,22 @@
       /* password is only required if they typed something in the confirm
          field but not the password field, OR vice versa. If both are blank,
          we skip the password update and keep their current one. */
-      if (f.password || f.confirm) {
+      if (S.auth.requirePassword || f.password || f.confirm) {
         if (!f.password || f.password.length < 8) { S.auth.error = 'Use at least 8 characters for the password.'; return render(); }
         if (f.password !== f.confirm) { S.auth.error = 'The two passwords do not match.'; return render(); }
       }
       if (!(f.lastName || '').trim()) { S.auth.error = 'Enter your last name.'; return render(); }
       if (!(f.firstName || '').trim()) { S.auth.error = 'Enter your first name.'; return render(); }
       const role = (S.auth.pendingProfile && S.auth.pendingProfile.role) || 'citizen';
-      if (role === 'barangay_official' && !f.barangay_id) { S.auth.error = 'Select your barangay.'; return render(); }
+      if (role === 'barangay_official' && !S.auth.pendingProfile?.barangay_id) {
+        S.auth.error = 'Ask your administrator to assign your barangay before completing setup.'; return render();
+      }
       S.auth.loading = true; render();
       try {
         const session = await Auth.completeOnboarding({
           password: f.password || '',  /* empty string = skip password update */
           name: UG_UTIL.joinName(f.lastName, f.firstName),
-          phone: (f.phone || '').trim(),
-          barangay_id: f.barangay_id || null
+          phone: (f.phone || '').trim()
         });
         S.auth = blankAuth();
         enterApp(session, 'Account complete. Welcome to UniGuard.');
@@ -1234,14 +1311,11 @@
       await Auth.signOut();
     }
   };
-    async function setOccupancy(c, n) {
-    n = Math.max(0, Math.min(c.cap || 0, n));
-    const patch = { occupancy: n };
-    if (c.status !== 'closed') patch.status = (c.cap > 0 && n >= c.cap) ? 'full' : 'open';
+  async function setOccupancy(center, value, isDelta = false) {
     try {
-      await Repo.updateCenter(c.uuid || c.id, patch);
-      toast(c.name + ': ' + n + ' / ' + c.cap, patch.status === 'full' ? 'warning' : 'prepared');
-    } catch (e) { toast(e.message, 'warning'); }
+      const result = await Repo.setShelterOccupancy(center, value, isDelta);
+      toast(center.name + ' · ' + result.occupancy + ' / ' + result.capacity, result.status === 'full' ? 'warning' : 'prepared');
+    } catch (e) { toast(e, 'warning'); }
     render();
   }
 
@@ -1404,9 +1478,9 @@
     if (!inc || !inc.uuid) return;
     const owner = S.session;
     Repo.loadDispatches(inc.uuid).then(() => { if (S.session === owner) render(); }).catch(() => { });
-    if (inc.remote_photo && !inc.photo_url) {
+    if (inc.remote_photo) {
       Repo.signedPhotoUrl(inc.remote_photo).then((url) => {
-        if (url && S.session === owner && S.openId === id) { inc.photo_url = url; render(); }
+        if (url !== inc.photo_url && S.session === owner && S.openId === id) { inc.photo_url = url; render(); }
       }).catch(() => { });
     }
     loadHistoryFor(inc);
@@ -1749,6 +1823,20 @@
     }
   }
 
+  function toastDelivery(message, delivery, level) {
+    if (delivery?.unconfirmed) {
+      toast(message + ' Push and SMS delivery could not be confirmed.', 'warning');
+      return;
+    }
+    const results = [];
+    if (delivery) {
+      results.push(Number(delivery.sent || 0) + ' push messages accepted');
+      if (delivery.smsQueued) results.push(delivery.smsQueued + ' SMS queued');
+      if (delivery.failed) results.push(delivery.failed + ' push sends failed');
+    }
+    toast(message + (results.length ? ' ' + results.join(', ') + '.' : ''), delivery?.failed ? 'warning' : level);
+  }
+
   const APP_ACTIONS = {
     nav: (d) => {
       S.bgMenu = false;   /* the staff phone menu closes after a choice */
@@ -1756,15 +1844,34 @@
       /* on a phone the drawer is in the way after a choice */
       if (window.innerWidth < 1200) setNav(false);
       render();
-      loadRouteData(d.route);
+      loadRouteData(S.route);
     },
-    'open-advisory': (d) => { S.openId = d.id; S.route = 'advisory-detail'; render(); },
+    'open-advisory': (d) => {
+      go('advisory-detail');
+      S.openId = d.id;
+      render();
+      return loadRouteData(S.route);
+    },
     'open-incident': (d) => {
       S.openId = d.id;
       S.reportBackRoute = S.route === 'map' || S.route === 'sos' || S.route === 'home' ? S.route : 'reports';
       S.route = S.role === 'citizen' ? 'report-detail' : 'incident';
       render();
       loadDispatchesFor(d.id);
+    },
+    'open-linked-report': async (d) => {
+      const owner = S.session;
+      const from = S.route;
+      if (!owner || !d.id) return;
+      try {
+        const report = Repo.findReport(d.id) || await Repo.loadReport(d.id);
+        if (S.session !== owner || S.route !== from) return;
+        if (!report) { toast('This report is unavailable for your account.', 'warning'); return; }
+        UG.DATA.detailReport = report;
+        APP_ACTIONS['open-incident'](d);
+      } catch (error) {
+        if (S.session === owner && S.route === from) toast(error, 'warning');
+      }
     },
     'open-replacement': async (d) => {
       const owner = S.session;
@@ -2114,10 +2221,13 @@
     },
 
     'add-photo': async () => {
+      const owner = S.session;
+      const draft = S.report;
       const file = await UG_FEATURES.pickPhoto();
-      if (!file) return;
+      if (!file || S.session !== owner || S.report !== draft) return;
       try {
         const out = await UG_FEATURES.compressImage(file);
+        if (S.session !== owner || S.report !== draft) return;
         S.report.photoBlob = out.blob;
         S.report.photoName = file.name || 'hazard.jpg';
         S.report.photo = true;
@@ -2126,9 +2236,9 @@
         S.report.photoBytes = out.bytes;
         toast('Photo attached, ' + UG_UTIL.bytes(out.bytes) + ' after compression', 'prepared');
       } catch (e) {
-        toast(e.message, 'warning');
+        if (S.session === owner && S.report === draft) toast(e.message, 'warning');
       }
-      render();
+      if (S.session === owner && S.report === draft) render();
     },
         'rm-photo': () => {
       if (S.report.photoPreview) { try { URL.revokeObjectURL(S.report.photoPreview); } catch (e) {} }
@@ -2590,15 +2700,16 @@
 
         'center-occ': async (d) => {
       const c = (UG.DATA.centers || []).find((x) => x.uuid === d.id || x.id === d.id);
-      if (c) await setOccupancy(c, (c.occ || 0) + parseInt(d.d, 10));
+      const delta = Number(d.d);
+      if (c && Number.isSafeInteger(delta)) await setOccupancy(c, delta, true);
     },
     'center-occ-set': async (d) => {
       const c = (UG.DATA.centers || []).find((x) => x.uuid === d.id || x.id === d.id);
       if (!c) return;
       const v = await UG_FEATURES.prompt({ title: 'Set occupancy', label: c.name + ' (capacity ' + c.cap + ')', value: String(c.occ || 0) });
       if (v === null) return;
-      const n = parseInt(v, 10);
-      if (isNaN(n)) { toast('Enter a whole number', 'warning'); return; }
+      const n = Number(v);
+      if (!/^\d+$/.test(v) || !Number.isSafeInteger(n)) { toast('Enter a whole number', 'warning'); return; }
       await setOccupancy(c, n);
     },
 
@@ -2680,7 +2791,8 @@
             const facilities = fac ? fac.split(',').map((s) => s.trim()).filter(Boolean) : [];
             const patrolEl = wrap.querySelector('[data-ce-patrol]');
             const needsPatrol = patrolEl ? !!patrolEl.checked : !!c.needs_patrol;
-            if (!name || !cap) { toast('A name and a capacity are required', 'warning'); return; }
+            if (!name || cap < 1) { toast('Enter a name and a positive capacity.', 'warning'); return; }
+            if (cap < c.occ) { toast('Lower the current occupancy before reducing shelter capacity.', 'warning'); return; }
             try {
               await Repo.updateCenter(c.uuid || c.id, {
                 name: name, barangay: brgy, capacity: cap,
@@ -3039,66 +3151,80 @@
 
     declare: async () => {
       if (!requireRole(['lgu_ldrrmc'])) { toast(T('error.permission'), 'warning'); return; }
-      const devices = await Repo.subscribedDeviceCount();
-      const ok = await UG_FEATURES.confirm({
-        title: 'Declare emergency',
-        message: 'Broadcast a municipality-wide emergency alert to every subscribed device?',
-        detail: '<div class="ug-kv"><dt>Reach</dt><dd>' + devices + ' subscribed devices</dd>' +
-          '<dt>SMS fallback</dt><dd>queued for devices without push</dd>' +
-          '<dt>Audit</dt><dd>this action is recorded</dd></div>',
-        confirmLabel: 'Broadcast now',
-        danger: true
-      });
-      if (!ok) return;
+      if (S.declaring) return;
+      const owner = S.session;
+      S.declaring = true;
       try {
-        const res = await Repo.declareEmergency({
-  title: 'Emergency declaration: municipality-wide response activated',
-  body: 'The Lingayen LDRRMO has declared a municipality-wide emergency. Follow official instructions, move to the nearest open evacuation center if advised, and keep monitoring UniGuard advisories.'
-});
-        toast('Emergency declaration broadcast to ' + ((res && res.devices) != null ? res.devices : devices) + ' devices', 'emergency');
-        if (S.role !== 'citizen') S.route = 'advisories';
-      } catch (e) { toast(e.message, 'warning'); }
-      render();
+        const devices = await Repo.subscribedDeviceCount();
+        if (S.session !== owner) return;
+        const reach = Number.isInteger(devices) ? devices + ' subscribed devices' : 'Device count unavailable';
+        const ok = await UG_FEATURES.confirm({
+          title: 'Declare emergency',
+          message: 'Publish a municipality-wide emergency alert and contact subscribed devices?',
+          detail: '<div class="ug-kv"><dt>Estimated reach</dt><dd>' + reach + '</dd>' +
+            '<dt>Audit</dt><dd>this action is recorded</dd></div>',
+          confirmLabel: 'Broadcast now',
+          danger: true
+        });
+        if (!ok || S.session !== owner) return;
+        const result = await Repo.declareEmergency({
+          title: 'Emergency declaration: municipality-wide response activated',
+          body: 'The Lingayen LDRRMO has declared a municipality-wide emergency. Follow official instructions, move to the nearest open evacuation center if advised, and keep monitoring UniGuard advisories.'
+        });
+        if (S.session !== owner) return;
+        if (result.local) toast('Emergency declaration is available only on the connected project.', 'warning');
+        else {
+          toastDelivery('Emergency declaration published in UniGuard.', result.delivery, 'emergency');
+          go('advisories');
+        }
+      } catch (e) { if (S.session === owner) toast(e, 'warning'); }
+      finally { if (S.session === owner) { S.declaring = false; render(); } }
     },
 
     publish: async () => {
       if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can publish advisories', 'warning'); return; }
-      if (!S.draft.title.trim() || !S.draft.msg.trim()) { toast('Add a title and a message before publishing', 'warning'); return; }
-      const ok = await UG_FEATURES.confirm({
-        title: 'Publish advisory',
-        message: 'Publish "' + S.draft.title.trim() + '" to ' + S.draft.area + '?',
-        confirmLabel: 'Publish'
-      });
-      if (!ok) return;
+      if (S.publishing) return;
+      const owner = S.session;
+      const draft = S.draft;
+      const area = owner.role === 'barangay_official' ? owner.barangay : draft.area;
+      const citywide = owner.role === 'lgu_ldrrmc' && area === UG_GEO.PLACE.areaAll;
+      const barangayIds = citywide ? [] : owner.role === 'barangay_official'
+        ? [owner.barangay_id].filter(Boolean)
+        : (S.barangays || []).filter((barangay) => barangay.name === area).map((barangay) => barangay.id);
+      if (!draft.title.trim() || !draft.msg.trim()) { toast('Add a title and a message before publishing', 'warning'); return; }
+      if (!citywide && !barangayIds.length && !UG_CONFIG.DEV) { toast('The barangay could not be verified. Refresh and try again.', 'warning'); return; }
+      const input = {
+        title: draft.title.trim(), body: draft.msg.trim(), severity: draft.sev,
+        kind: draft.type === 'Preparedness' ? 'preparedness' : 'emergency',
+        affected_area: area, citywide, barangayIds,
+        alert_type: draft.alertType || 'general', language: draft.lang || 'en', delivery_mode: draft.deliveryMode || 'push'
+      };
+      S.publishing = true;
+      render();
       try {
-        const pub = await Repo.createAdvisory({
-          title: S.draft.title.trim(), body: S.draft.msg.trim(), severity: S.draft.sev,
-          kind: S.draft.type === 'Preparedness' ? 'preparedness' : 'emergency',
-          affected_area: S.draft.area, citywide: /citywide|municipality-wide|municipality wide/i.test(S.draft.area),
-          /* a targeted advisory is fanned out to exactly the barangay it names */
-          barangayIds: (S.barangays || []).filter((b) => b.name === S.draft.area).map((b) => b.id),
-          /* Module F: the alert type (weather advisory / evacuation order /
-             road closure / general) and the language are carried through so
-             the published list and the citizen inbox can render the right
-             category icon and language label. */
-          alert_type: S.draft.alertType || 'general',
-          language: S.draft.lang || 'en',
-          /* Module F: delivery preference — push (emergency) or in-app only
-             (informational). Push is the default so existing behaviour is
-             unchanged; selecting in-app skips the Web Push step entirely. */
-          delivery_mode: S.draft.deliveryMode || 'push'
+        const ok = await UG_FEATURES.confirm({
+          title: 'Publish advisory',
+          message: 'Publish "' + input.title + '" to ' + area + '?',
+          confirmLabel: 'Publish'
         });
-        if (pub && pub.notifyWarning) toast(pub.notifyWarning, 'warning');
-        else if (pub && pub.reached === 0) toast('Advisory published, but no resident accounts are registered in ' + S.draft.area + ' yet.', 'warning');
-        else toast('Broadcast published to ' + S.draft.area + ' residents' + (pub && pub.reached ? ' (' + pub.reached + ' notified)' : ''), 'prepared');
+        if (!ok || S.session !== owner) return;
+        const draftKey = JSON.stringify(input);
+        if (S.advisoryRequest?.key !== draftKey) S.advisoryRequest = { key: draftKey, id: crypto.randomUUID() };
+        const published = await Repo.createAdvisory({ ...input, request_id: S.advisoryRequest.id });
+        if (S.session !== owner) return;
+        const status = published.local ? 'Advisory saved in this preview.' : 'Advisory published in UniGuard. ' +
+          (published.reached || 0) + ' in-app notifications created.';
+        toastDelivery(status, published.delivery, 'prepared');
+        S.draft = blankAdvisory(owner);
+        S.advisoryRequest = null;
         S.advStep = 1;
       } catch (e) {
-        console.error('[UniGuard] publish advisory failed', e);
-        /* a missing column / stale schema cache is a deploy problem, not the officer's */
-        const m = String((e && e.message) || '');
-        toast(/schema cache|column|relation|does not exist/i.test(m) ? T('error.advisoryNeedsUpdate') : m, 'warning');
+        if (S.session !== owner) return;
+        const message = String(e?.message || '');
+        toast(/schema cache|column|relation|does not exist/i.test(message) ? T('error.advisoryNeedsUpdate') : e, 'warning');
+      } finally {
+        if (S.session === owner) { S.publishing = false; render(); }
       }
-      render();
     },
 
     'adv-pub-filter': (d) => { S.advPubFilter = d.v; render(); },
@@ -3124,7 +3250,9 @@
     },
     'clear-draft': () => {
       S.advStep = 1;
-      S.draft = { title: '', sev: 'warning', type: 'Emergency', area: UG_GEO.PLACE.areaAll, msg: '', lang: 'en', alertType: 'general', deliveryMode: 'push' };
+      if (S.publishing) return;
+      S.draft = blankAdvisory(S.session);
+      S.advisoryRequest = null;
       toast('Composer cleared', 'info');
       render();
     },
@@ -3319,10 +3447,9 @@
       const staff = S.role !== 'citizen';
       const open = (route, id) => { go(route); S.openId = id || null; render(); Promise.resolve(loadRouteData(route)).catch(() => { }); };
       if (d.report) {
-        open(staff ? 'incident' : 'report-detail', d.report);
-        loadDispatchesFor(d.report);
+        await APP_ACTIONS['open-linked-report']({ id: d.report });
       } else if (d.advisory) {
-        open('advisory-detail', d.advisory);
+        await APP_ACTIONS['open-advisory']({ id: d.advisory });
       } else if (d.roadWork) {
         open('roadwork', d.roadWork);
       } else if (d.relief) {
@@ -3341,14 +3468,19 @@
     },
 
     'save-advisory': async () => {
-      const saved = await UG_PWA.storeSnapshot(UG.DATA);
-      toast(saved ? 'Critical advisories saved for offline reading' : 'Could not save advisories for offline reading',
+      const advisory = Repo.findAdvisory(S.openId);
+      const saved = await UG_PWA.saveAdvisory(advisory);
+      toast(saved ? 'Advisory saved for offline reading' : 'Could not save this advisory for offline reading',
         saved ? 'info' : 'warning');
     },
 
     'share-advisory': async () => {
-      const a = (UG.DATA.advisories || []).find((x) => x.id === S.openId);
-      const res = await UG_FEATURES.shareOrCopy(a ? a.title : 'UniGuard advisory', a ? a.body : '', location.href);
+      const a = Repo.findAdvisory(S.openId);
+      if (!a) return;
+      const link = new URL('./index.html', location.href);
+      link.searchParams.set('advisory', a.id);
+      link.hash = 'advisory-detail';
+      const res = await UG_FEATURES.shareOrCopy(a.title, a.body, link.href);
       toast(res === 'shared' ? 'Shared' : res === 'copied' ? 'Link copied to clipboard' : 'Sharing is not available here',
         res === 'failed' ? 'warning' : 'info');
     },
@@ -4185,21 +4317,24 @@
     'an-range': (d) => {
       S.anRange = d.v;
       if (d.v === 'custom') { render(); return; }
-      const pad = (n) => String(n).padStart(2, '0');
-      const iso = (t) => { const x = new Date(t); return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()); };
-      S.anTo = iso(Date.now()); S.anFrom = iso(Date.now() - Number(d.v) * 86400000);
+      S.anTo = UG_EXPORT.todayIso();
+      S.anFrom = UG_EXPORT.isoDate(Date.now() - (Number(d.v) - 1) * 86400000);
       APP_ACTIONS['an-apply']();
     },
     'an-open-haz': (d) => { S.incHazardFilter = UG_HAZARDS.classify(d.v).key; S.sevFilter = 'all'; APP_ACTIONS.nav({ route: 'incidents' }); },
     'an-open-brgy': (d) => { S.incBrgyFilter = d.v || 'All'; S.sevFilter = 'all'; APP_ACTIONS.nav({ route: 'incidents' }); },
     'an-open-stage': (d) => { S.sevFilter = d.v; APP_ACTIONS.nav({ route: 'incidents' }); },
     'an-apply': async () => {
+      const owner = S.session;
+      const from = S.anFrom;
+      const to = S.anTo;
       render();
       try {
-        const a = await Repo.analytics(S.anFrom || null, S.anTo || null);
+        const a = await Repo.analytics(from || null, to || null);
+        if (owner !== S.session || from !== S.anFrom || to !== S.anTo) return;
         UG.DATA.analytics = Object.assign({ live: true }, a);
-      } catch (e) { toast(e.message, 'warning'); }
-      render();
+      } catch (e) { if (owner === S.session) toast(e, 'warning'); }
+      if (owner === S.session) render();
     },
 
     /* ------------------------------------------ edit an incident (officials) */
@@ -5227,27 +5362,34 @@
        below push field values into the draft so publish can read them off the
        state object directly. */
     'rw-publish': async () => {
+      const owner = S.session;
+      if (!owner || !['lgu_ldrrmc', 'barangay_official'].includes(owner.role)) return;
       const d = S.roadDraft;
       if (!d.title.trim() || !d.description.trim()) { toast('Add a title and description before publishing', 'warning'); return; }
-      const citywide = d.barangay === UG_GEO.PLACE.areaAll;
+      const barangay = owner.role === 'barangay_official' ? owner.barangay : d.barangay;
+      const citywide = owner.role === 'lgu_ldrrmc' && barangay === UG_GEO.PLACE.areaAll;
       const start = new Date().toISOString();
       const end = new Date(Date.now() + (parseFloat(d.expected_hours) || 6) * 3600000).toISOString();
       try {
-        await Repo.createRoadWork({
+        const post = await Repo.createRoadWork({
           title: d.title.trim(), description: d.description.trim(),
-          barangay: citywide ? '' : d.barangay, road_name: d.road_name || '',
-          address: d.address || '', lat: d.lat || null, lng: d.lng || null,
+          barangay: citywide ? '' : barangay, road_name: d.road_name || '',
+          barangay_id: owner.role === 'barangay_official' ? owner.barangay_id : null,
+          address: d.address || '', lat: d.lat ?? null, lng: d.lng ?? null,
           expected_start: start, expected_end: end, citywide: citywide
         });
-        toast('Road work published and residents notified', 'prepared');
+        if (S.session !== owner) return;
+        if (post.local) toast('Road work saved in this preview.', 'info');
+        else if (post.notified == null) toast('Road work was published. Notifications could not be confirmed.', 'warning');
+        else toast('Road work published. ' + post.notified + ' in-app notifications created.', 'prepared');
         S.rwStep = 1;
-        S.roadDraft = { title: '', description: '', barangay: UG_GEO.PLACE.areaAll, road_name: '', address: '', lat: null, lng: null, expected_hours: 6, citywide: false };
+        S.roadDraft = blankRoadWork(S.session);
       } catch (e) { toast(e.message, 'warning'); }
       render();
     },
     'rw-clear': () => {
       S.rwStep = 1;
-      S.roadDraft = { title: '', description: '', barangay: UG_GEO.PLACE.areaAll, road_name: '', address: '', lat: null, lng: null, expected_hours: 6, citywide: false };
+      S.roadDraft = blankRoadWork(S.session);
       toast('Composer cleared', 'info');
       render();
     },
@@ -5609,10 +5751,9 @@
          swapped so From is always the earlier day */
       if (!v) return;
       S[f] = v;
-      const pad = (n) => String(n).padStart(2, '0');
-      const today = new Date(); const t = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+      const t = UG_EXPORT.todayIso();
       if (!S.anTo) S.anTo = t;
-      if (!S.anFrom) { const x = new Date(Date.now() - 30 * 86400000); S.anFrom = x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()); }
+      if (!S.anFrom) S.anFrom = UG_EXPORT.isoDate(Date.now() - 29 * 86400000);
       if (S.anTo > t) S.anTo = t;
       if (S.anFrom > S.anTo) { const sw = S.anFrom; S.anFrom = S.anTo; S.anTo = sw; }
       S.anRange = 'custom';
@@ -6467,8 +6608,7 @@
       S.auth = blankAuth();
       S.auth.screen = 'onboarding';
       S.auth.pendingProfile = Auth.state.profile;
-      /* load the barangay list so barangay_official can pick theirs */
-      try { S.auth.barangays = await Repo.listBarangays(); } catch (e) {}
+      S.auth.requirePassword = EMAIL_LINK?.type === 'invite';
       /* for dispatch_team, load the unit name so we can show it */
       if (Auth.state.profile.role === 'dispatch_team') {
         try {
@@ -6485,7 +6625,7 @@
 
     /* a manifest shortcut or a reload arrives with a route in the hash */
     if (INITIAL_ROUTE && S.session && INITIAL_ROUTE !== S.route) {
-      go(INITIAL_ROUTE);
+      go(DETAIL_PARENT[INITIAL_ROUTE] || INITIAL_ROUTE);
       render();
       loadRouteData(S.route);
     }

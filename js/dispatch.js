@@ -29,6 +29,11 @@ const UG_DISPATCH = (function () {
    * a small UG_APP handle so this module does not need to reach into app.js
    * private state.
    */
+  const emptyData = () => ({
+    unit: null, personnel: [], equipment: [], checks: [], dispatches: [], events: [],
+    requests: [], notices: [], capacity: null, notifications: [], helpRequests: [],
+    acceptingHospitals: [], directory: { hotlines: [], captains: [], patrolShelters: [], escortList: [] }
+  });
   const state = {
     route: 'dispatch',
     openDispatchId: null,
@@ -36,21 +41,7 @@ const UG_DISPATCH = (function () {
     loading: false,
     error: null,
     lastSync: null,
-    data: {
-      unit: null,
-      personnel: [],
-      equipment: [],
-      checks: [],
-      dispatches: [],
-      events: [],
-      requests: [],
-      notices: [],
-      capacity: null,
-      directory: { hotlines: [], captains: [], patrolShelters: [], escortList: [] },
-      notifications: [],
-      helpRequests: [],
-      acceptingHospitals: []
-    }
+    data: emptyData()
   };
 
   /* ----------------------------------------------------------------- helpers */
@@ -121,116 +112,92 @@ const UG_DISPATCH = (function () {
   }
 
   /* --------------------------------------------------------------- data loaders */
+  async function read(query) {
+    const { data, error } = await query;
+    if (error) throw new Error(error.message || 'Could not read unit data');
+    return data;
+  }
+
   async function loadUnit() {
     const c = client();
-    if (!c) return null;
-    const { data: me } = await c.from('profiles').select('dispatch_unit_id, unit_role').eq('id',
-      (await c.auth.getUser()).data.user.id).maybeSingle();
-    if (!me || !me.dispatch_unit_id) return null;
-    const { data: unit } = await c.from('dispatch_units').select('*').eq('id', me.dispatch_unit_id).maybeSingle();
-    state.data.unit = unit;
+    const session = app().S?.session;
+    if (!c || !session?.dispatch_unit_id) return null;
+    const target = state.data;
+    const unit = await read(c.from('dispatch_units').select('*').eq('id', session.dispatch_unit_id).maybeSingle());
+    if (target !== state.data) return null;
+    if (!unit || unit.active === false) {
+      Object.assign(target, emptyData());
+      stopTracking();
+      throw new Error('Your dispatch unit is unavailable. Ask your administrator to check your assignment.');
+    }
+    target.unit = unit;
     return unit;
   }
 
-  async function loadEquipment() {
-    const c = client(); if (!c) return [];
-    const unit = state.data.unit;
-    if (!unit) return [];
-    const { data } = await c.from('dispatch_equipment')
-      .select('*').eq('owner_unit_id', unit.id).order('created_at', { ascending: false });
-    state.data.equipment = data || [];
-    return data || [];
+  async function loadUnitPart(key, tableName, unitColumn, configure, fallback = []) {
+    const c = client();
+    const target = state.data;
+    if (!c || !target.unit) return fallback;
+    target[key] = await read(configure(c.from(tableName).select('*').eq(unitColumn, target.unit.id))) ?? fallback;
+    return target[key];
   }
 
-  async function loadPersonnel() {
-    const c = client(); if (!c) return [];
-    const unit = state.data.unit; if (!unit) return [];
-    const { data } = await c.from('unit_personnel')
-      .select('*').eq('unit_id', unit.id).order('on_duty', { ascending: false });
-    state.data.personnel = data || [];
-    return data || [];
-  }
+  const newestFirst = (query) => query.order('created_at', { ascending: false });
+  const loadEquipment = () => loadUnitPart('equipment', 'dispatch_equipment', 'owner_unit_id', newestFirst);
+  const loadPersonnel = () => loadUnitPart('personnel', 'unit_personnel', 'unit_id', (query) => query.order('on_duty', { ascending: false }));
+  const loadRequests = () => loadUnitPart('requests', 'unit_requests', 'unit_id', newestFirst);
+  const loadCapacity = () => loadUnitPart('capacity', 'hospital_capacity', 'unit_id', (query) => query.maybeSingle(), null);
+  const loadNotices = () => loadUnitPart('notices', 'patient_notices', 'unit_id', newestFirst);
+  const loadHelpRequests = () => loadUnitPart('helpRequests', 'dispatch_help_requests', 'unit_id', newestFirst);
 
   async function loadDispatches() {
-    const c = client(); if (!c) return [];
-    const unit = state.data.unit; if (!unit) return [];
-    const { data, error } = await c.from('report_dispatches')
-      .select('*, report:reports(*)')
-      .eq('unit_id', unit.id)
-      .order('dispatched_at', { ascending: false })
-      .limit(50);
-    if (error) throw new Error(error.message);
-    state.data.dispatches = data || [];
-    (data || []).forEach((row) => incoming.delete(row.id));
-    return data || [];
+    const c = client();
+    const target = state.data;
+    if (!c || !target.unit) return [];
+    const terminal = ['done', 'declined'];
+    const query = () => c.from('report_dispatches').select('*, report:reports(*)').eq('unit_id', target.unit.id)
+      .order('dispatched_at', { ascending: false }).order('id', { ascending: false });
+    const closed = read(query().in('dispatch_status', terminal).limit(50));
+    const active = async () => {
+      const rows = [];
+      const size = 200;
+      for (let offset = 0;; offset += size) {
+        const page = await read(query().not('dispatch_status', 'in', '(done,declined)').range(offset, offset + size - 1));
+        rows.push(...page);
+        if (page.length < size || target !== state.data) return rows;
+      }
+    };
+    const [openRows, closedRows] = await Promise.all([active(), closed]);
+    if (target !== state.data) return [];
+    target.dispatches = [...new Map([...closedRows, ...openRows].map((row) => [row.id, row])).values()]
+      .sort((a, b) => Date.parse(b.dispatched_at) - Date.parse(a.dispatched_at));
+    target.dispatches.forEach((row) => incoming.delete(row.id));
+    return target.dispatches;
   }
 
   async function loadEvents() {
-    const c = client(); if (!c) return [];
-    const unit = state.data.unit; if (!unit) return [];
-    const ids = (state.data.dispatches || []).map((d) => d.id);
-    if (!ids.length) { state.data.events = []; return []; }
-    const { data } = await c.from('report_dispatch_events')
-      .select('*').in('dispatch_id', ids).order('created_at', { ascending: false });
-    state.data.events = data || [];
-    return data || [];
+    const c = client();
+    const target = state.data;
+    if (!c || !target.unit) return [];
+    const ids = target.dispatches.map((row) => row.id);
+    target.events = ids.length
+      ? await read(c.from('report_dispatch_events').select('*').in('dispatch_id', ids).order('created_at', { ascending: false }))
+      : [];
+    return target.events;
   }
 
-  async function loadRequests() {
-    const c = client(); if (!c) return [];
-    const unit = state.data.unit; if (!unit) return [];
-    const { data, error } = await c.from('unit_requests')
-      .select('*').eq('unit_id', unit.id).order('created_at', { ascending: false });
-    if (error) throw error;
-    state.data.requests = data || [];
-    return data || [];
-  }
-
-  async function loadCapacity() {
-    const c = client(); if (!c) return null;
-    const unit = state.data.unit; if (!unit) return null;
-    const { data } = await c.from('hospital_capacity').select('*').eq('unit_id', unit.id).maybeSingle();
-    state.data.capacity = data || null;
-    return data || null;
-  }
-
-  async function loadNotices() {
-    const c = client(); if (!c) return [];
-    const unit = state.data.unit; if (!unit) return [];
-    const { data } = await c.from('patient_notices')
-      .select('*').eq('unit_id', unit.id).order('created_at', { ascending: false });
-    state.data.notices = data || [];
-    return data || [];
-  }
-
-  /* A2: dispatch help requests addressed to the caller's unit (the unit's
-     own rows) — barangay-official rows are not visible here (the official
-     uses the Response Team screen). */
-  async function loadHelpRequests() {
-    const c = client(); if (!c) return [];
-    const unit = state.data.unit; if (!unit) return [];
-    const { data } = await c.from('dispatch_help_requests')
-      .select('*').eq('unit_id', unit.id).order('created_at', { ascending: false });
-    state.data.helpRequests = data || [];
-    return data || [];
-  }
-
-  /* F2: the shared hospital picker. Active Hospital units whose
-     hospital_capacity.accepting = true. Used by the ambulance run (F3),
-     E3 rescue tally destinations and the E4 patient-notice button. */
+  /* The ambulance and rescue forms share the same receiving-hospital list. */
   async function loadAcceptingHospitals() {
-    const c = client(); if (!c) return [];
-    const { data } = await c.from('dispatch_units')
+    const c = client();
+    if (!c) return [];
+    const target = state.data;
+    const hospitals = await read(c.from('dispatch_units')
       .select('id,name,unit_type,hospital_capacity!inner(accepting,available,er_beds,icu_beds)')
-      .eq('unit_type', 'Hospital')
-      .eq('active', true)
-      .eq('hospital_capacity.accepting', true)
-      .order('name', { ascending: true });
-    state.data.acceptingHospitals = (data || []).map((h) => ({
-      id: h.id, name: h.name,
-      available: h.hospital_capacity ? h.hospital_capacity.available : null
+      .eq('unit_type', 'Hospital').eq('active', true).eq('hospital_capacity.accepting', true).order('name'));
+    target.acceptingHospitals = (hospitals || []).map((row) => ({
+      id: row.id, name: row.name, available: row.hospital_capacity?.available ?? null
     }));
-    return state.data.acceptingHospitals;
+    return target.acceptingHospitals;
   }
 
   /* emergency_hotlines.category (038) defaults to 'Other' and the hotline
@@ -253,50 +220,50 @@ const UG_DISPATCH = (function () {
   }
 
   async function loadDirectory() {
-    const c = client(); if (!c) return;
-    const { data: hotlines } = await c.from('emergency_hotlines')
-      .select('id, agency_name, contact_number, scope, description, category, active')
-      .eq('active', true);
-    state.data.directory.hotlines = (hotlines || []).map((h) => Object.assign({}, h, { category: hotlineCategory(h) }));
-    const { data: captains } = await c.from('barangays')
-      .select('id, name, captain_name, captain_phone');
-    state.data.directory.captains = (captains || []).filter((b) => b.captain_phone);
-    /* D2 + D3: PNP-only lists. Loaded for every dispatch_team user but
-       only surfaced on the PNP console. */
-    const { data: patrols } = await c.from('evacuation_centers')
-      .select('id, name, barangay, barangay_id, needs_patrol, needs_patrol_at')
-      .eq('needs_patrol', true);
-    state.data.directory.patrolShelters = patrols || [];
-    const { data: escorts } = await c.from('relief_distributions')
-      .select('*')
-      .neq('escort_status', 'none');
-    state.data.directory.escortList = escorts || [];
+    const c = client();
+    if (!c) return;
+    const target = state.data;
+    const isPolice = target.unit?.unit_type === 'PNP';
+    const [hotlines, captains, patrolShelters, escortList] = await Promise.all([
+      read(c.from('emergency_hotlines').select('id, agency_name, contact_number, scope, description, category, active').eq('active', true)),
+      read(c.from('barangays').select('id, name, captain_name, captain_phone')),
+      isPolice ? read(c.from('evacuation_centers').select('id, name, barangay, barangay_id, needs_patrol, needs_patrol_at').eq('needs_patrol', true)) : [],
+      isPolice ? read(c.from('relief_distributions').select('*').neq('escort_status', 'none')) : []
+    ]);
+    target.directory = {
+      hotlines: hotlines.map((row) => ({ ...row, category: hotlineCategory(row) })),
+      captains: captains.filter((row) => row.captain_phone), patrolShelters, escortList
+    };
   }
 
   async function loadNotifications() {
-    const c = client(); if (!c) return [];
-    const { data } = await c.from('notifications')
-      .select('*').order('created_at', { ascending: false }).limit(50);
-    state.data.notifications = data || [];
-    return data || [];
+    const c = client();
+    if (!c) return [];
+    const target = state.data;
+    target.notifications = await read(c.from('notifications').select('*').order('created_at', { ascending: false }).limit(50));
+    return target.notifications;
   }
 
-  /* opts.silent: a background refresh (poll, new assignment); the screen
-     keeps showing the current data instead of the loading panel */
   async function loadAll(opts) {
-    const silent = !!(opts && opts.silent);
-    if (!silent) { state.loading = true; state.error = null; }
+    const target = state.data;
+    if (!opts?.silent) { state.loading = true; state.error = null; }
     try {
       await loadUnit();
-      await Promise.all([
-        loadEquipment(), loadPersonnel(), loadDispatches(),
-        loadRequests(), loadNotices(), loadDirectory(), loadNotifications()
+      if (target !== state.data) return;
+      const results = await Promise.allSettled([
+        loadEquipment(), loadPersonnel(), loadDispatches().then(() => {
+          if (target === state.data) return loadEvents();
+        }),
+        loadRequests(), loadDirectory(), loadNotifications(), loadHelpRequests(), loadAcceptingHospitals(),
+        ...(target.unit?.unit_type === 'Hospital' ? [loadNotices(), loadCapacity()] : [])
       ]);
-      await Promise.all([loadEvents(), loadCapacity(), loadHelpRequests(), loadAcceptingHospitals()]);
-      state.lastSync = new Date().toISOString();
-      state.error = null;
-    } catch (e) {
-      if (!silent) state.error = e.message || 'Could not load your unit data';
+      if (target !== state.data) return;
+      const failed = results.find((result) => result.status === 'rejected');
+      state.error = failed ? 'Could not refresh all unit data. Retry to check the latest information.' : null;
+      if (!failed) state.lastSync = new Date().toISOString();
+    } catch (error) {
+      if (target !== state.data) return;
+      state.error = UG_UTIL.friendlyError(error);
     }
     state.loading = false;
     alarmOnNewDispatch();
@@ -441,6 +408,10 @@ const UG_DISPATCH = (function () {
   }
   /* sign-out: stop sharing, forget this unit's alarm and Realtime state */
   function signedOut() {
+    Object.assign(state, {
+      data: emptyData(), route: 'dispatch', openDispatchId: null, openEquipmentId: null,
+      error: null, lastSync: null, loading: false, mTab: 'active', eqF: 'all', ntF: 'all', rqTab: 'open'
+    });
     stopTracking();
     track.dispatchId = null;
     track.fix = null; track.sent = null; track.error = '';
@@ -518,15 +489,23 @@ const UG_DISPATCH = (function () {
   }
 
   async function loadRoute(route) {
+    const target = state.data;
     state.route = route;
     if (route === 'dispatch-detail' && app().S?.openId) state.openDispatchId = app().S.openId;
-    if (route === 'dispatch-detail' || route === 'dispatch') await loadDispatches().then(loadEvents);
-    if (route === 'equipment') await loadEquipment();
-    if (route === 'roster') await loadPersonnel();
-    if (route === 'requests') await loadRequests();
-    if (route === 'hospital') await Promise.all([loadCapacity(), loadNotices()]);
-    if (route === 'analytics') await loadDispatches();
-    app().render();
+    try {
+      if (route === 'dispatch-detail' || route === 'dispatch') {
+        await loadDispatches();
+        if (target === state.data) await loadEvents();
+      }
+      if (route === 'equipment') await loadEquipment();
+      if (route === 'roster') await loadPersonnel();
+      if (route === 'requests') await loadRequests();
+      if (route === 'hospital' && target.unit?.unit_type === 'Hospital') await Promise.all([loadCapacity(), loadNotices()]);
+      if (route === 'analytics') await loadDispatches();
+    } catch (error) {
+      if (target === state.data && state.route === route) state.error = UG_UTIL.friendlyError(error);
+    }
+    if (target === state.data) app().render();
   }
 
   /* -------------------------------------------------------------- render helpers */
@@ -676,8 +655,8 @@ const UG_DISPATCH = (function () {
 
   function sIncoming(st) {
     if (state.loading) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('loading', T('state.loading'));
-    if (state.error)   return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('error', T('toast.couldNotLoad'), state.error);
     const list = state.data.dispatches || [];
+    if (state.error && !list.length) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('error', T('toast.couldNotLoad'), state.error);
     const open = list.filter((d) => d.dispatch_status !== 'done' && d.dispatch_status !== 'declined');
     if (!list.length) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) +
       emptyState('truck', T('dispatch.noDispatches'), T('dispatch.noDispatchesHint'));
@@ -1381,7 +1360,7 @@ const UG_DISPATCH = (function () {
     const account = '<section class="dps-card dps-me"><span class="dps-av">' + esc(((session.name || '?').trim().charAt(0) || '?').toUpperCase()) + '</span>' +
         '<div><b>' + esc(session.name || 'Responder') + '</b><small>' + esc(session.email || '') + '</small>' +
           '<span class="dps-tags"><i>' + esc(unit ? unit.name : 'No unit linked') + '</i>' + (unit ? '<i>' + esc(unitTypeLabel(unit.unit_type)) + '</i>' : '') +
-          '<i>' + esc(session.unit_role === 'unit_admin' || session.unit_role === 'admin' ? 'Unit administrator' : 'Responder') + '</i></span></div></section>';
+          '<i>' + esc(session.unit_role === 'unit_admin' || ['unit_admin', 'admin'].includes(session.unit_role) ? 'Unit administrator' : 'Responder') + '</i></span></div></section>';
     const location = card('Location sharing',
       '<p class="dps-st ' + LOC[1] + '"><i></i>' + esc(LOC[0]) + '</p><p class="dps-help">' + esc(LOC[2]) + '</p>' +
       (sharing ? '' : '<button class="dps-btn" data-act="dispatch-track-start">' + I('target', 15) + 'Share my location</button>'));
@@ -1532,7 +1511,7 @@ const UG_DISPATCH = (function () {
     const sharing = track.status === 'on' || track.status === 'searching' || track.status === 'starting';
 
     const greet = '<section class="dpm-hi">' +
-        '<div class="dpm-hi-top"><span class="dpm-av">' + initial + '</span><div><b>' + esc(fullName) + '</b><small>' + esc(session.unit_role === 'admin' ? 'Unit administrator' : 'Responder') + '</small></div>' +
+        '<div class="dpm-hi-top"><span class="dpm-av">' + initial + '</span><div><b>' + esc(fullName) + '</b><small>' + esc(['unit_admin', 'admin'].includes(session.unit_role) ? 'Unit administrator' : 'Responder') + '</small></div>' +
           '<span class="dpm-duty' + (onDuty ? ' is-on' : '') + '"><i></i>' + onDuty + ' on duty</span></div>' +
         '<p class="dpm-k">Your unit</p>' +
         '<div class="dpm-unit">' + I('truck', 16) + '<span><b>' + esc(unit ? unit.name : 'Dispatch team') + '</b><small>' + esc(unit ? unitTypeLabel(unit.unit_type) : (session.title || '')) + '</small></span></div>' +
@@ -1569,7 +1548,7 @@ const UG_DISPATCH = (function () {
     const orders = '<section class="dpm-sec"><div class="dpm-sec-h"><h3>Your dispatches</h3></div>' +
         '<div class="dpm-seg" role="tablist">' + [['active', 'Active', open.length], ['done', 'Completed', closed.length]].map((t) =>
           '<button role="tab" aria-selected="' + (tab === t[0]) + '" class="' + (tab === t[0] ? 'is-on' : '') + '" data-act="dispatch-mtab" data-v="' + t[0] + '">' + t[1] + ' <i>' + t[2] + '</i></button>').join('') + '</div>' +
-        (shown.length ? '<div class="dpm-orders">' + shown.slice(0, 10).map(order).join('') + '</div>'
+        (shown.length ? '<div class="dpm-orders">' + shown.map(order).join('') + '</div>'
           : '<div class="dpm-empty">' + I(tab === 'done' ? 'check' : 'truck', 28) + '<b>' + (tab === 'done' ? 'Nothing completed yet' : 'No active dispatch') + '</b>' +
               '<p>' + (tab === 'done' ? 'Finished dispatches appear here.' : 'When an LGU or barangay official dispatches your unit, it lands here.') + '</p></div>') +
       '</section>';

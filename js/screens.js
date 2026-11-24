@@ -1238,7 +1238,7 @@ const UG_SCREENS = (() => {
   }
 
   function mAdvisoryDetail(st){
-    const a = U.DATA.advisories.find(x => x.id === st.openId) || U.DATA.advisories[0];
+    const a = Repo.findAdvisory(st.openId);
     if (!a) return '<div class="ug-empty">Advisory not found.</div>';
     const steps = a.severity === 'prepared'
       ? ['Agree on a family meeting point and an out-of-town contact.', 'Prepare a go-bag with water, food, documents and a power bank.', 'Join the citywide drill and practise duck, cover and hold.']
@@ -2245,6 +2245,8 @@ const UG_SCREENS = (() => {
   function dAdvisories(st){
     const d = st.draft;
     const ready = d.title.trim() && d.msg.trim();
+    const areas = st.session?.role === 'barangay_official'
+      ? [st.session.barangay || 'Barangay assignment needed'] : [UG_GEO.PLACE.areaAll, ...U.DATA.barangays];
     /* Module F: the broadcast type now carries the four real LDRRMO alert
        categories (weather advisory, evacuation order, road closure, plus a
        general catch-all) alongside the Emergency / Preparedness severity
@@ -2322,8 +2324,8 @@ const UG_SCREENS = (() => {
                 '<select class="ug-sel" data-field="advType" aria-label="' + esc(T('advisories.broadcastType')) + '">' +
                 ['Emergency', 'Preparedness'].map(s => '<option' + (d.type === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></div>' +
               '<div class="ug-field" style="flex:1"><label class="ug-lab">' + esc(T('advisories.affectedArea')) + '</label>' +
-                '<select class="ug-sel" data-field="advArea" aria-label="' + esc(T('advisories.affectedArea')) + '">' +
-                [UG_GEO.PLACE.areaAll].concat(U.DATA.barangays)
+                '<select class="ug-sel" data-field="advArea" aria-label="' + esc(T('advisories.affectedArea')) + '"' + (areas.length === 1 ? ' disabled' : '') + '>' +
+                areas
                   .map(s => '<option' + (d.area === s ? ' selected' : '') + '>' + esc(s) + '</option>').join('') + '</select></div>' +
             '</div>' +
             /* language toggle + template picker row. The language decides which
@@ -2352,15 +2354,16 @@ const UG_SCREENS = (() => {
                 '<div class="ug-help" style="flex:1;min-width:200px">' + esc(T('label.deliveryModeHint')) + '</div>' +
               '</div></div>' +
             '<div class="ug-rowf ug-gap8" style="gap:8px">' +
-              '<button class="ug-btn ug-btn--signal adv-publish' + (ready ? ' is-ready' : ' is-disabled') + '"' + A('publish') + ' title="' + (ready ? 'Ready to publish' : 'Add a title and a message first') + '">' + I('megaphone', 16) + esc(T('advisories.publishBroadcast')) + '</button>' +
+              '<button class="ug-btn ug-btn--signal adv-publish' + (ready ? ' is-ready' : ' is-disabled') + '"' + A('publish') + (st.publishing ? ' disabled aria-busy="true"' : '') + ' title="' + (ready ? 'Ready to publish' : 'Add a title and a message first') + '">' + I('megaphone', 16) + esc(T('advisories.publishBroadcast')) + '</button>' +
               '<button class="ug-btn ug-btn--ghost"' + A('clear-draft') + '>' + esc(T('action.clear')) + '</button>' +
               /* If no devices are subscribed yet, surface the "Enable push"
                  button right where the LGU is looking, so they can subscribe
                  this browser before publishing. The reach count updates on
                  the next load after a successful subscription. */
-              (U.DATA.subscribedDevices > 0
-                ? '<span class="ug-dimmer" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px">' + I('users', 13) + 'Reach ' + U.DATA.subscribedDevices + ' subscribed device' + (U.DATA.subscribedDevices === 1 ? '' : 's') + '</span>'
-                : '<span class="ug-dimmer" style="margin-left:auto;font-size:11px">Alerts turn on by themselves on each device</span>') +
+              (d.deliveryMode === 'push' && d.area === UG_GEO.PLACE.areaAll && st.session?.role === 'lgu_ldrrmc' &&
+               Number.isInteger(U.DATA.subscribedDevices)
+                ? '<span class="ug-dimmer" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:6px">' + I('users', 13) + U.DATA.subscribedDevices + ' subscribed device' + (U.DATA.subscribedDevices === 1 ? '' : 's') + '</span>'
+                : '') +
             '</div>' +
             '</div>' +
             (advStep < 3 ? '<div class="adv-snav">' +
@@ -2745,20 +2748,49 @@ const UG_SCREENS = (() => {
   /* The numbers behind the Analytics screen, shared with its PDF / Excel / CSV
      exports (js/exports.js) so a document can never disagree with the screen. */
   function analyticsModel(st){
-    const an = U.DATA.analytics || {};
+    const stored = U.DATA.analytics || {};
     const cnt = U.DATA.counts || {};
-    const trendDaily = (an.daily && an.daily.length && typeof an.daily[0] === 'object') ? an.daily.map(d => d.total) : (an.daily || []);
-    const trend = (trendDaily.length) ? trendDaily : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     const fmtDur = (s) => s == null ? '—' : (s >= 3600 ? (s / 3600).toFixed(1) + ' h' : Math.round(s / 60) + ' min');
-    const isLGU = st.session && st.session.role === 'lgu_ldrrmc';
-    const brgyFilter = (isLGU && st.anBrgyFilter && st.anBrgyFilter !== 'All') ? st.anBrgyFilter : 'All';
+    const isLGU = st.session?.role === 'lgu_ldrrmc';
+    const brgyFilter = isLGU ? st.anBrgyFilter || 'All' : 'All';
+    const from = st.anFrom || stored.from || UG_EXPORT.isoDate(Date.now() - 29 * 86400000);
+    const to = st.anTo || stored.to || UG_EXPORT.todayIso();
+    const inScope = (name) => brgyFilter === 'All' || name === brgyFilter;
+    const inc = (U.DATA.incidents || []).filter((row) => inScope(row.brgy));
+    const adv = (U.DATA.advisories || []).filter((row) => brgyFilter === 'All' || row.citywide || row.area === brgyFilter);
+    const cen = (U.DATA.centers || []).filter((row) => inScope(row.brgy));
+    const relief = (U.DATA.relief || []).filter((row) => inScope(row.barangay));
+    const reportById = new Map(inc.map((row) => [row.uuid || row.id, row]));
+    const dispatches = Object.fromEntries(Object.entries(U.DATA.dispatches || {}).filter(([id]) => reportById.has(id)));
 
-    /* barangay-scoped incident list: applies the barangay filter to every
-       card below so the whole page reflects the same selection. */
-    const inc = (U.DATA.incidents || []).filter((i) => brgyFilter === 'All' || i.brgy === brgyFilter);
-    const adv = (U.DATA.advisories || []);
-    const cen = (U.DATA.centers || []);
-    const relief = (U.DATA.relief || []);
+    const daily = new Map();
+    const dispatchSeconds = [], resolveSeconds = [];
+    const useServer = brgyFilter === 'All' && stored.live && stored.from === from && stored.to === to;
+    if (useServer) {
+      (stored.daily || []).forEach((row) => { if (row.day) daily.set(row.day, Number(row.total)); });
+    } else {
+      for (const row of inc) {
+        const day = UG_EXPORT.isoDate(row.created_at);
+        if (!day || day < from || day > to) continue;
+        daily.set(day, (daily.get(day) || 0) + 1);
+        const start = Date.parse(row.created_at);
+        const first = (dispatches[row.uuid] || []).map((d) => Date.parse(d.dispatched_at)).filter((n) => n >= start);
+        const resolved = Date.parse(row.resolved_at);
+        if (first.length) dispatchSeconds.push((Math.min(...first) - start) / 1000);
+        if (resolved >= start) resolveSeconds.push((resolved - start) / 1000);
+      }
+    }
+    const avg = (values) => values.length ? values.reduce((total, value) => total + value, 0) / values.length : null;
+    const an = {
+      ...stored, from, to,
+      daily: [...daily].sort(([a], [b]) => a.localeCompare(b)).map(([day, total]) => ({ day, total })),
+      avgDispatchSeconds: useServer ? stored.avgDispatchSeconds : avg(dispatchSeconds),
+      avgResolveSeconds: useServer ? stored.avgResolveSeconds : avg(resolveSeconds)
+    };
+    const end = (UG_EXPORT.toDate(to) || new Date()).getTime();
+    const trendDates = Array.from({length: 14}, (_, index) => UG_EXPORT.isoDate(end - (13 - index) * 86400000));
+    const trendDaily = trendDates.map((day) => daily.get(day) || 0);
+    const trend = trendDaily;
 
     /* A. reports by hazard type — actual counts, including "Others" */
     const byHaz = {};
@@ -2787,9 +2819,8 @@ const UG_SCREENS = (() => {
        a direct join, so we estimate from the dispatches table: each dispatch
        record ties a report to a team name. We bucket team names by unit type. */
     const unitBuckets = { BFP: [], PNP: [], Rescue: [], Hospital: [] };
-    const dispatches = U.DATA.dispatches || {};
     Object.keys(dispatches).forEach((rid) => {
-      const report = (U.DATA.incidents || []).find((i) => i.uuid === rid || i.id === rid);
+      const report = reportById.get(rid);
       if (!report || !report.created_at) return;
       (dispatches[rid] || []).forEach((d) => {
         const t = (d.team || '').toLowerCase();
@@ -2849,18 +2880,18 @@ const UG_SCREENS = (() => {
       else if (/fully|complete/.test(status)) reliefPhases.fully++;
       else reliefPhases.to_distribute++;
     });
-    const distLog = U.DATA.distributionLog || [];
+    const distLog = (U.DATA.distributionLog || []).filter((row) => !row.voided_at && inScope(row.barangay));
     const totalRecipients = distLog.length;
 
     /* previous-period comparison: last 7 days vs the 7 days before that */
     const week = (trendDaily.length >= 7) ? trendDaily.slice(-7).reduce((a, b) => a + b, 0) : 0;
     const prev = (trendDaily.length >= 14) ? trendDaily.slice(0, 7).reduce((a, b) => a + b, 0) : 0;
     const weekDelta = prev ? Math.round(((week - prev) / prev) * 100) : 0;
-    return { an, cnt, trendDaily, trend, fmtDur, isLGU, brgyFilter, inc, adv, cen, relief, byHaz, hazRows, byBrgy, brgyRows, stages, openCount, openIncidents, oldest, oldestAgeMin, staleThreshold, overThresholdCount, unitBuckets, dispatches, unitStats, perTeam, teamRows, verified, unverified, rejected, total, autoVerified, totalCap, totalOcc, fullShelters, openShelters, reliefPerBrgy, reliefRows, reliefPhases, distLog, totalRecipients, week, prev, weekDelta };
+    return { an, cnt, trendDaily, trend, fmtDur, isLGU, brgyFilter, trendDates, inc, adv, cen, relief, byHaz, hazRows, byBrgy, brgyRows, stages, openCount, openIncidents, oldest, oldestAgeMin, staleThreshold, overThresholdCount, unitBuckets, dispatches, unitStats, perTeam, teamRows, verified, unverified, rejected, total, autoVerified, totalCap, totalOcc, fullShelters, openShelters, reliefPerBrgy, reliefRows, reliefPhases, distLog, totalRecipients, week, prev, weekDelta };
   }
 
   function dAnalytics(st){
-    const { an, cnt, trendDaily, trend, fmtDur, isLGU, brgyFilter, inc, adv, cen, relief, byHaz, hazRows, byBrgy, brgyRows, stages, openCount, openIncidents, oldest, oldestAgeMin, staleThreshold, overThresholdCount, unitBuckets, dispatches, unitStats, perTeam, teamRows, verified, unverified, rejected, total, autoVerified, totalCap, totalOcc, fullShelters, openShelters, reliefPerBrgy, reliefRows, reliefPhases, distLog, totalRecipients, week, prev, weekDelta } = analyticsModel(st);
+    const { an, cnt, trendDaily, trend, fmtDur, isLGU, brgyFilter, trendDates, inc, adv, cen, relief, byHaz, hazRows, byBrgy, brgyRows, stages, openCount, openIncidents, oldest, oldestAgeMin, staleThreshold, overThresholdCount, unitBuckets, dispatches, unitStats, perTeam, teamRows, verified, unverified, rejected, total, autoVerified, totalCap, totalOcc, fullShelters, openShelters, reliefPerBrgy, reliefRows, reliefPhases, distLog, totalRecipients, week, prev, weekDelta } = analyticsModel(st);
 
     /* Analytics in the uniguard layout (LdrrmcAnalyticsView): header, sync
        state, four figure cards, the 14-day chart, how fast reports are
@@ -2885,25 +2916,22 @@ const UG_SCREENS = (() => {
 
     /* the chart: server totals for all hazards, local counts per hazard */
     const hz = st.anHaz || 'All';
-    const series = hz === 'All' ? trend.slice(-14) : (function () {
-      const out = []; const today = new Date(); today.setHours(0, 0, 0, 0);
-      for (let k = 13; k >= 0; k--) {
-        const d0 = today.getTime() - k * 86400000, d1 = d0 + 86400000;
-        out.push(inc.filter((i) => UG_HAZARDS.classify(i.hazard_type || i.hazard).key === hz && Date.parse(i.created_at || 0) >= d0 && Date.parse(i.created_at || 0) < d1).length);
-      }
-      return out;
-    })();
-    while (series.length < 14) series.unshift(0);
+    const series = hz === 'All' ? trend : trendDates.map((day) => {
+      if (day < an.from) return 0;
+      return inc.filter((row) => UG_HAZARDS.classify(row.hazard_type || row.hazard).key === hz &&
+        UG_EXPORT.isoDate(row.created_at) === day).length;
+    });
     const maxY = Math.max(1, Math.max.apply(null, series));
     const chart = (function () {
       const W = 1000, H = 220, L = 30, R = 14, T = 14, B = 26, iw = W - L - R, ih = H - T - B;
       const x = (k) => L + (k + .5) * iw / 14, y = (v) => T + ih - v / maxY * ih;
       const grid = (maxY >= 2 ? [0, .5, 1] : [0, 1]).map((f) => { const v = Math.round(maxY * f); return '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(maxY * f) + '" y2="' + y(maxY * f) + '" class="g"/><text x="4" y="' + (y(maxY * f) + 4) + '" class="t">' + v + '</text>'; }).join('');
       const pts = series.map((v, k) => x(k) + ',' + y(v)).join(' ');
-      const dots = series.map((v, k) => '<g class="d"><circle cx="' + x(k) + '" cy="' + y(v) + '" r="' + (v ? 6 : 5) + '" class="' + (v ? 'on' : '') + '"/><title>' + (13 - k === 0 ? 'Today' : (13 - k) + ' day' + (13 - k === 1 ? '' : 's') + ' ago') + ': ' + v + ' report' + (v === 1 ? '' : 's') + '</title></g>').join('');
+      const dots = series.map((v, k) => '<g class="d"><circle cx="' + x(k) + '" cy="' + y(v) + '" r="' + (v ? 6 : 5) + '" class="' + (v ? 'on' : '') + '"/><title>' + esc(UG_EXPORT.formatDate(trendDates[k])) + ': ' + v + ' report' + (v === 1 ? '' : 's') + '</title></g>').join('');
       return '<svg class="an-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Reports per day over the last 14 days">' + grid +
         (series.some((v) => v) ? '<polyline points="' + pts + '" class="l"/>' : '') + dots + '</svg>' +
-        '<div class="an-xl"><span>13 days ago</span><span>10 days ago</span><span>7 days ago</span><span>4 days ago</span><b>Today</b></div>';
+        '<div class="an-xl">' + [0, 3, 6, 9, 13].map((index) =>
+          '<span>' + esc(UG_EXPORT.formatDate(trendDates[index])) + '</span>').join('') + '</div>';
     })();
 
     const ids = new Set(inc.map((i) => i.uuid));
@@ -2995,7 +3023,7 @@ const UG_SCREENS = (() => {
         kpi('Reports this week', String(week || 0), (weekDelta >= 0 ? '+' : '') + (weekDelta || 0) + '% vs previous week', 'inbox', '', 'incidents') +
         kpi('Verified share', pct(verified, inc.length) + '%', verified + ' of ' + inc.length + ' reports verified', 'shield', '', null) +
         kpi('Open reports', String(openCount), overThresholdCount ? overThresholdCount + ' waiting over 30 min' : 'None waiting over 30 min', 'alert', overThresholdCount ? 'warn' : 'ok', 'incidents') +
-        kpi('Shelters at capacity', String(fullShelters.length), (cnt.openCenters || openShelters.length || 0) + ' open of ' + (cnt.centers || cen.length || 0), 'shelter', fullShelters.length ? 'warn' : '', 'centers') +
+        kpi('Shelters at capacity', String(fullShelters.length), openShelters.length + ' open of ' + cen.length, 'shelter', fullShelters.length ? 'warn' : '', 'centers') +
       '</div>' +
       '<div class="an-pair">' +
       card('Reports per day', 'Last 14 days', '<div class="an-pad">' + chart + '</div>',

@@ -225,24 +225,28 @@ const UG_SUPERADMIN = (function () {
   /* every read this screen needs; each part fails on its own */
   async function load() {
     const s = S();
+    const owner = s.session;
+    const whenCurrent = (use) => (value) => { if (S().session === owner) use(value); };
+    sync();
     st.loadError = null;
     const parts = [
       reloadUsers(),
       Repo.loadChangeRequests(),
       Repo.loadDispatchDirectory(),
-      Repo.subscribedDeviceCount().then((n) => { UG.DATA.subscribedDevices = n; })
+      Repo.subscribedDeviceCount().then(whenCurrent((n) => { UG.DATA.subscribedDevices = n; }))
     ];
     /* Audit F-03: these return [] with no server; offline they would wipe the
        audit, SOS and responder data the PWA cache restored. */
     if (Repo.client()) {
       parts.push(
-        Repo.listAudit(500).then((a) => { s.audit = a; UG.DATA.audit = a; }),
-        Repo.listSos().then((x) => { UG.DATA.sosLog = x; }),
-        Repo.listResponders().then((r) => { s.responders = r; UG.DATA.responders = r; })
+        Repo.listAudit(500).then(whenCurrent((a) => { s.audit = UG.DATA.audit = a; })),
+        Repo.listSos().then(whenCurrent((x) => { UG.DATA.sosLog = x; })),
+        Repo.listResponders().then(whenCurrent((r) => { s.responders = UG.DATA.responders = r; }))
       );
     }
     if (!(s.barangays && s.barangays.length)) parts.push(Repo.listBarangays().then((b) => { s.barangays = b; }));
     const res = await Promise.allSettled(parts);
+    if (S().session !== owner) return;
     const bad = res.filter((r) => r.status === 'rejected');
     if (bad.length) {
       console.warn('[UniGuard] super admin home: some reads failed', bad.map((r) => r.reason));
@@ -254,11 +258,12 @@ const UG_SUPERADMIN = (function () {
   let accountSearchTimer = null;
   async function reloadUsers() {
     const state = st;
+    const owner = S().session;
     const request = ++accountRequest;
     const params = { query: state.query, role: state.accRole, status: state.accStatus, page: state.accountPage };
     try {
       const page = await Repo.adminAccountDirectory(params);
-      if (state !== st || request !== accountRequest) return;
+      if (state !== st || request !== accountRequest || S().session !== owner) return;
       const lastPage = Math.max(1, Math.ceil((page?.matched || 0) / PAGE));
       if (page && state.accountPage > lastPage) {
         state.accountPage = lastPage;
@@ -269,7 +274,7 @@ const UG_SUPERADMIN = (function () {
       state.directoryError = '';
       render();
     } catch (error) {
-      if (state !== st || request !== accountRequest) return;
+      if (state !== st || request !== accountRequest || S().session !== owner) return;
       state.directoryLoading = false;
       state.directoryError = error.message || 'Could not load accounts.';
       render();
@@ -1469,5 +1474,10 @@ const UG_SUPERADMIN = (function () {
     window.addEventListener('resize', syncBand);
   }
 
-  return { ROUTE, handles, frame, load, actions };
+  function reset() {
+    clearTimeout(accountSearchTimer);
+    st = fresh(null);
+  }
+
+  return { ROUTE, handles, frame, load, reset, actions };
 })();

@@ -31,12 +31,7 @@ const Auth = (function () {
       disabled: !!p.disabled,
       dispatch_unit_id: p.dispatch_unit_id || null,
       unit_role: p.unit_role || '',
-      /* Super Admin is an LGU account with profiles.is_super_admin = true
-         (migration 043). Before that migration the column does not exist; every
-         LGU account then keeps the administration screens it has today, so
-         nobody is locked out between deploying the app and running the SQL. */
-      is_super_admin: (p.role === 'lgu_ldrrmc') &&
-        (p.is_super_admin === true || !Object.prototype.hasOwnProperty.call(p, 'is_super_admin'))
+      is_super_admin: p.role === 'lgu_ldrrmc' && p.is_super_admin === true
     };
   }
 
@@ -78,13 +73,18 @@ const Auth = (function () {
     return /failed to fetch|networkerror|network request failed|load failed|fetch failed|timed out/.test(m);
   }
 
+  function requireAuthConnection() {
+    if (!UG_CONFIG.DEV) throw new Error('Cannot reach UniGuard sign-in. Check your connection and try again.');
+  }
+
   /* Load the authoritative profile row for a signed in user. Failures are
      tagged: err.network (no connection) or err.code = 'PROFILE_MISSING'. */
   async function loadProfile(userId, email) {
     const c = Repo.client();
     if (!c) {
+      requireAuthConnection();
       const local = store.get(SESSION_KEY, null);
-      if (local && local.profile) return buildProfile(local.profile, email);
+      if (local?.profile?.id === userId) return buildProfile(local.profile, email);
       throw new Error('Your account could not be loaded. Contact your LGU administrator.');
     }
     let res;
@@ -111,7 +111,7 @@ const Auth = (function () {
   async function apply(profile) {
     if (profile.disabled) {
       const c = Repo.client();
-      if (c) { try { await c.auth.signOut(); } catch (e) {} }
+      if (c) { try { await c.auth.signOut({ scope: 'local' }); } catch (e) {} }
       store.del(SESSION_KEY);
       const err = new Error('This account has been disabled. Contact your LGU administrator.');
       err.code = 'ACCOUNT_DISABLED';
@@ -174,7 +174,7 @@ const Auth = (function () {
       const { error: pwErr } = await c.auth.updateUser({ password: input.password });
       if (pwErr) throw new Error(UG_UTIL.authError(pwErr.message, pwErr.status));
     }
-    /* 2. update the profile (full_name + phone + barangay_id for officials).
+    /* 2. update the profile (full_name and phone).
        We can update our own profile row directly — RLS allows it for the
        authenticated user updating their own row. */
     const patch = {
@@ -182,14 +182,6 @@ const Auth = (function () {
       phone: input.phone || '',
       updated_at: new Date().toISOString()
     };
-    if (input.barangay_id) {
-      patch.barangay_id = input.barangay_id;
-      /* look up the barangay name so the profile is complete */
-      try {
-        const { data: b } = await c.from('barangays').select('name').eq('id', input.barangay_id).maybeSingle();
-        if (b) patch.barangay = b.name;
-      } catch (e) {}
-    }
     const { error: upErr } = await c.from('profiles').update(patch).eq('id', state.profile.id);
     if (upErr) throw new Error('Could not update your profile: ' + upErr.message);
     /* 3. reload the profile so the session reflects the new name, then apply */
@@ -201,6 +193,7 @@ const Auth = (function () {
   async function signIn(email, password) {
     const c = Repo.client();
     if (!c) {
+      requireAuthConnection();
       const list = store.get(LOCAL_KEY, []) || [];
       const acc = list.find((a) => String(a.email).toLowerCase() === String(email).toLowerCase());
       if (!acc) throw new Error('No account found for that email.');
@@ -222,6 +215,7 @@ const Auth = (function () {
   async function signUp(input) {
     const c = Repo.client();
     if (!c) {
+      requireAuthConnection();
       const list = store.get(LOCAL_KEY, []) || [];
       if (list.some((a) => String(a.email).toLowerCase() === String(input.email).toLowerCase())) {
         throw new Error('already registered');
@@ -262,7 +256,7 @@ const Auth = (function () {
 
   async function resendConfirmation(email) {
     const c = Repo.client();
-    if (!c) return { local: true };
+    if (!c) { requireAuthConnection(); return { local: true }; }
     const redirectTo = redirectUrl();
     const { error } = await c.auth.resend({ type: 'signup', email: email, options: { emailRedirectTo: redirectTo } });
     if (error) throw new Error(UG_UTIL.authError(error.message, error.status));
@@ -275,31 +269,25 @@ const Auth = (function () {
    * else the current origin, never a loopback address when avoidable. */
   async function resetPassword(email) {
     const c = Repo.client();
-    if (c) {
-      /* detect the rate limit before swallowing the error, so we can surface
-         a helpful toast instead of silently doing nothing. Supabase returns
-         a 429 with "Email rate limit exceeded" when the free-tier cap is hit. */
-      const redirectTo = redirectUrl();
-      try {
-        const { error } = await c.auth.resetPasswordForEmail(email, { redirectTo: redirectTo });
-        if (error) {
-          if (/rate limit|429|too many/i.test(error.message)) {
-            throw new Error('Supabase email rate limit reached. Wait 1 hour and try again, or set a temp password in the Supabase dashboard.');
-          }
-          /* other errors are swallowed so the UI stays neutral (never reveal
-             whether the email exists) */
-        }
-      } catch (e) {
-        if (/rate limit/i.test(e.message)) throw e;
-        /* swallow everything else */
-      }
+    if (!c) { requireAuthConnection(); return { sent: true }; }
+    let error;
+    try {
+      ({ error } = await c.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl() }));
+    } catch (e) { error = e; }
+    if (error?.status === 429 || /rate limit|too many/i.test(error?.message || '')) {
+      throw new Error('Too many reset requests. Wait before trying again.');
     }
+    if (error && (isNetworkError(error) || Number(error.status) >= 500)) {
+      throw new Error('Could not request a password reset. Check your connection and try again.');
+    }
+    // Keep the same answer for known and unknown email addresses.
     return { sent: true };
   }
 
   async function updatePassword(newPassword) {
     const c = Repo.client();
     if (!c) {
+      requireAuthConnection();
       const local = store.get(SESSION_KEY, null);
       if (local && local.profile) {
         const list = store.get(LOCAL_KEY, []) || [];
@@ -334,6 +322,7 @@ const Auth = (function () {
     const c = Repo.client();
     listen();
     if (!c) {
+      if (!UG_CONFIG.DEV) return null;
       const local = store.get(SESSION_KEY, null);
       if (local && local.profile) {
         try { return await apply(buildProfile(local.profile, local.profile.email)); } catch (e) { return null; }
@@ -379,7 +368,7 @@ const Auth = (function () {
       }
       /* only a definitive answer ends the session */
       if (e.code === 'PROFILE_MISSING' || e.code === 'ACCOUNT_DISABLED') {
-        try { await c.auth.signOut(); } catch (e2) {}
+        try { await c.auth.signOut({ scope: 'local' }); } catch (e2) {}
         store.del(SESSION_KEY);
         return null;
       }
@@ -414,7 +403,7 @@ const Auth = (function () {
 
   async function signOut() {
     const c = Repo.client();
-    if (c) { try { await c.auth.signOut(); } catch (e) {} }
+    if (c) { try { await c.auth.signOut({ scope: 'local' }); } catch (e) {} }
     state.session = null;
     state.profile = null;
     state.recovery = false;

@@ -133,7 +133,8 @@ const UG_ROADWORK = (function () {
   /* --------------------------------------------------------------- LGU */
   function dRoadwork(st) {
     const d = st.roadDraft || { title: '', description: '', barangay: UG_GEO.PLACE.areaAll, road_name: '', address: '', lat: '', lng: '', expected_hours: 6, citywide: false };
-    const brgys = U.DATA.barangays;
+    const own = st.session?.role === 'barangay_official';
+    const brgys = own ? [st.session.barangay || 'Barangay assignment needed'] : [UG_GEO.PLACE.areaAll, ...U.DATA.barangays];
     /* road-status search filter: matches road_name, barangay, cause or note. */
     const rsQ = (st.rsSearch || '').trim().toLowerCase();
     const filteredStatus = (UG.DATA.roadStatus || []).filter((r) => {
@@ -157,10 +158,11 @@ const UG_ROADWORK = (function () {
         const endsTxt = ends.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
         const hasPin = d.lat != null && d.lng != null && !isNaN(d.lat) && !isNaN(d.lng);
         const where = hasPin ? esc(UG_GEO.fmt(d.lat, d.lng)) + (d.address ? ' · ' + esc(d.address) : '') : d.address ? esc(d.address) : '';
-        const allArea = d.barangay === UG_GEO.PLACE.areaAll;
+        const area = own ? brgys[0] : d.barangay;
+        const allArea = area === UG_GEO.PLACE.areaAll;
         const step = Number(st.rwStep) === 2 ? 2 : 1;
         return '<section class="rw" data-rw-step="' + step + '">' +
-          '<header class="rw-h"><h3>' + I('road', 16) + esc(T('roadwork.newPost')) + '</h3><p>Fill in what is happening and where. Residents ' + (allArea ? 'across Lingayen' : 'of Barangay ' + esc(d.barangay)) + ' get a push notification when you publish.</p></header>' +
+          '<header class="rw-h"><h3>' + I('road', 16) + esc(T('roadwork.newPost')) + '</h3><p>Fill in what is happening and where. Residents ' + (allArea ? 'across Lingayen' : 'of Barangay ' + esc(area)) + ' receive an in-app notification when you publish.</p></header>' +
           /* phones: two pages (Notice → Location & duration) */
           '<ol class="rf-stepper rw-stepper">' + [['1', 'Notice'], ['2', 'Location & duration']].map((x) =>
             '<li class="' + (Number(x[0]) <= step ? 'is-on' : '') + (Number(x[0]) === step ? ' is-cur' : '') + '"><button type="button"' + A('rw-step', attr({ v: x[0] })) + '><i></i><span>' + x[1] + '</span></button></li>').join('') + '</ol>' +
@@ -171,8 +173,8 @@ const UG_ROADWORK = (function () {
             '</fieldset>' +
             '<fieldset class="rw-g" data-g="2"><legend><b>2</b>Location &amp; duration</legend>' +
               '<div class="rw-two">' +
-                '<label class="rw-f"><span>Barangay</span><select class="ug-sel" data-field="rwBarangay">' +
-                  [UG_GEO.PLACE.areaAll].concat(brgys).map((b) => '<option' + (d.barangay === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select><small>Decides who gets the notification.</small></label>' +
+                '<label class="rw-f"><span>Barangay</span><select class="ug-sel" data-field="rwBarangay"' + (own ? ' disabled' : '') + '>' +
+                  brgys.map((b) => '<option' + (area === b ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select><small>Decides who gets the notification.</small></label>' +
                 '<label class="rw-f"><span>Road name</span><input class="ug-in" data-field="rwRoad" value="' + esc(d.road_name || '') + '" placeholder="e.g. Aguila Rd"></label>' +
               '</div>' +
               '<div class="rw-f"><span>Map pin <em>optional</em></span>' +

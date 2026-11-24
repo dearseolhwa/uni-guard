@@ -222,10 +222,25 @@ staff inbox after 12 hours. Use [the dispatch delivery checks](#7-background-sos
 for the live delivery configuration. Check the configured app URL and
 redirect origins against the production domain when testing staff invites.
 
+## Full system audit release
+
+Run the [migration checker](CHECK-SUPABASE-MIGRATIONS.sql) to identify missing
+steps through 082. If the project is already on 080, apply
+[081](../migrations/081_advisory_publishing.sql) and then
+[082](../migrations/082_shelter_occupancy_and_analytics.sql) in the SQL Editor.
+Run the checker again before releasing web build `uniguard-v569`. Deploy any
+delivery functions still pending from the mobile audit release above.
+
+Use a staging project to verify that residents in the intended barangay see a
+test advisory, that repeated publishing after a connection failure creates a
+single bulletin, and that the emergency screen distinguishes publication from
+delivery. Confirm shelter occupancy updates from the duty and barangay roles.
+The [audit report](FULL-SYSTEM-AUDIT.md) lists the remaining live checks.
+
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `080_backend_audit_fixes.sql`.
+`001_align_core_tables.sql` through `082_shelter_occupancy_and_analytics.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
 and record each full filename. Migration 011 installs `pg_trgm` before creating
 its index. Apply `045_super_admin_improvements.sql`, followed by 046 and 047. Migration 043 promotes the account matching its

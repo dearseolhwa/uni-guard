@@ -352,12 +352,14 @@ const UG_AUTH = (function () {
     const body =
       /* password — optional (leave blank to keep current password if you
          already have one; required if this is a fresh invitation) */
-      field('password', 'Set Your Password', { type: 'password', value: f.password, ph: 'At least 8 characters (leave blank to keep current)', ac: 'new-password', reveal: true, revealed: a.showPassword }) +
+      field('password', 'Set Your Password', { type: 'password', value: f.password, ph: a.requirePassword ? 'At least 8 characters' : 'At least 8 characters (leave blank to keep current)', ac: 'new-password', reveal: true, revealed: a.showPassword }) +
       (f.password ?
         '<div class="ug-auth-strength"><div class="bars">' +
           [0, 1, 2, 3, 4].map((i) => '<i class="' + (i < pw.score ? 'on' : '') + '"></i>').join('') +
         '</div><span>' + esc(pw.label) + '</span></div>'
-        : '<div class="ug-help" style="margin-bottom:14px">Leave blank to keep your current password. If this is your first time signing in, you must set one.</div>') +
+        : '<div class="ug-help" style="margin-bottom:14px">' +
+          (a.requirePassword ? 'Set a password so you can sign back in after accepting this invitation.'
+            : 'Leave blank to keep your current password.') + '</div>') +
       field('confirm', 'Confirm Password', { type: 'password', value: f.confirm, ph: 'Repeat your password (if setting a new one)', ac: 'new-password' }) +
       /* name, last then first (the edge function set it to the email prefix; this fixes it) */
       '<div class="ug-auth-2col">' +
@@ -366,10 +368,9 @@ const UG_AUTH = (function () {
       '</div>' +
       /* phone — optional but useful for dispatch/official accounts */
       field('phone', 'Mobile Number', { value: f.phone, ph: '0917 123 4567', ac: 'tel', inputmode: 'tel' }) +
-      /* barangay picker — only for barangay_official (citizens pick during report, dispatch is unit-scoped) */
-      (isOfficial && a.barangays && a.barangays.length
-        ? selectField('barangay_id', 'Your Barangay', a.barangays.map((b) => ({ id: b.id, name: b.name })), f.barangay_id, 'You will only see and manage reports from this barangay.')
-        : '') +
+      (isOfficial ? '<p class="ug-note">' +
+        (a.pendingProfile.barangay_id ? 'Assigned barangay · ' + esc(a.pendingProfile.barangay || 'See your administrator')
+          : 'Ask your administrator to assign your barangay before completing setup.') + '</p>' : '') +
       /* dispatch team info — read-only context so they know which unit they're joining */
       (isDispatch
         ? '<div class="ug-card ug-card--flat" style="margin-bottom:14px"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +

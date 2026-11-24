@@ -62,11 +62,11 @@ const UG_SOS = (function () {
               '<div class="ug-badge ug-badge--emergency">' + esc(T('sos.notSent')) + '</div>' +
               '<p style="font-size:12px;line-height:1.5;max-width:320px;color:var(--ug-warning)">' + esc(last.message || '') + '</p></div>'
           : '<div class="ug-col" style="gap:6px;align-items:center"><div class="ug-badge ug-badge--resolved">Sent · ' + esc(last.at) + '</div>' +
-              (last.team ? '<p style="font-size:12px;line-height:1.5;max-width:320px;font-weight:600">' + esc(last.team) + (/,/.test(last.team) ? ' have' : ' has') + ' been dispatched to your location.</p>' : '') + '</div>';
+              '</div>';
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">One-Tap Emergency</div>' +
       '<h2 style="font-size:18px;margin-top:3px">SOS</h2>' +
-      '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Tap the kind of emergency. Your GPS position, name and contact number go to the LGU/LDRRMO duty officer, and the matching response team is sent right away. Use only when you are in immediate danger.</p></div>' +
+      '<p class="ug-dim" style="font-size:12px;margin-top:5px;line-height:1.5">Tap the kind of emergency. Your GPS position, name and contact number go to the LGU/LDRRMO duty officer, and the system requests a matching response team when one is available. Use only when you are in immediate danger.</p></div>' +
 
       (hotlineFirst ? hotline : '') +
       tracking(st) +
@@ -86,7 +86,7 @@ const UG_SOS = (function () {
         '<div class="ug-card-b ug-col" style="gap:11px">' +
           '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Type</span>' +
             '<span class="ug-mono">' + esc(kindLabel(last.kind)) + '</span></div>' +
-          '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Team sent</span>' +
+          '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Initially assigned</span>' +
             '<span class="ug-mono">' + esc(last.team || 'Duty officer reviewing') + '</span></div>' +
           '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Position</span>' +
             '<span class="ug-mono">' + esc(last.lat != null ? UG_GEO.fmt(last.lat, last.lng) : 'No GPS fix') + '</span></div>' +
@@ -110,9 +110,10 @@ const UG_SOS = (function () {
      position (shared by the responders, migration 057) */
   function tracking(st) {
     const last = st.lastSos;
-    const mine = (UG.DATA.sosLog || []).filter((x) => !st.session || !x.user_id || x.user_id === st.session.id);
-    const recent = mine.find((x) => x.id === last?.id) || (!last ? mine[0] : null);
-    const reportId = recent?.report_id || last?.report_id;
+    const mine = (UG.DATA.sosLog || []).filter((row) => row.user_id === st.session?.id);
+    const recent = mine.find((row) => row.id === last?.id)
+      || mine.find((row) => row.status !== 'resolved') || (!last ? mine[0] : null);
+    const reportId = recent?.report_id || (last?.status === 'sent' ? last.report_id : null);
     if (!recent && !reportId) return '';
     const inc = (UG.DATA.incidents || []).find((i) => i.uuid === reportId);
     const teams = (UG.DATA.dispatches || {})[reportId] || [];
@@ -156,7 +157,7 @@ const UG_SOS = (function () {
         })() +
         (waiting ? '<p class="ug-note">The assigned teams couldn’t respond. LDRRMO staff have been notified to assign a replacement. Call the LDRRMO if you still need immediate help.</p>' : '') +
         (rows || (recent?.status === 'resolved' ? '' : '<p class="ug-dim" style="font-size:12px;line-height:1.5">A responding team will appear here when an assignment is available.</p>')) +
-        (inc ? '<button class="ug-btn ug-btn--signal ug-btn--block" style="margin-top:4px"' + A('open-incident', attr({ id: inc.id })) + '>' + I('pin', 15) + 'View the linked report</button>' : '') +
+        (reportId ? '<button class="ug-btn ug-btn--signal ug-btn--block" style="margin-top:4px"' + A('open-linked-report', attr({ id: reportId })) + '>' + I('pin', 15) + 'View the linked report</button>' : '') +
       '</div></div>';
   }
 

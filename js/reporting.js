@@ -36,20 +36,19 @@ const UG_REPORTING = (function () {
   const LOCAL_DNA = 'uniguard.reporting.dna';
   const LOCAL_SITREP = 'uniguard.reporting.sitreps';
 
-  const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const iso = UG_EXPORT.isoDate;
   const today = () => new Date();
-  const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
+  const daysAgo = (days) => new Date(Date.now() - days * 86400000);
 
-  const state = {
-    tab: 'sitrep',
-    from: iso(daysAgo(7)), to: iso(today()),
-    brgy: 'All',
-    eventName: '', remarks: '',
-    incidentId: '', history: {},
+  const newState = () => ({
+    tab: 'sitrep', from: UG_EXPORT.isoDate(Date.now() - 7 * 86400000), to: UG_EXPORT.todayIso(),
+    brgy: 'All', eventName: '', remarks: '', incidentId: '', history: {},
     dna: [], dnaMode: 'device', dnaBrgy: 'All',
-    issued: [], issuedMode: 'device', lastSaved: null,
-    loaded: false, loading: false
-  };
+    issued: [], issuedMode: 'device', lastSaved: null, loaded: false, loading: false
+  });
+  const state = newState();
+
+  function reset() { Object.assign(state, newState()); }
 
   /* ----------------------------------------------------------------- helpers */
   const app = () => window.UG_App || {};
@@ -72,12 +71,8 @@ const UG_REPORTING = (function () {
   const scopeLabel = () => { const b = scopeBrgy(); return (!b || b === 'All') ? UG_GEO.PLACE.scope : 'Barangay ' + b; };
   const inScope = (b) => { const s = scopeBrgy(); return !s || s === 'All' || b === s; };
   function inPeriod(ts) {
-    if (!ts) return true;                       /* undated rows are never dropped silently */
-    const t = new Date(ts).getTime();
-    if (isNaN(t)) return true;
-    const a = state.from ? new Date(state.from + 'T00:00:00').getTime() : -Infinity;
-    const b = state.to ? new Date(state.to + 'T23:59:59').getTime() : Infinity;
-    return t >= a && t <= b;
+    const day = UG_EXPORT.isoDate(ts);
+    return !day || ((!state.from || day >= state.from) && (!state.to || day <= state.to));
   }
   const barangayNames = () => {
     const live = (S().barangays || []).map((b) => b.name);
@@ -92,10 +87,11 @@ const UG_REPORTING = (function () {
   function client() { return (typeof Repo !== 'undefined' && Repo.client) ? Repo.client() : null; }
 
   function devicePreview() {
-    return me().id === 'dev' || (!UG_CONFIG.SUPABASE_URL && !UG_CONFIG.SUPABASE_ANON_KEY);
+    return UG_CONFIG.DEV && (me().id === 'dev' || !Repo.client());
   }
 
   async function loadDna() {
+    const owner = S().session;
     if (devicePreview()) {
       state.dnaMode = 'device';
       state.dna = readLocal(LOCAL_DNA);
@@ -106,14 +102,15 @@ const UG_REPORTING = (function () {
       try {
         const { data, error } = await c.from('damage_assessments').select('*')
           .order('assessed_on', { ascending: false }).limit(500);
+        if (S().session !== owner) return;
         if (!error) { state.dnaMode = 'server'; state.dna = data || []; return; }
       } catch (e) { /* show the unavailable state below */ }
     }
-    state.dnaMode = 'unavailable';
-    state.dna = [];
+    if (S().session === owner && state.dnaMode !== 'server') state.dnaMode = 'unavailable';
   }
 
   async function loadIssued() {
+    const owner = S().session;
     if (devicePreview()) {
       state.issuedMode = 'device';
       state.issued = readLocal(LOCAL_SITREP);
@@ -124,11 +121,11 @@ const UG_REPORTING = (function () {
       try {
         const { data, error } = await c.from('situation_reports').select('*')
           .order('created_at', { ascending: false }).limit(100);
+        if (S().session !== owner) return;
         if (!error) { state.issuedMode = 'server'; state.issued = data || []; return; }
       } catch (e) { /* show the unavailable state below */ }
     }
-    state.issuedMode = 'unavailable';
-    state.issued = [];
+    if (S().session === owner && state.issuedMode !== 'server') state.issuedMode = 'unavailable';
   }
 
   function requireDevicePreview() {
@@ -176,8 +173,10 @@ const UG_REPORTING = (function () {
   }
 
   async function loadRoute() {
+    const owner = S().session;
     state.loading = true;
     await Promise.all([loadDna(), loadIssued()]);
+    if (S().session !== owner) return;
     /* dispatch records for the incidents a situation report will list */
     try {
       if (client() && Repo.loadDispatches) {
@@ -186,6 +185,7 @@ const UG_REPORTING = (function () {
         await Promise.all(need.map((i) => Repo.loadDispatches(i.uuid).catch(() => null)));
       }
     } catch (e) { }
+    if (S().session !== owner) return;
     state.loading = false; state.loaded = true;
     if (state.incidentId) loadIncidentExtras(state.incidentId);
     rerender();
@@ -196,6 +196,7 @@ const UG_REPORTING = (function () {
   }
 
   async function loadIncidentExtras(id) {
+    const owner = S().session;
     const inc = findIncident(id);
     if (!inc || !inc.uuid || !client()) return;
     try {
@@ -203,9 +204,9 @@ const UG_REPORTING = (function () {
         Repo.reportHistory ? Repo.reportHistory(inc.uuid) : Promise.resolve([]),
         Repo.loadDispatches ? Repo.loadDispatches(inc.uuid).catch(() => []) : Promise.resolve([])
       ]);
-      state.history[inc.uuid] = hist || [];
-    } catch (e) { state.history[inc.uuid] = []; }
-    rerender();
+      if (S().session === owner) state.history[inc.uuid] = hist || [];
+    } catch (e) { /* keep the last known report history */ }
+    if (S().session === owner) rerender();
   }
 
   /* -------------------------------------------------- situation report data */
@@ -902,5 +903,5 @@ const UG_REPORTING = (function () {
     });
   }
 
-  return { dReporting, actions, loadRoute, state, sitrepSections, incidentSections, dnaSections, sampleRows };
+  return { dReporting, actions, loadRoute, reset, state, sitrepSections, incidentSections, dnaSections, sampleRows };
 })();

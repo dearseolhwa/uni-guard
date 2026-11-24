@@ -9,6 +9,7 @@ import { verifyRoles as verifyReportAccess } from './report-access.mjs';
 import { verifyRoles as verifyDispatchReplacement } from './dispatch-replacement.mjs';
 import { verifyMobileDelivery } from './mobile-delivery.mjs';
 import { verifyBackendAudit } from './backend-audit.mjs';
+import { verifyOperationsAudit } from './operations-audit.mjs';
 const db = await PGlite.create({extensions:{pgcrypto,pg_trgm}});
 const root = fileURLToPath(new URL('../', import.meta.url));
 const migrations = resolve(root, 'migrations');
@@ -29,6 +30,8 @@ try {
     alter table storage.objects enable row level security;
   `);
   const readMigration = (file) => fs.readFile(resolve(migrations, file), 'utf8');
+  const checkerSql = await fs.readFile(resolve(root, 'docs/CHECK-SUPABASE-MIGRATIONS.sql'), 'utf8');
+  const recommendation = (results) => results.find(result => result.rows?.[0]?.recommendation)?.rows[0].recommendation;
   const files = (await fs.readdir(migrations)).sort().filter(file => file.endsWith('.sql') && !file.startsWith('000'));
   assert.equal(new Set(files.map(file => file.split('_')[0])).size, files.length);
   const legacyReport = '00000000-0000-4000-8000-000000000099';
@@ -43,6 +46,8 @@ try {
     if (version === '031') {
       await db.exec("insert into public.road_status(road_name,status) values ('Fixture Road','caution')");
     }
+    if (version === '081') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 081, then 082.');
+    if (version === '082') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 082.');
     try { await db.exec(await readMigration(file)); }
     catch (error) { throw Error(file + ': ' + error.message, { cause: error }); }
     if (version === '010') {
@@ -76,14 +81,16 @@ try {
   assert.equal((await db.query("select to_regprocedure('public.lgu_verify_overdue_report(uuid)') as obsolete")).rows[0].obsolete, null);
   await db.exec(await readMigration('079_mobile_delivery_reliability.sql'));
   await db.exec(await readMigration('080_backend_audit_fixes.sql'));
+  await db.exec(await readMigration('081_advisory_publishing.sql'));
+  await db.exec(await readMigration('082_shelter_occupancy_and_analytics.sql'));
   console.log('PASS Fresh migration chain, legacy hazard and road records, staged help requests and escalation replay.');
-  const checkerResults = await db.exec(await fs.readFile(resolve(root, 'docs/CHECK-SUPABASE-MIGRATIONS.sql'), 'utf8'));
+  const checkerResults = await db.exec(checkerSql);
   const milestones = checkerResults.find((result) => result.rows?.some((row) => row.migration === '076_super_admin_notifications.sql'))?.rows || [];
   assert.ok(milestones.length > 0);
   assert.deepEqual(milestones.filter((row) => row.status !== 'INSTALLED'), []);
-  assert.equal(checkerResults.find((result) => result.rows?.[0]?.recommendation)?.rows[0].recommendation,
-    'CURRENT: schema features through 080 are installed.');
-  console.log('Applied the entire 001–080 chain in embedded PostgreSQL with Auth/Storage fixtures.');
+  assert.equal(recommendation(checkerResults),
+    'CURRENT: schema features through 082 are installed.');
+  console.log('Applied the entire 001–082 chain in embedded PostgreSQL with Auth/Storage fixtures.');
   await db.exec(`
     insert into auth.users(id,email) values
       ('00000000-0000-4000-8000-000000000001', 'actor@example.test'),
@@ -118,4 +125,5 @@ try {
   await verifyDispatchReplacement(db);
   await verifyMobileDelivery(db);
   await verifyBackendAudit(db);
+  await verifyOperationsAudit(db);
 } finally { await db.close(); }

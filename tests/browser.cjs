@@ -3,6 +3,7 @@ const { createServer } = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const verifyRoleAudits = require('./role-audit-browser.cjs');
 
 const root = path.resolve(__dirname, '..');
 const types = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json' };
@@ -78,6 +79,23 @@ const server = createServer(async (req, res) => {
       await Repo.loadAll();
     });
     console.log('PASS Offline snapshot scoped to account and role, without signed photo URLs');
+
+    const downloaded = await page.evaluate(async () => {
+      const advisory = {id: 'fixture-preparedness', title: 'Saved guide advisory', severity: 'prepared'};
+      const owner = Auth.state.session;
+      await UG_PWA.saveAdvisory(advisory);
+      await UG_PWA.storeSnapshot({...UG.DATA, advisories: []});
+      await UG_PWA.hydrateFromCache();
+      const own = UG.DATA.advisories.some((row) => row.id === advisory.id);
+      Auth.state.session = {...owner, id: 'different-resident'};
+      UG.DATA.advisories = [];
+      await UG_PWA.hydrateFromCache();
+      const other = UG.DATA.advisories.some((row) => row.id === advisory.id);
+      Auth.state.session = owner;
+      return {own, other};
+    });
+    assert.deepEqual(downloaded, {own: true, other: false});
+    console.log('PASS A downloaded preparedness advisory survives a snapshot refresh and remains account-scoped');
 
     const history = await page.evaluate(async () => {
       const owner = Auth.state.session;
@@ -206,5 +224,7 @@ const server = createServer(async (req, res) => {
     await phone.getByText('Waiting for signal', { exact: true }).first().waitFor();
     assert.deepEqual(mobileErrors, []);
     console.log('PASS A saved SOS survives a real offline mobile reload and appears in My Reports');
+    await mobile.close();
+    await verifyRoleAudits(browser, app);
   } finally { await browser.close(); server.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

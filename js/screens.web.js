@@ -398,8 +398,9 @@ const UG_WEB = (() => {
 
   /* one advisory, read in full: the advisory, what to do, save and share */
   function cwAdvisory(st) {
-    const a = (U.DATA.advisories || []).find((x) => x.id === st.openId) || (U.DATA.advisories || [])[0];
-    if (!a) return cwAdvisories(st);
+    const a = Repo.findAdvisory(st.openId);
+    if (!a) return '<div class="rw-blank"><h3>Advisory unavailable</h3>' +
+      '<button class="rw-back"' + A('nav', attr({ route: 'advisories' })) + '>Back to Advisories</button></div>';
     const preparing = a.severity === 'prepared';
     const steps = preparing
       ? ['Agree on a family meeting point and an out-of-town contact.', 'Prepare a go-bag with water, food, documents and a power bank.', 'Join the municipality-wide drill and practise duck, cover and hold.']

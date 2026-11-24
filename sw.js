@@ -6,7 +6,7 @@
  */
 importScripts('./js/device-store.js');
 
-const VERSION = 'uniguard-v568';
+const VERSION = 'uniguard-v569';
 const SHELL = 'uniguard-shell-' + VERSION;
 const TILES = 'uniguard-tiles-' + VERSION;
 const IMAGES = 'uniguard-images-' + VERSION;

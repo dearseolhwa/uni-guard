@@ -219,6 +219,9 @@ const UG_FEATURES = (function () {
     next.addEventListener('click', () => { if (canLeave && canLeave(page) === false) return; show(page + 1); });
     show(1);
   }
+  const dialogs = new Set();
+  function closeDialogs() { [...dialogs].reverse().forEach((close) => close()); }
+
   function modal(opts) {
     const wrap = document.createElement('div');
     wrap.className = 'ug-modal' + (opts.cls ? ' ' + opts.cls : '');
@@ -230,13 +233,22 @@ const UG_FEATURES = (function () {
         (opts.footer ? '<div class="ug-modal-foot">' + opts.footer + '</div>' : '') +
       '</div>';
     document.body.appendChild(wrap);
-    let closed = false;
+    const returnFocus = document.activeElement;
     const close = () => {
+      if (!dialogs.delete(close)) return;
+
       wrap.remove();
       document.removeEventListener('keydown', onKey);
-      if (!closed) { closed = true; if (opts.onClose) { try { opts.onClose(); } catch (e) {} } }
+      if (returnFocus?.isConnected) returnFocus.focus();
+      try { opts.onClose?.(); } catch (e) {}
     };
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    dialogs.add(close);
+    const onKey = (e) => {
+      if (e.key === 'Escape' && [...dialogs].at(-1) === close) {
+        e.preventDefault();
+        close();
+      }
+    };
     document.addEventListener('keydown', onKey);
     /* the app's delegated [data-act] handler closes the dialog through this
        before running a footer action, so the Escape listener goes with it */
@@ -250,9 +262,9 @@ const UG_FEATURES = (function () {
 
   function confirm(opts) {
     return new Promise((resolve) => {
-      let done = false;
-      const close = modal({
+      modal({
         title: opts.title,
+        onClose: () => resolve(false),
         /* opts.body replaces the default note layout; opts.cls adds a class
            to the overlay so a dialog can carry its own look */
         body: opts.body || ('<div class="ug-note">' + esc(opts.message || '') + '</div>' +
@@ -263,18 +275,11 @@ const UG_FEATURES = (function () {
         onMount: (wrap, closeFn) => {
           if (opts.cls) wrap.classList.add(opts.cls);
           wrap.querySelector('[data-confirm]').addEventListener('click', () => {
-            done = true; closeFn(); resolve(true);
-          });
-          wrap.addEventListener('click', (e) => {
-            if (e.target === wrap || e.target.closest('[data-modal-close]')) { if (!done) resolve(false); }
+            resolve(true);
+            closeFn();
           });
         }
       });
-      /* closing via Escape resolves false */
-      const observer = new MutationObserver(() => {
-        if (!document.body.contains(document.querySelector('.ug-modal')) && !done) resolve(false);
-      });
-      observer.observe(document.body, { childList: true });
     });
   }
 
@@ -282,6 +287,7 @@ const UG_FEATURES = (function () {
     return new Promise((resolve) => {
       modal({
         title: opts.title,
+        onClose: () => resolve(null),
         body: '<div class="ug-field"><label class="ug-lab">' + esc(opts.label || '') + '</label>' +
               '<input class="ug-in" data-prompt-value value="' + esc(opts.value || '') + '" placeholder="' + esc(opts.placeholder || '') + '"></div>' +
               (opts.help ? '<div class="ug-help">' + esc(opts.help) + '</div>' : '') +
@@ -302,7 +308,8 @@ const UG_FEATURES = (function () {
             }
             /* opts.allowEmpty: an optional field saved empty answers '' (not
                null, which callers treat as Cancel) */
-            closeFn(); resolve(v || (opts.allowEmpty ? '' : null));
+            resolve(v || (opts.allowEmpty ? '' : null));
+            closeFn();
           };
           wrap.querySelector('[data-ok]').addEventListener('click', ok);
           input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } });
@@ -337,5 +344,5 @@ const UG_FEATURES = (function () {
     return true;
   }
 
-  return { pickPhoto, compressImage, locate, parseCoords, reverseGeocode, vibrate, modal, formPages, confirm, prompt, shareOrCopy, printNode };
+  return { pickPhoto, compressImage, locate, parseCoords, reverseGeocode, vibrate, modal, closeDialogs, formPages, confirm, prompt, shareOrCopy, printNode };
 })();
