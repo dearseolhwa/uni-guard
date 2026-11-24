@@ -2012,7 +2012,7 @@ const Repo = (function () {
 
   return {
     client, online, queueUploadSession, state, onChange, resetScopedData, findReport, listMyReports, loadReport, findAdvisory, loadAdvisory,
-    loadAll, forceReload, subscribe, unsubscribe, setRefreshGate, autoDispatch, rateReport, reportHandlers,
+    loadAll, forceReload, subscribe, unsubscribe, setRefreshGate, scheduleRefresh, autoDispatch, rateReport, reportHandlers,
     createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, lguVerify, barangayAt, reportHistory, updateReport,
     createAdvisory, updateCenter, setShelterOccupancy, createCenter, createHotline, updateHotline, deleteHotline,
     markRead, markAllRead, listBarangays,

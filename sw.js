@@ -6,7 +6,7 @@
  */
 importScripts('./js/device-store.js');
 
-const VERSION = 'uniguard-v570';
+const VERSION = 'uniguard-v571';
 const SHELL = 'uniguard-shell-' + VERSION;
 const TILES = 'uniguard-tiles-' + VERSION;
 const IMAGES = 'uniguard-images-' + VERSION;
@@ -218,7 +218,7 @@ self.addEventListener('push', (event) => {
   event.waitUntil((async () => {
     if (Date.parse(payload.expires_at) <= Date.now()) return;
     const binding = await UG_DEVICE_DB.readPush().catch(() => ({ suspended: true }));
-    if (!binding?.owner || binding.suspended) return;
+    if (!binding?.owner || binding.suspended || (payload.recipient_id && payload.recipient_id !== binding.owner)) return;
     await Promise.all([
       notifyWindows({ type: 'UG_PUSH', payload, ownerId: binding.owner }),
       self.registration.showNotification(payload.title, {

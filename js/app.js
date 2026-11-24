@@ -738,7 +738,16 @@
     /* Dispatch team: skip Repo.loadAll (the dispatch team has its own data
        shape and read scopes; the barangay/LGU dataset is not theirs). */
     if (S.session && S.session.role === 'dispatch_team' && typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.loadAll) {
-      try { await UG_DISPATCH.loadAll(); } catch (e) {}
+      try {
+        await UG_DISPATCH.loadAll();
+        if (owner === S.session && S.route === 'dispatch' && initialDispatch) {
+          const id = initialDispatch;
+          initialDispatch = null;
+          await UG_DISPATCH.openAlert(id);
+        }
+      } catch (e) {
+        if (owner === S.session) toast(UG_UTIL.friendlyError(e), 'warning');
+      }
       render();
       return;
     }
@@ -751,6 +760,17 @@
       }
     }
     await Repo.loadAll();
+    if (S.session !== owner) return;
+    if (initialIncident && S.route === 'incidents') {
+      const id = initialIncident;
+      initialIncident = null;
+      await APP_ACTIONS['open-linked-report']({ id });
+    }
+    if (initialSos && S.route === 'sos') {
+      const id = initialSos;
+      initialSos = null;
+      APP_ACTIONS['open-sos-detail']({ id });
+    }
     if (S.session !== owner) return;
     /* Audit F-03: with no server, keep what the PWA cache restored instead of
        overwriting it with empty snapshots. Online, a Super Admin's user list is
@@ -855,8 +875,15 @@
   /* Captured before boot: enterApp() writes the home route into the hash, so the
      route we arrived with has to be read now or it is lost. */
   const INITIAL_ROUTE = routeFromHash();
-  const linkAdvisory = new URLSearchParams(location.search).get('advisory');
-  let initialAdvisory = INITIAL_ROUTE === 'advisory-detail' && /^[0-9a-f-]{36}$/i.test(linkAdvisory || '') ? linkAdvisory : null;
+  const linkParams = new URLSearchParams(location.search);
+  function alertLink(route, param) {
+    const id = linkParams.get(param);
+    return INITIAL_ROUTE === route && /^[0-9a-f-]{36}$/i.test(id || '') ? id : null;
+  }
+  let initialDispatch = alertLink('dispatch', 'dispatch');
+  let initialIncident = alertLink('incidents', 'incident');
+  let initialSos = alertLink('sos', 'sos');
+  let initialAdvisory = alertLink('advisory-detail', 'advisory');
   /* the Super Admin starts on their own home screen (js/screens.superadmin.js) */
   const homeRoute = () => (S.session && S.session.role === 'lgu_ldrrmc' && S.session.superAdmin && typeof UG_SUPERADMIN !== 'undefined')
     ? UG_SUPERADMIN.ROUTE
@@ -948,7 +975,8 @@
         UG_I18N.setLang(UG_SETTINGS.getUserPrefs().language.ui || 'en');
       }
     }
-    go(homeRoute());
+    const operationalStaff = session.role === 'barangay_official' || session.role === 'lgu_ldrrmc';
+    go(operationalStaff && initialIncident ? 'incidents' : operationalStaff && initialSos ? 'sos' : homeRoute());
     toast(message || ('Signed in as ' + (session.title || UG_WEB.ROLE_INFO[session.role].label) + ' · ' + session.scope), 'prepared');
     render();
     bootstrapData();
@@ -6266,6 +6294,10 @@
           UG_URGENT.fire({ id: p.advisory_id, severity: 'emergency', title: p.title, body: p.body, time: 'just now', expires_at: p.expires_at });
           return;
         }
+        if (/^(sos|dispatch|report_review|dispatch_gap)-/.test(p.tag || '')) {
+          if (S.session.role === 'dispatch_team') refreshDispatch();
+          else Repo.scheduleRefresh(0);
+        }
         const kind = p.tag && p.tag.startsWith('dispatch-') ? 'dispatch' : /sos/i.test(p.title || '') ? 'sos' : ((p.title || '') + ' ' + (p.body || ''));
         try { UG_ALARM.play(kind, { force: p.severity === 'emergency' || kind === 'sos' }); } catch (err) { }
 
@@ -6625,7 +6657,9 @@
     else render();
 
     /* a manifest shortcut or a reload arrives with a route in the hash */
-    if (INITIAL_ROUTE && S.session && INITIAL_ROUTE !== S.route) {
+    if (INITIAL_ROUTE && S.session && INITIAL_ROUTE !== S.route &&
+        !(INITIAL_ROUTE === 'dispatch' && S.route === 'dispatch-detail') &&
+        !(INITIAL_ROUTE === 'incidents' && S.route === 'incident')) {
       go(DETAIL_PARENT[INITIAL_ROUTE] || INITIAL_ROUTE);
       render();
       loadRouteData(S.route);

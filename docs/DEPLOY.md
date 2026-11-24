@@ -248,10 +248,43 @@ In staging, acknowledge the same advisory from two accounts on one device,
 retry an emergency declaration after interrupting its response, and issue
 situation reports for the same event from two barangays.
 
+## SOS and dispatch delivery release
+
+Run the [migration checker](CHECK-SUPABASE-MIGRATIONS.sql) and apply the missing
+files through [084](../migrations/084_sos_and_dispatch_delivery.sql). Deploy
+the updated `emergency-delivery` Edge Function and release web build
+`uniguard-v571`. Complete the [background delivery setup](#7-background-sos-and-dispatch-delivery)
+for phone alerts to reach staff who have closed the app.
+
+Open the Dispatch Units directory and verify that each live BFP, PNP, rescue
+and ambulance unit has at least one active account linked to it. Automatic
+routing skips units with no active account. Have duty staff review existing
+open assignments to those units and arrange reassignment when needed.
+
+Use a staging project to send a Fire SOS and a separate fire hazard report
+with a resident account. For the hazard report, verify it with an MDRRMO duty
+account. Confirm the assigned BFP account opens each incident, that a staff
+phone receives the alert with the app closed, and that acknowledgment appears
+in the console. Repeat without GPS using a resident account with a registered
+barangay. Check for the address confirmation message, an empty ETA, and no
+driving directions.
+
+| Incident type | Recipients |
+| --- | --- |
+| Fire, medical, crime, and rescue SOS | MDRRMO and the affected barangay receive the SOS. The assigned BFP, ambulance, PNP, or rescue unit receives its own alert. |
+| Other / not sure SOS | MDRRMO and the affected barangay review the SOS and arrange any specialized response. |
+| New hazard report | The affected barangay receives a review alert. MDRRMO duty staff also receive urgent, life-safety, unclassified reports and reports without an active barangay reviewer. |
+| Verified hazard report | The response team for each hazard receives a separate assignment alert. Emergency severity adds ambulance where it is absent from the route. Barangay verification alerts MDRRMO when municipal response is needed. Corroborated reports go to duty review. Unclassified hazards need duty review to choose a team. |
+| Needed team unavailable or declines | MDRRMO duty staff receive a follow-up alert. Use the incident queue to arrange another response. |
+
+The routing rules cover the departments with UniGuard roles. The duty officer
+coordinates with external agencies, such as the electric utility, that lack an
+account or routing integration.
+
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `083_alert_receipts_and_report_register.sql`.
+`001_align_core_tables.sql` through `084_sos_and_dispatch_delivery.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
 and record each full filename. Migration 011 installs `pg_trgm` before creating
 its index. Apply `045_super_admin_improvements.sql`, followed by 046 and 047. Migration 043 promotes the account matching its
@@ -371,37 +404,35 @@ select cron.schedule('uniguard-cleanup', '0 4 * * *', $$select public.cleanup_ra
 
 ## 7. Background SOS and dispatch delivery
 
-Deploy the queue worker with its own bearer secret.
+Deploy the queue worker after applying migration 084.
 
 ```bash
-supabase secrets set EMERGENCY_WORKER_SECRET='<a-long-random-secret>'
 supabase functions deploy emergency-delivery --no-verify-jwt
 ```
 
 Configure the existing VAPID keys and SMS gateway secrets for the worker.
 The SMS provider must accept the JSON contract in the Edge Function and should
-honor the Idempotency-Key header. Staff need a push subscription or a valid
-phone number. Providers accepting a message does not establish acknowledgment.
+honor the Idempotency-Key header. Staff need a working push subscription or a
+valid phone number with SMS configured. Record acknowledgment in UniGuard.
 
-Enable Supabase Cron, pg_net, and Vault in the project. Store the full worker
-URL as `uniguard_emergency_worker_url` and the same bearer secret as
-`uniguard_emergency_worker_secret` in Vault, then schedule the following in
-the SQL editor. Keep the cron job active on the deployed environment.
+Enable Supabase Cron, pg_net, and Vault in the project. In Vault, set
+`uniguard_emergency_worker_url` to the full deployed function URL and
+`uniguard_emergency_worker_secret` to a long, random bearer secret. The
+worker checks the Vault secret when no Edge Function secret named
+`EMERGENCY_WORKER_SECRET` is set. If you already set that Edge Function secret,
+use the same value in Vault. Schedule retries in the SQL editor as a project
+administrator.
 
 ```sql
-select cron.schedule('uniguard-emergency-delivery', '* * * * *', $job$
-  select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name = 'uniguard_emergency_worker_url'),
-    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' ||
-      (select decrypted_secret from vault.decrypted_secrets where name = 'uniguard_emergency_worker_secret')),
-    body := '{}'::jsonb
-  );
-$job$);
+select cron.schedule('uniguard-emergency-delivery', '* * * * *',
+  'select public.kick_emergency_delivery()');
 ```
 
-In-app alerting remains immediate. Background delivery starts on the next
-worker run and may be delayed by queue volume or provider availability. Only
-new SOS and dispatch events enter the queue. Failed deliveries appear in the
+In-app alerts are created with the assignment. With Vault and pg_net
+configured, new queue entries wake the worker after the transaction commits.
+Cron picks up retries and queued work if a wake is missed. Verify the
+`uniguard-reroute-unacknowledged` cron job is active to reroute municipal teams
+that have yet to acknowledge. Only new events enter the alert queue. Failed deliveries appear in the
 LGU notification inbox for duty-phone or radio follow-up. In staging, check
 that the provider accepts a push with the device app closed, check SMS on a
 staff account without working push, and check the failure alert with neither
@@ -479,6 +510,20 @@ select count(*) as awaiting_acknowledgment, now() - min(created_at) as oldest_wa
 from public.sos_log
 where status = 'sent';
 
+select u.name, u.unit_type, u.status,
+       (select count(*) from public.profiles p where p.dispatch_unit_id = u.id
+          and p.role = 'dispatch_team' and not p.disabled and p.removed_at is null) as active_accounts,
+       (select count(*) from public.report_dispatches d where d.unit_id = u.id
+          and d.dispatch_status not in ('done','declined')) as open_assignments
+from public.dispatch_units u where u.active
+order by u.unit_type, u.name;
+
+select kind, status, channel, count(*) as deliveries
+from public.emergency_delivery
+where created_at >= now() - interval '24 hours'
+group by kind, status, channel
+order by kind, status, channel;
+
 select count(*) as awaiting_replacement, now() - min(r.updated_at) as oldest_wait
 from public.reports r
 where r.status = 'verified'
@@ -497,7 +542,8 @@ where name in ('uniguard_admin_notify_url', 'uniguard_admin_notify_secret',
                'uniguard_emergency_worker_url', 'uniguard_emergency_worker_secret');
 
 select jobname, schedule, active from cron.job
-where jobname in ('uniguard-admin-notify', 'uniguard-emergency-delivery');
+where jobname in ('uniguard-admin-notify', 'uniguard-emergency-delivery',
+                  'uniguard-reroute-unacknowledged');
 ```
 
 After a test event, `sent` means at least one push provider accepted delivery.

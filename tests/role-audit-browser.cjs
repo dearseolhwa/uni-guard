@@ -102,7 +102,9 @@ async function dispatchFailure(browser, app) {
       const id = 'fixture-unit-first';
       const recent = Array.from({length: 50}, (_, n) => ({id: 'closed-' + n, dispatch_status: 'done',
         dispatched_at: '2025-12-20T10:00:00Z', unit_id: id}));
-      const older = {id: 'old-open', dispatch_status: 'acknowledged', dispatched_at: '2025-11-20T10:00:00Z', unit_id: id};
+      const older = {id: 'old-open', dispatch_status: 'acknowledged', dispatched_at: '2025-11-20T10:00:00Z', unit_id: id,
+        team: 'BFP', report: {code: 'FIXTURE-SOS', hazard_type: 'Fire', barangay: 'Poblacion',
+          lat: null, lng: null, location_note: 'Exact location unavailable. Confirm the incident address.'}};
       let equipmentFailed = false;
       let held = null;
       const client = {
@@ -136,6 +138,10 @@ async function dispatchFailure(browser, app) {
         UG_APP.S.session = {...previous, dispatch_unit_id: id, unit_role: 'unit_admin'};
         await UG_DISPATCH.loadAll();
         const retainedAfter50Closed = UG_DISPATCH.state.data.dispatches.some(row => row.id === older.id);
+        await UG_DISPATCH.openAlert(older.id);
+        const openedNoGPS = UG_APP.S.route === 'dispatch-detail' && UG_APP.S.openId === older.id &&
+          !!document.body.innerText.match(/Exact location unavailable/) && !document.body.innerText.includes('Directions to incident');
+        UG_APP.go('dispatch');
         equipmentFailed = true;
         await UG_DISPATCH.loadAll({silent: true});
         const retainedOnFailure = UG_DISPATCH.state.data.equipment[0]?.id === 'gear-fixture' && !!UG_DISPATCH.state.error;
@@ -146,13 +152,13 @@ async function dispatchFailure(browser, app) {
         UG_DISPATCH.signedOut();
         release({data: [{id: 'previous-account-gear'}]});
         await loading;
-        return {retainedAfter50Closed, retainedOnFailure, cleared: UG_DISPATCH.state.data.equipment.length === 0};
+        return {retainedAfter50Closed, openedNoGPS, retainedOnFailure, cleared: UG_DISPATCH.state.data.equipment.length === 0};
       } finally {
         Repo.client = original;
         UG_APP.S.session = previous;
       }
     });
-    assert.deepEqual(outcome, {retainedAfter50Closed: true, retainedOnFailure: true, cleared: true});
+    assert.deepEqual(outcome, {retainedAfter50Closed: true, openedNoGPS: true, retainedOnFailure: true, cleared: true});
     console.log('PASS Dispatch retains older active work and good reads during a failure, and discards an old account response.');
   } finally { await context.close(); }
 }

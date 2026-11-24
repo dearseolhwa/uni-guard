@@ -115,6 +115,9 @@ test('push contents are scoped to the registered account and suspended on sign-o
   for (const w of [active, suspended]) await w.dispatch('push', { data: { json: () => ({ title: 'Fixture alert' }) } });
   assert.equal(active.posts[0].ownerId, 'fixture');
   assert.deepEqual(active.notices, ['Fixture alert']);
+  await active.dispatch('push', { data: { json: () => ({ title: 'Wrong account alert', recipient_id: 'previous-owner' }) } });
+  assert.equal(active.posts.length, 1);
+  assert.deepEqual(active.notices, ['Fixture alert']);
   assert.deepEqual(suspended.notices, []);
   assert.deepEqual(suspended.posts, []);
 });

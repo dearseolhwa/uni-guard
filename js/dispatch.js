@@ -150,6 +150,11 @@ const UG_DISPATCH = (function () {
   const loadNotices = () => loadUnitPart('notices', 'patient_notices', 'unit_id', newestFirst);
   const loadHelpRequests = () => loadUnitPart('helpRequests', 'dispatch_help_requests', 'unit_id', newestFirst);
 
+  function loadDispatchById(c, unitId, assignmentId) {
+    return read(c.from('report_dispatches').select('*, report:reports(*)')
+      .eq('unit_id', unitId).eq('id', assignmentId).maybeSingle());
+  }
+
   async function loadDispatches() {
     const c = client();
     const target = state.data;
@@ -169,7 +174,14 @@ const UG_DISPATCH = (function () {
     };
     const [openRows, closedRows] = await Promise.all([active(), closed]);
     if (target !== state.data) return [];
-    target.dispatches = [...new Map([...closedRows, ...openRows].map((row) => [row.id, row])).values()]
+    const rows = new Map([...closedRows, ...openRows].map((row) => [row.id, row]));
+    const id = app().S?.route === 'dispatch-detail' && app().S.openId;
+    if (id && !rows.has(id)) {
+      const selected = await loadDispatchById(c, target.unit.id, id);
+      if (target !== state.data) return [];
+      if (selected) rows.set(id, selected);
+    }
+    target.dispatches = [...rows.values()]
       .sort((a, b) => Date.parse(b.dispatched_at) - Date.parse(a.dispatched_at));
     target.dispatches.forEach((row) => incoming.delete(row.id));
     return target.dispatches;
@@ -657,7 +669,8 @@ const UG_DISPATCH = (function () {
     if (state.loading) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('loading', T('state.loading'));
     const list = state.data.dispatches || [];
     if (state.error && !list.length) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('error', T('toast.couldNotLoad'), state.error);
-    const open = list.filter((d) => d.dispatch_status !== 'done' && d.dispatch_status !== 'declined');
+    const open = openDispatches();
+    const recentHistory = list.filter((d) => d.dispatch_status === 'done' || d.dispatch_status === 'declined').slice(0, 12);
     if (!list.length) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) +
       emptyState('truck', T('dispatch.noDispatches'), T('dispatch.noDispatchesHint'));
 
@@ -714,8 +727,8 @@ const UG_DISPATCH = (function () {
       pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.',
         '<span class="ug-chip is-on">' + open.length + ' active</span>') +
       pnpSection +
-      '<div class="ug-wgrid-3">' + list.slice(0, 12).map(row).join('') + '</div>' +
-      (list.length > 12 ? '<button class="ug-btn ug-btn--ghost" data-act="dispatch-nav" data-route="analytics">View all</button>' : '') +
+      '<div class="ug-wgrid-3">' + [...open, ...recentHistory].map(row).join('') + '</div>' +
+      (list.length > open.length + recentHistory.length ? '<button class="ug-btn ug-btn--ghost" data-act="dispatch-nav" data-route="analytics">View dispatch history</button>' : '') +
       '</div>';
   }
 
@@ -853,6 +866,9 @@ const UG_DISPATCH = (function () {
       (isOpen && Number.isFinite(r.lat) && Number.isFinite(r.lng) ?
         '<a class="ug-btn ug-btn--sm" target="_blank" rel="noopener noreferrer" href="' +
         esc(UG_GEO.wazeUrl(r.lat, r.lng)) + '">' + I('route', 14) + 'Directions to incident</a>' : '') +
+      (isOpen && d.report && (r.lat == null || r.lng == null)
+        ? '<p class="ug-note">' + esc(r.location_note || 'No GPS location. Confirm the incident address with the duty officer before traveling.') + '</p>' : '') +
+      (!d.report ? '<p class="ug-note">Incident details are unavailable. Contact the duty officer to confirm the report.</p>' : '') +
       ((next || canFinish) ? '<div class="ug-rowf ug-gap8" style="gap:8px">' +
         '<input class="ug-in" type="text" data-act="dispatch-note" data-id="' + esc(d.id) + '" placeholder="' + (next === 'on_hold' ? 'Reason (required for On hold)' : 'Note (optional)') + '" style="flex:1;max-width:none">' +
         (next ? '<button class="ug-btn ug-btn--sm" data-act="dispatch-respond" data-id="' + esc(d.id) + '" data-next="' + next + '">' + esc(nextLabel) + '</button>' : '') +
@@ -1703,6 +1719,25 @@ const UG_DISPATCH = (function () {
     state.openDispatchId = id;
     state.route = 'dispatch-detail';
     ui.render();
+  }
+
+  async function openAlert(id) {
+    const c = client();
+    const target = state.data;
+    if (!c || !target.unit) return;
+    let assignment = target.dispatches.find((row) => row.id === id);
+    if (!assignment) {
+      assignment = await loadDispatchById(c, target.unit.id, id);
+      if (target !== state.data || app().S?.route !== 'dispatch') return;
+      if (assignment) target.dispatches.push(assignment);
+    }
+    if (!assignment) {
+      app().toast('This assignment is unavailable to your unit.', 'warning');
+      return;
+    }
+    openDispatch(assignment.id);
+    await loadEvents();
+    if (target === state.data) app().render();
   }
 
   const actions = {
@@ -2777,7 +2812,7 @@ const UG_DISPATCH = (function () {
 
   /* ----------------------------------------------------------------- exports */
   return {
-    state, frame, body, loadAll, loadRoute, actions, signedOut,
+    state, frame, body, loadAll, loadRoute, openAlert, actions, signedOut,
     DTITLES: (r) => DTITLES(r),
     /* 050 (Oct 25 2026): expose the equipment-management modals so the
        LGU + barangay Response Team screens (js/screens.admin.js + js/app.js)

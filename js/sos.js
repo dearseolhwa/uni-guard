@@ -75,10 +75,10 @@ const UG_SOS = (function () {
         '<h3 style="font-size:16px">' + (sending ? 'Sending SOS…' : 'What is the emergency?') + '</h3>' +
         '<div class="ug-sos-kinds">' + KINDS.map((k) =>
           '<button class="ug-sos-kind kind-' + k[0] + '" data-act="sos-trigger" data-kind="' + k[0] + '"' + (sending ? ' disabled' : '') + '>' +
-            I(k[2], 26) + '<span class="k-l">' + esc(k[1]) + '</span><span class="k-t">Sends: ' + esc(k[3]) + '</span></button>').join('') +
+            I(k[2], 26) + '<span class="k-l">' + esc(k[1]) + '</span><span class="k-t">Requests: ' + esc(k[3]) + '</span></button>').join('') +
         '</div>' +
         '<button class="ug-btn ug-btn--block" data-act="sos-trigger" data-kind="other"' + (sending ? ' disabled' : '') + '>' + I('help', 16) + 'Other / not sure · Barangay Response Team</button>' +
-        '<p class="ug-dim" style="font-size:12px;line-height:1.5;max-width:300px">Hold still for a moment so we can read your GPS. A confirmation will appear here when the SOS has been logged.</p>' +
+        '<p class="ug-dim" style="font-size:12px;line-height:1.5;max-width:300px">Hold still for a moment so we can read your GPS. If GPS is unavailable, the app can use your registered barangay to route the request. Call the hotline to confirm your exact location.</p>' +
         statusLine +
       '</div></div>' +
 
@@ -94,8 +94,8 @@ const UG_SOS = (function () {
             '<span class="ug-mono">' + (last.accuracy != null ? last.accuracy + ' m' : '—') + '</span></div>' +
           '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Sent at</span>' +
             '<span class="ug-mono">' + esc(last.at) + '</span></div>' +
-          '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">Reached</span>' +
-            '<span class="ug-mono">' + esc((last.reach != null ? last.reach : '—') + ' duty officers') + '</span></div>' +
+          '<div class="ug-rowf ug-between" style="font-size:12px"><span class="ug-dim">In-app alerts sent</span>' +
+            '<span class="ug-mono">' + esc((last.reach != null ? last.reach : '—') + ' staff alerts') + '</span></div>' +
         '</div></div>' : '') +
 
       (hotlineFirst ? '' : hotline) +
@@ -347,13 +347,6 @@ const UG_SOS = (function () {
   function sosDetailModal(st, id) {
     const s = (UG.DATA.sosLog || []).find((x) => x.id === id);
     if (!s) return;
-    /* What the record shows follows what submit_sos (migration 060) does:
-       - with a GPS fix the SOS becomes an emergency report and the teams for
-         its type are sent at once (report_id is set);
-       - without a fix (or when that step failed) no report is made and no
-         team is sent, so someone has to call the sender back.
-       The SOS stays New until a duty officer or official acknowledges it,
-       which notifies the sender that help has seen it. */
     const KIND = {
       medical: ['Medical emergency', 'plus', ['Ambulance', 'Barangay Response Team']],
       fire:    ['Fire', 'flame', ['BFP', 'Barangay Response Team']],
@@ -394,7 +387,7 @@ const UG_SOS = (function () {
           '<b>No team has been sent</b>' +
           '<p>' + (hasFix
             ? 'The SOS could not be turned into a report automatically (for example, it was sent from outside Lingayen). Call the sender and send a team from the Incident Queue.'
-            : 'It was sent without a GPS location, so the system could not create a report or dispatch a team. Call the sender to find out where they are, then send a team.') + '</p>' +
+            : 'An incident could not be linked using the available location. Call the sender to confirm the address and arrange a response.') + '</p>' +
           '<div class="sd-teams">' + teamsHtml(k[2]) + '</div>' +
           '<small class="sd-fine">Teams normally sent for this type of SOS.</small>' +
         '</div></div>';

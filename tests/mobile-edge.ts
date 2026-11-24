@@ -32,7 +32,7 @@ const rows = Array.from({ length: 225 }, (_, i) => ({
 }));
 let inFlight = 0, peak = 0, sent = 0;
 const oldSend = webpush.sendNotification;
-webpush.sendNotification = (async (subscription) => {
+webpush.sendNotification = (async (subscription: { endpoint: string }) => {
   inFlight++;
   peak = Math.max(peak, inFlight);
   await Promise.resolve();
@@ -107,6 +107,100 @@ try {
   assert.deepEqual(requests, people.map(({ id }) => alertId + ':' + id));
   assert.deepEqual(audits.map(({ actor_id }) => actor_id), [actorId, actorId, actorId]);
   console.log('PASS Push delivery paginates 225 fixtures with at most 20 concurrent sends. Sender audit and SMS deduplication also passed.');
+} finally {
+  globalThis.fetch = oldFetch;
+  webpush.sendNotification = oldSend;
+}
+
+Deno.serve = ((action: Handler) => { handler = action; }) as unknown as typeof Deno.serve;
+await import('../supabase/functions/emergency-delivery/index.ts');
+const emergency = handler!;
+Deno.serve = realServe;
+Deno.env.delete('EMERGENCY_WORKER_SECRET');
+
+const unit = 'fixture-bfp', barangay = 'fixture-barangay';
+const staff = {
+  bfp: { role: 'dispatch_team', dispatch_unit_id: unit },
+  duty: { role: 'lgu_ldrrmc', phone: '09123456781' },
+  local: { role: 'barangay_official', barangay_id: barangay },
+  foreign: { role: 'barangay_official', barangay_id: 'other-barangay' },
+  removed: { role: 'dispatch_team', dispatch_unit_id: unit, removed_at: '2000-01-01' }
+};
+const rowsToSend = [
+  ['bfp-job', 'dispatch', 'assignment', 'bfp'],
+  ['sos-job', 'sos', 'sos-log', 'duty'],
+  ['review-job', 'report_review', 'intake', 'local'],
+  ['gap-job', 'dispatch_gap', 'verified', 'duty'],
+  ['foreign-job', 'report_review', 'intake', 'foreign'],
+  ['removed-job', 'dispatch', 'assignment', 'removed'],
+  ['stale-job', 'report_review', 'verified', 'duty'],
+  ['acknowledged-job', 'sos', 'sos-log', 'local']
+].map(([id, kind, event_id, user_id]) => ({ id, kind, event_id, user_id, lease_id: 'lease-' + id, urgent: kind !== 'report_review' }));
+const pushPayloads: Array<{ recipient_id: string; url: string; title: string }> = [];
+const finished = new Map<string, { channel: string; outcome: string }>();
+const smsJobs: string[] = [];
+let claims = 0;
+webpush.sendNotification = (async (_subscription: unknown, payload: string) => {
+  pushPayloads.push(JSON.parse(typeof payload === 'string' ? payload : String(payload)));
+  return { statusCode: 201, body: '', headers: {} };
+}) as typeof webpush.sendNotification;
+globalThis.fetch = async (input, init) => {
+  const req = new Request(input, init);
+  const url = new URL(req.url);
+  if (url.origin === gateway) {
+    smsJobs.push(req.headers.get('Idempotency-Key') || '');
+    return Response.json({ ok: true });
+  }
+  assert.equal(url.origin, database);
+  const body = req.body ? await req.json() : {};
+  const id = url.searchParams.get('id')?.slice(3);
+  switch (url.pathname) {
+    case '/rest/v1/rpc/emergency_worker_token_ok':
+      return Response.json(body.p_token === 'fixture-emergency-token');
+    case '/rest/v1/rpc/claim_emergency_delivery':
+      claims++;
+      return Response.json(rowsToSend);
+    case '/rest/v1/rpc/finish_emergency_delivery':
+      assert.equal(body.p_lease, 'lease-' + body.p_id);
+      finished.set(body.p_id, { channel: body.p_channel, outcome: body.p_outcome });
+      return new Response(null, { status: 204 });
+    case '/rest/v1/profiles':
+      return Response.json([staff[id as keyof typeof staff]]);
+    case '/rest/v1/sos_log':
+      return Response.json([{ status: 'sent', barangay_id: barangay }]);
+    case '/rest/v1/sos_staff_receipts':
+      return Response.json(url.searchParams.get('staff_id') === 'eq.local' ? [{ sos_id: 'sos-log' }] : []);
+    case '/rest/v1/report_dispatches':
+      return Response.json([{ team: 'BFP', unit_id: unit, dispatch_status: 'sent', report_id: 'intake' }]);
+    case '/rest/v1/reports':
+      return Response.json([{ status: id === 'verified' ? 'verified' : 'reported', barangay_id: barangay, severity: 'emergency' }]);
+    case '/rest/v1/push_subscriptions':
+      if (url.searchParams.get('user_id') === 'eq.duty') return Response.json([]);
+      return Response.json([{ id: 'sub', endpoint: 'https://fcm.googleapis.com/fixture/1', p256dh: 'fixture', auth: 'fixture' }]);
+    default: throw Error('Unmocked emergency endpoint ' + url.pathname);
+  }
+};
+
+try {
+  assert.equal((await invoke(emergency, 'invalid-token', {})).status, 403);
+  assert.equal(claims, 0);
+  const result = await invoke(emergency, 'fixture-emergency-token', {});
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { claimed: rowsToSend.length, writeFailures: 0 });
+  assert.deepEqual(pushPayloads.sort((a, b) => a.recipient_id.localeCompare(b.recipient_id)), [
+    { title: 'BFP dispatch needs acknowledgment', body: 'Open UniGuard to review the alert.', severity: 'emergency',
+      url: './index.html?dispatch=assignment#dispatch', recipient_id: 'bfp', tag: 'dispatch-assignment' },
+    { title: 'New hazard report needs review', body: 'Open UniGuard to review the alert.', severity: 'warning',
+      url: './index.html?incident=intake#incidents', recipient_id: 'local', tag: 'report_review-intake' }
+  ]);
+  assert.deepEqual(smsJobs.sort(), ['gap-job', 'sos-job']);
+  for (const [id, channel] of [['bfp-job', 'push'], ['review-job', 'push'], ['sos-job', 'sms'], ['gap-job', 'sms']]) {
+    assert.deepEqual(finished.get(id), { channel, outcome: 'sent' });
+  }
+  for (const id of ['foreign-job', 'removed-job', 'stale-job', 'acknowledged-job']) {
+    assert.deepEqual(finished.get(id), { channel: null, outcome: 'cancelled' });
+  }
+  console.log('PASS Emergency worker sends scoped BFP and hazard push links, falls back to SMS, and skips stale and unauthorized jobs.');
 } finally {
   globalThis.fetch = oldFetch;
   webpush.sendNotification = oldSend;
