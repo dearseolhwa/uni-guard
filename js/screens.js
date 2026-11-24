@@ -822,9 +822,9 @@ const UG_SCREENS = (() => {
 
   function mReportDetail(st){
     const id = st.openId;
-    const i = U.DATA.incidents.find(x => x.id === id || x.uuid === id);
+    const i = Repo.findReport(id);
     if (!i) return '<div class="ug-note">This report is unavailable.</div>';
-    const privateSos = i.verified_by_name === 'SOS' && !i.mine && !(U.DATA.sosLog || []).some((row) => row.report_id === i.uuid);
+    const privateSos = (i.is_sos || i.verified_by_name === 'SOS') && !i.mine && !(U.DATA.sosLog || []).some((row) => row.report_id === i.uuid);
     const corr = st.corr[i.id] != null ? st.corr[i.id] : i.corr;
     /* the server decides verification (061); the screen never promotes a
        report to verified on its own count */
@@ -1622,6 +1622,21 @@ const UG_SCREENS = (() => {
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';
   }
 
+  function replacementQueue(st, limit) {
+    if (isSuperAdminSession(st)) return '';
+    const rows = U.DATA.replacementQueue || [];
+    if (!rows.length) return '';
+    return '<section class="ug-card"><div class="ug-card-h ug-wrap">' +
+      '<div><h3>Needs a replacement team</h3><p class="ug-dim">MDRRMO duty staff coordinate reassignment. Barangay officials can send their own team.</p></div>' +
+      (limit && rows.length > limit ? '<button class="ug-btn ug-btn--sm"' + A('nav', attr({ route: 'incidents' })) + '>View incidents</button>' : '') +
+      '</div><div class="ug-rows">' + rows.slice(0, limit || rows.length).map((row) =>
+        '<div class="ug-row ug-wrap"><div class="r-main"><div class="r-t">' + esc(row.code) + ' · ' +
+          esc(row.barangay || 'Lingayen') + ' ' + U.sevBadge(row.severity) + '</div>' +
+          '<div class="r-m">' + (row.is_overdue ? 'Overdue · ' : '') + 'Review by ' + esc(UG_UTIL.absTime(row.review_by)) + '</div></div>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--signal"' + A('open-replacement', attr({ id: row.report_id })) + '>Open incident</button></div>'
+      ).join('') + '</div></section>';
+  }
+
   /* A visible strip that tells the duty officer whether the dashboard is
      showing live synced data, the last-known cached data, or the demo seed.
      Without this the dashboard reads like "plain text" because you cannot tell
@@ -1679,7 +1694,7 @@ const UG_SCREENS = (() => {
         (st.session && st.session.role === 'lgu_ldrrmc'
           ? '<button class="ug-btn ug-btn--danger"' + A('declare') + '>' + I('alert', 16) + esc(T('dashboard.declareEmergency')) + '</button>'
           : '')) +
-      escalationBanner +
+      replacementQueue(st, 5) + escalationBanner +
       '<div class="ug-dgrid4">' + U.DATA.kpis.map(U.stat).join('') + '</div>' +
       '<div class="ug-dgrid-main">' +
         '<div class="ug-card"><div class="ug-card-h" style="padding:14px 16px">' +
@@ -2024,6 +2039,7 @@ const UG_SCREENS = (() => {
       pageHead(T('title.incidents'), 'Track every report through reported, verified, response dispatched and resolved.',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm' + (priority ? ' is-active' : '') + '" style="' + (priority ? 'border-color:var(--ug-signal);color:var(--ug-signal)' : '') + '"' + A('sort-toggle') + '>' + I('sort', 15) + (priority ? 'Priority Sort: On' : 'Priority Sort') + '</button>' +
         '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('nav', attr({ route: 'command' })) + '>' + I('grid', 15) + 'Command View</button>') +
+      replacementQueue(st) +
       /* a faint, folded reminder: one slim line; "What does this mean?"
          opens the explanation (kept open across re-renders) */
       /* hidden once dismissed (×); comes back when more reports escalate */
@@ -2113,7 +2129,9 @@ const UG_SCREENS = (() => {
 
   /* ---- incident detail (feature 4 + 5) ---- */
   function dIncident(st){
-    const i = U.DATA.incidents.find(x => x.id === st.openId || x.uuid === st.openId) || U.DATA.incidents[0];
+    const i = st.openId ? Repo.findReport(st.openId) : U.DATA.incidents[0];
+    if (!i) return '<div class="ug-empty"><p>This incident is unavailable.</p><button class="ug-btn"' +
+      A('nav', attr({ route: 'incidents' })) + '>Back to incidents</button></div>';
     const corr = st.corr[i.id] != null ? st.corr[i.id] : i.corr;
     const status = (corr >= 3 && i.status === 'reported') ? 'verified' : i.status;
     const corrRows = [];

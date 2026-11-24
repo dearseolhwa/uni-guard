@@ -153,10 +153,11 @@ const UG_RW = (() => {
   const HISTORY_LABEL = { reported: 'Reported', verified: 'Verified', dispatched: 'Help on the way', resolved: 'Resolved', rejected: 'Not confirmed' };
 
   function myReports(st) {
-    const mine = (U.DATA.incidents || []).filter((i) => i.mine)
+    const page = st.myReportPage || {};
+    const mine = (page.loaded ? U.DATA.myReportRows : (U.DATA.incidents || []).filter((i) => i.mine)) || [];
+    const rows = mine.map((row) => Repo.findReport(row.uuid || row.id) || row)
       .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
     const queued = U.DATA.queuedReports || [];
-    const openN = mine.filter((i) => i.status !== 'resolved' && i.status !== 'rejected').length;
     const history = U.DATA.reportHistory || {};
     const when = (v) => v ? new Date(v).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
     const row = (i) => {
@@ -201,11 +202,17 @@ const UG_RW = (() => {
           (q.description ? '<p class="rw-mr-desc rw-clamp2">' + esc(q.description) + '</p>' : '') +
           '<div class="rw-meta"><span>' + I('pin', 14) + 'Brgy. ' + esc(q.brgy || '') + '</span><span>' + I('wifioff', 14) + 'Sends when you are online</span></div></div></div></li>').join('') + '</ul></section>' : '') +
       '<section class="rw-card"><div class="rw-card-h rw-nhead"><div><h3>My reports</h3>' +
-          (mine.length ? '<span class="rw-hint">' + mine.length + ' total · ' + openN + ' open</span>' : '') + '</div>' +
+          (page.total != null ? '<span class="rw-hint">' + page.total + ' total</span>' : rows.length ? '<span class="rw-hint">' + rows.length + ' available</span>' : '') + '</div>' +
           '<button class="rw-newrep"' + A('nav', attr({ route: 'report' })) + '>' + I('plus', 14) + 'New report</button></div>' +
-        (mine.length ? '<ul class="rw-mrlist">' + mine.map(row).join('') + '</ul>'
-        : '<div class="rw-empty" style="padding:40px"><p style="color:#404040;font-weight:600">You haven\'t submitted any incident reports yet.</p>' +
-          '<button' + A('nav', attr({ route: 'report' })) + '>+ Submit a ground hazard report</button></div>') + '</section>' +
+        (rows.length ? '<ul class="rw-mrlist">' + rows.map(row).join('') + '</ul>'
+        : !page.loading && !page.error ? '<div class="rw-empty" style="padding:40px"><p style="color:#404040;font-weight:600">' +
+          (st.offline ? 'No saved reports are available on this device.' : 'You haven\'t submitted any incident reports yet.') + '</p>' +
+          '<button' + A('nav', attr({ route: 'report' })) + '>+ Submit a ground hazard report</button></div>' : '') +
+        (page.loading || page.error || page.next ? '<div class="rw-card-b">' +
+          (page.loading ? '<p role="status">Loading report history…</p>' :
+            (page.error ? '<p role="status">We could not refresh your full report history.</p>' : '') +
+            '<button type="button" class="rw-btn rw-btn--line"' + A('my-report-history', attr({ more: page.error ? !!page.retryMore : true })) + '>' +
+            (page.error ? 'Retry loading reports' : 'Load older reports') + '</button>') + '</div>' : '') + '</section>' +
     '</div>';
   }
 

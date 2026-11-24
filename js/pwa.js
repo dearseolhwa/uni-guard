@@ -54,7 +54,7 @@ const UG_PWA = (function () {
         const result = fn(transaction.objectStore(store));
         transaction.oncomplete = () => {
           db.close();
-          resolve(result && result.result !== undefined ? result.result : result);
+          resolve(result instanceof IDBRequest ? result.result : result);
         };
       } catch (error) {
         db.close();
@@ -63,27 +63,42 @@ const UG_PWA = (function () {
     }));
   }
 
-  /* Keep only what an offline resident needs: hotlines, centres, critical advisories. */
+  function snapshotKey(session = Auth.state.session || (UG_CONFIG.DEV ? window.UG_APP?.S.session : null)) {
+    if (!session?.id) return null;
+    return JSON.stringify([session.id, session.role, session.superAdmin, session.barangay_id,
+      session.dispatch_unit_id, session.unit_role]);
+  }
+
+  /* The signed-in account and its current permissions own the snapshot. */
   function storeSnapshot(data) {
+    const key = snapshotKey();
+    if (!key) return Promise.resolve(false);
     const payload = {
       at: new Date().toISOString(),
       hotlines: data.hotlines || [],
       centers: data.centers || [],
       advisories: (data.advisories || []).filter((a) => a.severity !== 'prepared').slice(0, 20),
-      incidents: (data.incidents || []).slice(0, 40)
+      incidents: (data.incidents || []).slice(0, 40).map((row) => ({ ...row, photo_url: null }))
     };
-    return tx(STORE_SNAPSHOT, 'readwrite', (s) => s.put(payload, 'data')).then(() => {
-      state.lastSync = payload.at;
+    return tx(STORE_SNAPSHOT, 'readwrite', (s) => s.put(payload, key)).then(() => {
+      if (snapshotKey() === key) state.lastSync = payload.at;
       return true;
     }).catch(() => false);
   }
 
-  function readSnapshot() {
-    return tx(STORE_SNAPSHOT, 'readonly', (s) => s.get('data')).catch(() => null);
+  async function readSnapshot() {
+    const key = snapshotKey();
+    if (!key) return null;
+    const snapshot = await tx(STORE_SNAPSHOT, 'readonly', (s) => s.get(key)).catch(() => null);
+    return snapshotKey() === key ? snapshot || null : null;
   }
 
-    function clearSnapshot() {
-    return tx(STORE_SNAPSHOT, 'readwrite', (s) => s.delete('data')).catch(() => null);
+  function clearSnapshot(session) {
+    const key = snapshotKey(session);
+    return tx(STORE_SNAPSHOT, 'readwrite', (s) => {
+      s.delete('data');
+      if (key) s.delete(key);
+    }).catch(() => null);
   }
 
   /* wipe the whole offline queue. Not used by forceRefresh (that keeps the
@@ -111,8 +126,9 @@ const UG_PWA = (function () {
     }).catch(() => null);
   }
   async function hydrateFromCache() {
+    const key = snapshotKey();
     const snap = await readSnapshot();
-    if (!snap) return false;
+    if (!snap || snapshotKey() !== key) return false;
     if (snap.hotlines && snap.hotlines.length) UG.DATA.hotlines = snap.hotlines;
     if (snap.centers && snap.centers.length) UG.DATA.centers = snap.centers;
     if (snap.advisories && snap.advisories.length) UG.DATA.advisories = snap.advisories;
@@ -154,6 +170,7 @@ const UG_PWA = (function () {
     return saveQueuedItem((store) => store.add(Object.assign({}, report, {
       owner_id: ownerId,
       queued_at: new Date().toISOString(),
+      request_id: report.request_id || crypto.randomUUID(),
       revision: crypto.randomUUID()
     })), ownerId);
   }
@@ -166,10 +183,13 @@ const UG_PWA = (function () {
     return saveQueuedItem((store) => {
       const request = store.getAll();
       request.onsuccess = () => {
-        const keep = request.result.filter((item) => item.owner_id === ownerId && item._kind === 'sos' &&
-          Date.parse(item.client_sent_at || item.queued_at) >= cutoff).pop();
+        const keep = request.result.filter((item) => item.owner_id === ownerId && item._kind === 'sos' && (
+          (row.request_id && item.request_id === row.request_id) ||
+          (!row.attempted && !item.attempted && Date.parse(item.client_sent_at || item.queued_at) >= cutoff)
+        )).pop();
         const next = Object.assign({}, keep, row, {
           _kind: 'sos', owner_id: ownerId, queued_at: keep ? keep.queued_at : stamp, updated_at: stamp,
+          request_id: keep?.request_id || row.request_id || crypto.randomUUID(),
           revision: crypto.randomUUID(), attempts: 0, failed: false, last_error: '',
           note: row.note || keep?.note || '', kind: row.kind || keep?.kind || 'other'
         });
@@ -252,27 +272,38 @@ const UG_PWA = (function () {
     const upload = await Repo.queueUploadSession(ownerId);
     if (!upload || queueOwner() !== ownerId) return 0;
     let sent = 0;
+    let reportsSent = false;
     try {
       rows.sort((a, b) => (a._kind === 'sos' ? 0 : 1) - (b._kind === 'sos' ? 0 : 1));
       for (const row of rows) {
         if (queueOwner() !== ownerId) break;
         if (row.failed && !opts.retryFailed) continue;
+        let claimed = false;
+        await updateQueuedRow(row.id, ownerId, (store, current) => {
+          row.request_id = current.request_id || crypto.randomUUID();
+          row.attempted = true;
+          store.put(row);
+          claimed = true;
+        }, row.revision);
+        if (!claimed || queueOwner() !== ownerId) continue;
         let sosResult;
         try {
           if (row._kind === 'sos') {
             const stamp = row.client_sent_at ? new Date(row.client_sent_at).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }) : '';
             sosResult = await Repo.submitSos({
+              request_id: row.request_id,
               lat: row.lat, lng: row.lng, accuracy: row.accuracy, kind: row.kind || 'other',
               /* the duty officer must know this SOS waited for a signal */
               note: ((row.note || '') + (stamp ? ' [Saved offline at ' + stamp + ']' : '')).trim()
             }, upload);
           } else {
             await Repo.createReport({
+              request_id: row.request_id,
               hazard_type: row.hazard_type, hazard_other_text: row.hazard_other_text || '',
               barangay: row.barangay, description: row.description,
               severity: row.severity, urgency: row.urgency, lat: row.lat, lng: row.lng,
               location_note: row.location_note || '',
-              photoBlob: row.photoBlob || null, reportCodeHint: 'offline'
+              photoBlob: row.photoBlob || null
             }, upload);
           }
         } catch (e) {
@@ -290,6 +321,7 @@ const UG_PWA = (function () {
         if (row._kind === 'sos' && queueOwner() === ownerId) {
           document.dispatchEvent(new CustomEvent('ug:sos-delivered', { detail: { row: row, result: sosResult } }));
         }
+        if (row._kind !== 'sos' || sosResult?.report_id) reportsSent = true;
         await updateQueuedRow(row.id, ownerId, (store) => store.delete(row.id), row.revision);
       }
     } finally {
@@ -297,6 +329,7 @@ const UG_PWA = (function () {
     }
     if (sent && queueOwner() === ownerId) {
       await Repo.loadAll();
+      if (reportsSent && queueOwner() === ownerId) document.dispatchEvent(new Event('ug:report-queue-sent'));
       emit();
     }
     return sent;
@@ -419,20 +452,21 @@ const UG_PWA = (function () {
     if (!state.online) { emit(); return { online: false, uploaded: 0, refreshed: false, queued: state.queued || 0 }; }
     let uploaded = 0;
     try { uploaded = await flushQueue(); } catch (e) { uploaded = 0; }
-    let refreshed = false;
+    let refreshed = false, partial = false;
     /* delegate the session-revive + reload to Repo.forceReload so the same
        recovery path runs whether the user taps "Retry" in the banner or
        "Back online" on the citizen screen. */
     try {
       if (typeof Repo !== 'undefined' && Repo.forceReload) {
         const r = await Repo.forceReload();
-        refreshed = !!(r && r.ok && Repo.state.source === 'supabase');
+        partial = !!r?.partial;
+        refreshed = !!(r && r.ok && !partial && Repo.state.source === 'supabase');
       } else if (Repo.online()) {
         await Repo.loadAll(); refreshed = Repo.state.source === 'supabase';
       }
     } catch (e) { refreshed = false; }
     emit();
-    return { online: state.online, uploaded: uploaded, refreshed: refreshed, queued: state.queued || 0 };
+    return { online: state.online, uploaded: uploaded, refreshed: refreshed, partial, queued: state.queued || 0 };
   }
 
   /* ------------------------------------------------------- force refresh */
@@ -468,6 +502,7 @@ const UG_PWA = (function () {
   function init() {
     if (typeof window === 'undefined') return;
     window.UG_CACHE = { storeSnapshot: storeSnapshot, readSnapshot: readSnapshot, hydrateFromCache: hydrateFromCache };
+    tx(STORE_SNAPSHOT, 'readwrite', (store) => store.delete('data')).catch(() => {});
 
     const syncQueue = () => { if (state.online) return flushQueue().catch(() => {}); };
     const sync = () => {

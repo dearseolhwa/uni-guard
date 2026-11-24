@@ -320,7 +320,13 @@ const Auth = (function () {
     c.__uniguardListening = true;
     c.auth.onAuthStateChange(function (event) {
       if (event === 'PASSWORD_RECOVERY') { state.recovery = true; emit(); }
-      if (event === 'SIGNED_OUT') { state.session = null; state.profile = null; emit(); }
+      if (event === 'SIGNED_OUT') {
+        state.session = null;
+        state.profile = null;
+        Repo.state.profile = null;
+        store.del(SESSION_KEY);
+        emit();
+      }
     });
   }
 

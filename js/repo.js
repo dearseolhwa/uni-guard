@@ -28,6 +28,7 @@ const Repo = (function () {
     /* the actual error from the last loadAll attempt, surfaced to the user
        so "Back to Online" no longer fails silently. */
     lastError: null,
+    resourceSync: {},
     sosInboxIncomplete: false
   };
 
@@ -115,6 +116,7 @@ const Repo = (function () {
       time: UG_UTIL.relTime(r),
       desc: r.description || '',
       location_note: r.location_note || '',
+      is_sos: r.is_sos === true,
       corr: typeof r.corroborations === 'number' ? r.corroborations
            : (Array.isArray(r.report_corroborations) ? r.report_corroborations.length : 0),
       thumb: r.photo_path ? 'remote' : null,
@@ -430,6 +432,34 @@ const Repo = (function () {
     recomputeKpis();
   }
 
+  function profileScope(p = state.profile) {
+    return p ? JSON.stringify([p.id, p.role, p.barangay_id, p.dispatch_unit_id, p.unit_role, p.is_super_admin]) : null;
+  }
+
+  function resetScopedData() {
+    state.resourceSync = {};
+    state.lastSync = null;
+    state.lastError = null;
+    state.sosInboxIncomplete = false;
+    state.hasSynced = false;
+    state.loading = false;
+    lastDataSig = '';
+    UG.DATA.myReportRows = [];
+    if (!client()) return;
+    for (const key of ['incidents', 'advisories', 'centers', 'hotlines', 'notifications', 'sosLog', 'relief',
+      'beneficiaries', 'guides', 'faqs', 'roadWork', 'roadStatus', 'inventory', 'distributionLog', 'municipalDispatchRequests',
+      'myCorroborations', 'users', 'audit', 'changeRequests', 'dispatchUnits', 'dispatchHelpRequests', 'unitRequests',
+      'dispatchEquipment', 'replacementQueue']) {
+      UG.DATA[key] = [];
+    }
+    for (const key of ['dispatches', 'unitsById', 'reportHistory', 'reportHistoryAt', 'reportHandlers']) UG.DATA[key] = {};
+    UG.DATA.detailReport = null;
+    Object.keys(photoCache).forEach((key) => delete photoCache[key]);
+    state.source = 'offline';
+    recomputeKpis();
+    refreshDerived();
+  }
+
   /* opts.silent: a background refresh (realtime event, poll). It skips the
      "loading" repaint and only repaints when the rows actually changed, so the
      open screen is not rebuilt every few seconds for nothing. */
@@ -450,15 +480,18 @@ const Repo = (function () {
       return state;
     }
 
+    const profile = state.profile;
+    const scope = profileScope(profile);
+    if (!profile) { state.loading = false; return state; }
     try {
-      const profile = state.profile;
       const role = profile ? profile.role : 'citizen';
       const brgyId = profile ? profile.barangay_id : null;
+      const seesReplacementQueue = role === 'barangay_official' || (role === 'lgu_ldrrmc' && !profile.is_super_admin);
 
       let reportsQuery = c.from('reports_feed').select('*').order('created_at', { ascending: false }).limit(300);
 
       const [reports, advisories, centers, hotlines, notifications, subscriptions, assignments, relief, beneficiaries, guides, faqs, roadWork, roadStatus,
-             dispatches, units, ratings, sos, municipalRequests, stock] = await Promise.all([
+             dispatches, units, ratings, sos, municipalRequests, stock, replacements] = await Promise.all([
         reportsQuery,
         c.from('advisories').select('*').order('published_at', { ascending: false }).limit(100),
         c.from('evacuation_centers').select('*').order('name'),
@@ -467,7 +500,9 @@ const Repo = (function () {
         c.from('push_subscriptions').select('id', { count: 'exact', head: true }),
         c.from('report_assignments').select('report_id').is('released_at', null),
         c.from('relief_distributions').select('*').order('distribution_at', { ascending: false }).limit(100),
-        c.from('authorized_beneficiaries').select('*').order('barangay, beneficiary_name').limit(800),
+        ['lgu_ldrrmc', 'barangay_official'].includes(role)
+          ? c.from('authorized_beneficiaries').select('*').order('barangay, beneficiary_name').limit(800)
+          : Promise.resolve({ data: [] }),
         c.from('preparedness_guides').select('*').order('hazard_type, phase, sort_order').limit(300),
         c.from('faqs').select('*').order('sort_order, created_at').limit(100),
         c.from('road_work_posts').select('*').order('created_at', { ascending: false }).limit(60),
@@ -483,8 +518,11 @@ const Repo = (function () {
            limits officials to their barangay and residents to their own */
         fetchSosInbox(c),
         c.from('barangay_dispatch_requests').select('*').order('requested_at', { ascending: false }),
-        ['lgu_ldrrmc','barangay_official'].includes(role) ? c.rpc('read_relief_stock') : Promise.resolve({ data: null })
+        ['lgu_ldrrmc','barangay_official'].includes(role) ? c.rpc('read_relief_stock') : Promise.resolve({ data: null }),
+        seesReplacementQueue ? c.from('dispatch_replacement_queue').select('*')
+          .order('waiting_since').limit(100) : Promise.resolve({ data: [] })
       ]);
+      if (profileScope() !== scope) return state;
       /* load change requests in parallel — the Super Admin hotlines page and
          the LGU/BO "your pending requests" section both read this. */
       try { await loadChangeRequests(); } catch (e) {}
@@ -492,20 +530,35 @@ const Repo = (function () {
          "Confirmed" on every device; ignored if 061 is not applied yet */
       try {
         const mc = await c.rpc('my_corroborations');
-        if (mc && !mc.error && Array.isArray(mc.data)) {
+        if (profileScope() === scope && mc && !mc.error && Array.isArray(mc.data)) {
           UG.DATA.myCorroborations = mc.data.map((x) => (x && typeof x === 'object') ? (x.my_corroborations || x.report_id || Object.values(x)[0]) : x).filter(Boolean);
         }
       } catch (e) {}
-
-      if (reports.error) throw reports.error;
+      if (profileScope() !== scope) return state;
+      const resources = { reports, advisories, shelters: centers, hotlines, notifications, relief, guides, faqs,
+        roads: roadStatus, 'road works': roadWork, dispatches, 'dispatch units': units, SOS: sos,
+        'municipal requests': municipalRequests, assignments, ratings, 'push subscriptions': subscriptions };
+      if (['lgu_ldrrmc', 'barangay_official'].includes(role)) {
+        resources.beneficiaries = beneficiaries;
+        resources['relief stock'] = stock;
+      }
+      if (seesReplacementQueue) resources['dispatch replacements'] = replacements;
+      const syncedAt = new Date().toISOString();
+      for (const [name, result] of Object.entries(resources)) {
+        const failed = !!(result?.error || result?.incomplete);
+        state.resourceSync[name] = { failed, lastSuccess: failed ? state.resourceSync[name]?.lastSuccess || null : syncedAt };
+      }
+      const incomplete = Object.values(state.resourceSync).some((resource) => resource.failed);
+      state.sosInboxIncomplete = !!(sos?.error || sos?.incomplete);
+      if (Object.values(resources).every((result) => result?.error)) throw reports.error || new Error('Could not reach the server');
 
       const sig = JSON.stringify([reports, advisories, centers, hotlines, notifications, subscriptions, assignments,
-        relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings, sos, municipalRequests, stock]
+        relief, beneficiaries, guides, faqs, roadWork, roadStatus, dispatches, units, ratings, sos, municipalRequests, stock, replacements]
         .map((r) => r && (r.error ? 'error' : [r.data, r.count]))
         .concat([UG.DATA.changeRequests || null, state.sosInboxIncomplete]));
       if (opts.silent && sig === lastDataSig && state.hasSynced && state.source === 'supabase') {
         state.loading = false;
-        state.lastSync = new Date().toISOString();
+        if (!incomplete) state.lastSync = syncedAt;
         return state;
       }
       lastDataSig = sig;
@@ -517,19 +570,27 @@ const Repo = (function () {
 
       const ratingOf = {};
       if (ratings && !ratings.error) (ratings.data || []).forEach((x) => { ratingOf[x.report_id] = x; });
-      UG.DATA.incidents = (reports.data || []).map((r) => {
-        const row = toIncident(r);
-        row.units = unitCount[r.id] || 0;
-        row.rating = ratingOf[r.id] || null;
-        return row;
-      });
+      if (!reports.error) {
+        const previous = new Map((UG.DATA.incidents || []).map((row) => [row.uuid, row]));
+        UG.DATA.incidents = (reports.data || []).map((r) => {
+          const row = toIncident(r);
+          row.units = assignments?.error ? previous.get(r.id)?.units || 0 : unitCount[r.id] || 0;
+          row.rating = ratings?.error ? previous.get(r.id)?.rating || null : ratingOf[r.id] || null;
+          return row;
+        });
+      }
       UG.DATA.reliefInventoryReady = !!stock.data && !stock.error;
       if (stock.data && !stock.error) {
         UG.DATA.inventory = stock.data.inventory || [];
         UG.DATA.distributionLog = stock.data.records || [];
       }
       if (!municipalRequests.error) UG.DATA.municipalDispatchRequests = municipalRequests.data || [];
-      if (sos && !sos.error) UG.DATA.sosLog = (sos.data || []).map(toSos);
+      if (!replacements.error) UG.DATA.replacementQueue = replacements.data || [];
+      if (sos && !sos.error) {
+        const fresh = (sos.data || []).map(toSos);
+        const refreshedIds = new Set(fresh.map((row) => row.id));
+        UG.DATA.sosLog = sos.incomplete ? fresh.concat((UG.DATA.sosLog || []).filter((row) => !refreshedIds.has(row.id))) : fresh;
+      }
       if (dispatches && !dispatches.error) {
         const byReport = {};
         (dispatches.data || []).forEach((d) => { (byReport[d.report_id] = byReport[d.report_id] || []).push(d); });
@@ -552,7 +613,7 @@ const Repo = (function () {
       if (faqs && !faqs.error && faqs.data) UG.DATA.faqs = faqs.data.map(toFaq);
       if (roadWork && !roadWork.error && roadWork.data) UG.DATA.roadWork = roadWork.data.map(toRoadWork);
       if (roadStatus && !roadStatus.error && roadStatus.data) UG.DATA.roadStatus = roadStatus.data.map(toRoadStatus);
-      UG.DATA.subscribedDevices = subscriptions && !subscriptions.error ? (subscriptions.count || 0) : 0;
+      if (!subscriptions?.error) UG.DATA.subscribedDevices = subscriptions?.count || 0;
       UG.DATA.scope = { role: role, barangay_id: brgyId };
 
       recomputeKpis();
@@ -561,14 +622,17 @@ const Repo = (function () {
       state.hasSynced = true;
       state.lastError = null;
       state.loading = false;
-      state.lastSync = new Date().toISOString();
-      if (window.UG_CACHE) window.UG_CACHE.storeSnapshot(UG.DATA);
+      if (!incomplete) {
+        state.lastSync = syncedAt;
+        if (window.UG_CACHE) window.UG_CACHE.storeSnapshot(UG.DATA);
+      }
       emit();
       resolvePhotos();
 
       subscribe();
       return state;
     } catch (e) {
+      if (profileScope() !== scope) return state;
       /* A failed retry must NOT overwrite real data we already loaded. Only
          reseed the sample data on the very first boot, when the store is still
          empty — once we have synced even once, keep the last-known real rows
@@ -597,11 +661,12 @@ const Repo = (function () {
     async function resolvePhotos() {
     const c = client();
     if (!c) return;
+    const scope = profileScope();
     const need = (UG.DATA.incidents || []).filter((i) => i.remote_photo && !photoCache[i.remote_photo]);
     if (!need.length) return;
     const paths = Array.from(new Set(need.map((i) => i.remote_photo)));
     const { data, error } = await c.storage.from('reports').createSignedUrls(paths, 3600);
-    if (error || !data) return;
+    if (error || !data || profileScope() !== scope) return;
     data.forEach((row) => { if (row.signedUrl && row.path) photoCache[row.path] = row.signedUrl; });
     (UG.DATA.incidents || []).forEach((i) => { if (i.remote_photo) i.photo_url = photoCache[i.remote_photo] || null; });
     emit();
@@ -730,9 +795,38 @@ const Repo = (function () {
   }
 
   /* --------------------------------------------------------------- reports */
+  function findReport(id) {
+    const matches = (row) => row.id === id || row.uuid === id;
+    return (UG.DATA.incidents || []).find(matches) || (UG.DATA.myReportRows || []).find(matches) ||
+      (UG.DATA.detailReport && matches(UG.DATA.detailReport) ? UG.DATA.detailReport : undefined);
+  }
+
+  async function loadReport(id) {
+    const c = client();
+    if (!c) return findReport(id);
+    const { data, error } = await c.from('reports_feed').select('*').eq('id', id).maybeSingle();
+    if (error) fail(error);
+    return data ? toIncident(data) : null;
+  }
+
+  async function listMyReports(cursor) {
+    const c = client();
+    if (!c) return null;
+    const size = 30;
+    let query = c.from('reports_feed').select('*', cursor ? {} : { count: 'exact' })
+      .eq('is_mine', true).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(size + 1);
+    if (cursor) {
+      const { created_at: created, uuid } = cursor;
+      query = query.or('created_at.lt.' + created + ',and(created_at.eq.' + created + ',id.lt.' + uuid + ')');
+    }
+    const { data, count, error } = await query;
+    if (error) throw error;
+    const rows = (data || []).slice(0, size).map((row) => toIncident(row));
+    return { rows, count, next: data?.length > size ? rows[rows.length - 1] : null };
+  }
+
   async function createReport(input, upload) {
-    const c = upload ? upload.client : client();
-        if (!c) {
+    if (!client() && !upload) {
       /* offline: keep it in the queue and show it locally */
       const code = 'PENDING-' + Math.random().toString(36).slice(2, 7).toUpperCase();
       const row = toIncident({
@@ -747,10 +841,13 @@ const Repo = (function () {
       return { queued: true, row: row };
     }
 
+    const session = upload || await queueUploadSession(Auth.state.session?.id);
+    if (!session) throw new Error('Sign in again to submit this report.');
+    const c = session.client;
+    const requestId = input.request_id || crypto.randomUUID();
     let photo_path = null;
     if (input.photoBlob) {
-      const path = await uploadPhoto(input.photoBlob, input.reportCodeHint, upload);
-      photo_path = path;
+      photo_path = await uploadPhoto(input.photoBlob, requestId, session);
     }
 
     const payload = {
@@ -760,34 +857,29 @@ const Repo = (function () {
       description: input.description,
       severity: input.severity,
       urgency: input.urgency || input.severity,
-      location_note: input.location_note || null,
+      location_note: input.location_note || '',
       lat: input.lat, lng: input.lng,
       photo_path: photo_path
     };
 
-    let ins = await c.from('reports').insert(payload).select('*').single();
-    /* migration 027 not applied yet? retry without location_note so reports
-       keep flowing until the live project is migrated. */
-    if (ins.error && /location_note|column/i.test(ins.error.message || '')) {
-      delete payload.location_note;
-      ins = await c.from('reports').insert(payload).select('*').single();
+    const { data, error } = await c.rpc('submit_hazard_report', { p_request_id: requestId, p_report: payload });
+    if (error) {
+      // A network error may hide a committed report. Keep its photo for the retry.
+      if (photo_path && /^(22|23)|^P0001$/.test(error.code || '')) {
+        try { await c.storage.from('reports').remove([photo_path]); } catch (cleanupError) {}
+      }
+      fail(error);
     }
-    if (ins.error) fail(ins.error);
-    const data = ins.data;
 
     if (!upload) await loadAll();
-    const row = (!upload && (UG.DATA.incidents || []).find((i) => i.uuid === data.id)) || toIncident(data, 0);
+    const row = (!upload && (UG.DATA.incidents || []).find((i) => i.uuid === data.id)) || toIncident({ ...data, is_mine: true }, 0);
     return { queued: false, row: row, report: data };
   }
 
-  async function uploadPhoto(blob, hint, upload) {
-    const c = upload ? upload.client : client();
-    if (!c) return null;
-    const uid = upload ? upload.ownerId : (await c.auth.getUser()).data?.user?.id || 'anon';
-    const folder = (hint || 'draft').replace(/[^A-Za-z0-9-]/g, '');
-    const path = uid + '/' + folder + '/' + Date.now() + '.jpg';
-    const up = await c.storage.from('reports').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
-    if (up.error) throw up.error;
+  async function uploadPhoto(blob, requestId, session) {
+    const path = session.ownerId + '/requests/' + requestId + '.jpg';
+    const { error } = await session.client.storage.from('reports').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (error && String(error.statusCode) !== '409' && error.error !== 'Duplicate') throw error;
     return path;
   }
 
@@ -1381,8 +1473,10 @@ const Repo = (function () {
     UG.DATA.dispatches = UG.DATA.dispatches || {};
     const c = client();
     if (!c || !reportUuid) return UG.DATA.dispatches[reportUuid] || [];
+    const scope = profileScope();
     const { data, error } = await c.from('report_dispatches')
       .select('*').eq('report_id', reportUuid).order('dispatched_at', { ascending: false });
+    if (scope !== profileScope()) return [];
     if (!error) UG.DATA.dispatches[reportUuid] = data || [];
     /* recompute the Units Deployed KPI so the dashboard reflects the new
        dispatch immediately, not just on the next full loadAll(). */
@@ -1492,10 +1586,11 @@ const Repo = (function () {
   async function loadChangeRequests() {
     const c = client();
     if (!c) return;
+    const scope = profileScope();
     try {
       const { data, error } = await c.from('change_requests')
         .select('*').order('created_at', { ascending: false }).limit(100);
-      if (!error) UG.DATA.changeRequests = data || [];
+      if (!error && profileScope() === scope) UG.DATA.changeRequests = data || [];
     } catch (e) { /* read-only convenience */ }
   }
 
@@ -1702,7 +1797,8 @@ const Repo = (function () {
       await UG_PWA.upsertQueuedSos(Object.assign({ client_sent_at: new Date().toISOString() }, payload));
       return { id: 'PENDING-' + Date.now(), reach: 0, queued: true };
     }
-    const { data, error } = await c.rpc('submit_sos', {
+    const { data, error } = await c.rpc('submit_sos_once', {
+      p_request_id: payload.request_id || crypto.randomUUID(),
       p_lat: payload.lat, p_lng: payload.lng, p_accuracy: payload.accuracy, p_note: payload.note || '',
       p_kind: payload.kind || 'other'
     });
@@ -1715,19 +1811,27 @@ const Repo = (function () {
       c.from('sos_log').select('*').order('created_at', { ascending: false }).limit(100),
       c.rpc('list_pending_sos_receipts')
     ]);
-    state.sosInboxIncomplete = !!(latest.error || pending.error);
     if (latest.error && pending.error) return latest;
     const rows = new Map((latest.data || []).map((row) => [row.id, row]));
     for (const row of pending.data || []) rows.set(row.id, { ...row, needs_receipt: true });
-    return { data: Array.from(rows.values()), error: null };
+    return { data: Array.from(rows.values()), error: null, incomplete: !!(latest.error || pending.error) };
   }
 
   async function listSos() {
     const c = client();
     if (!c) return [];
-    const { data, error } = await fetchSosInbox(c);
+    const scope = profileScope();
+    const { data, error, incomplete } = await fetchSosInbox(c);
+    if (profileScope() !== scope) throw new Error('The signed-in account changed.');
+    const failed = !!(error || incomplete);
+    state.resourceSync.SOS = { failed, lastSuccess: failed ? state.resourceSync.SOS?.lastSuccess || null : new Date().toISOString() };
+    state.sosInboxIncomplete = failed;
+    if (failed) emit();
     if (error) fail(error);
-    return (data || []).map(toSos);
+    const fresh = (data || []).map(toSos);
+    if (!incomplete) return fresh;
+    const refreshedIds = new Set(fresh.map((row) => row.id));
+    return fresh.concat((UG.DATA.sosLog || []).filter((row) => !refreshedIds.has(row.id)));
   }
 
   /* SOS status changes go through the update_sos_status RPC (migration 029):
@@ -1861,14 +1965,16 @@ const Repo = (function () {
     } catch (e) { /* never block a reload on the queue */ }
     try {
       await loadAll();
-      return { ok: true, source: state.source, lastSync: state.lastSync };
+      if (state.lastError) return { ok: false, reason: 'load-failed', error: state.lastError };
+      const partial = Object.values(state.resourceSync).some((resource) => resource.failed);
+      return { ok: true, partial, source: state.source, lastSync: state.lastSync };
     } catch (e) {
       return { ok: false, reason: 'load-failed', error: (e && e.message) || 'Reload failed' };
     }
   }
 
   return {
-    client, online, queueUploadSession, state, onChange,
+    client, online, queueUploadSession, state, onChange, resetScopedData, findReport, listMyReports, loadReport,
     loadAll, forceReload, subscribe, unsubscribe, setRefreshGate, autoDispatch, rateReport, reportHandlers,
     createReport, uploadPhoto, signedPhotoUrl, corroborate, advanceStatus, lguVerify, barangayAt, reportHistory, updateReport,
     createAdvisory, updateCenter, createCenter, createHotline, updateHotline, deleteHotline,

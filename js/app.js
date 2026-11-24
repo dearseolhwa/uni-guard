@@ -448,7 +448,7 @@
     const targets = [];
     if (live) targets.push({ el: live, key: 'live', centers: true });
     if (detail && S.openId) {
-      const inc = (UG.DATA.incidents || []).find((i) => i.id === S.openId || i.uuid === S.openId);
+      const inc = Repo.findReport(S.openId);
       if (inc) targets.push({ el: detail, key: 'detail:' + inc.uuid, only: inc, tracking: !!detail.dataset.responseReport });
     }
     if (report) {
@@ -564,6 +564,30 @@
   }
 
   /* ------------------------------------------------------------ data loading */
+  async function loadMyReports(more = false) {
+    const owner = S.session;
+    if (owner?.role !== 'citizen' || !Repo.online() || !UG_PWA.state.online) return;
+    const page = S.myReportPage || (S.myReportPage = {});
+    if (page.loading || (more && !page.next)) return;
+    page.loading = true;
+    page.error = false;
+    render();
+    try {
+      const result = await Repo.listMyReports(more ? page.next : null);
+      if (S.session !== owner || S.myReportPage !== page || !result) return;
+      UG.DATA.myReportRows = more ? (UG.DATA.myReportRows || []).concat(result.rows) : result.rows;
+      if (!more) page.total = result.count;
+      page.next = result.next;
+      page.loaded = true;
+    } catch (error) {
+      page.error = true;
+      page.retryMore = more;
+    } finally {
+      page.loading = false;
+      if (S.session === owner && S.route === 'reports') render();
+    }
+  }
+
   async function loadRouteData(route) {
     /* Dispatch team: their data comes from UG_DISPATCH, not Repo. */
     if (S.session && S.session.role === 'dispatch_team' && typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.loadRoute) {
@@ -637,6 +661,10 @@
       S.loading = false; render();
       return;
     }
+    if (route === 'reports') {
+      if (!S.myReportPage?.loaded) await loadMyReports();
+      return;
+    }
     if (route === 'sos') {
       const owner = S.session;
       if (Repo.online() && UG_PWA.state.online) {
@@ -663,6 +691,12 @@
   }
 
   async function bootstrapData() {
+    const owner = S.session;
+    if (!Repo.state.hasSynced) {
+      const restored = await UG_PWA.hydrateFromCache();
+      if (S.session !== owner) return;
+      if (restored) render();
+    }
     /* Dispatch team: skip Repo.loadAll (the dispatch team has its own data
        shape and read scopes; the barangay/LGU dataset is not theirs). */
     if (S.session && S.session.role === 'dispatch_team' && typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.loadAll) {
@@ -671,12 +705,17 @@
       return;
     }
     await Repo.loadAll();
+    if (S.session !== owner) return;
     /* Audit F-03: with no server, keep what the PWA cache restored instead of
        overwriting it with empty snapshots. Online, a Super Admin's user list is
        loaded here so the cache has accounts the next time the app is offline. */
     if (Repo.client()) {
       if (isSuperAdmin()) {
-        try { S.users = await Repo.listUsers(); } catch (e) { }
+        try {
+          const users = await Repo.listUsers();
+          if (S.session !== owner) return;
+          S.users = users;
+        } catch (e) { }
       }
       if (S.users) UG.DATA.users = S.users;
       if (S.audit) UG.DATA.audit = S.audit;
@@ -686,7 +725,9 @@
       if (S.audit && S.audit.length) UG.DATA.audit = S.audit;
       if (S.responders && S.responders.length) UG.DATA.responders = S.responders;
     }
-    S.barangays = await Repo.listBarangays();
+    const barangays = await Repo.listBarangays();
+    if (S.session !== owner) return;
+    S.barangays = barangays;
     S.auth.barangays = S.barangays;
     /* the advisory composer and the report form offer the live barangay list */
     if (S.barangays.length) UG.DATA.barangays = S.barangays.map((b) => b.name);
@@ -763,8 +804,35 @@
   const homeRoute = () => (S.session && S.session.role === 'lgu_ldrrmc' && S.session.superAdmin && typeof UG_SUPERADMIN !== 'undefined')
     ? UG_SUPERADMIN.ROUTE
     : ((S.session && UG_WEB.ROLE_INFO[S.session.role].home) || 'home');
+  function hasSameScope(a, b) {
+    return a && b && ['id', 'role', 'superAdmin', 'barangay_id', 'dispatch_unit_id', 'unit_role']
+      .every((field) => a[field] === b[field]);
+  }
+
+  function leaveApp(notice) {
+    const owner = S.session;
+    S.session = null;
+    MapView.destroy();
+    try { UG_DISPATCH.signedOut(); } catch (e) { }
+    UG_URGENT.dismiss();
+    UG_ALARM.stopPendingSos();
+    Repo.resetScopedData();
+    S.myReportPage = null;
+    S.users = null;
+    S.audit = null;
+    S.auth = blankAuth();
+    S.auth.notice = notice;
+    go('home');
+    render();
+    UG_PWA.clearSnapshot(owner).catch(() => { });
+  }
+
   function enterApp(session, message) {
-    if (!S.session || S.session.id !== session.id) {
+    if (!hasSameScope(S.session, session)) {
+      Repo.resetScopedData();
+      S.myReportPage = null;
+      S.users = null;
+      S.audit = null;
       UG.DATA.queuedReports = [];
       UG_PWA.state.queued = 0;
       UG_PWA.state.failed = 0;
@@ -1152,16 +1220,8 @@
         confirmLabel: 'Sign out'
       });
       if (!ok) return;
-      MapView.destroy();
-      /* a signed-out device must not keep sharing a responder's position */
-      try { UG_DISPATCH.signedOut(); } catch (e) { }
+      leaveApp('You have been signed out.');
       await Auth.signOut();
-      try { await UG_PWA.clearSnapshot(); } catch (e) { /* cleanup must never block signing out */ }
-      S.session = null;
-      S.auth = blankAuth();
-      S.auth.notice = 'You have been signed out.';
-      go('home');
-      render();
     }
   };
     async function setOccupancy(c, n) {
@@ -1330,9 +1390,15 @@
     'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
 
   function loadDispatchesFor(id) {
-    const inc = (UG.DATA.incidents || []).find((i) => i.id === id || i.uuid === id);
+    const inc = Repo.findReport(id);
     if (!inc || !inc.uuid) return;
-    Repo.loadDispatches(inc.uuid).then(() => { if (S.session) render(); }).catch(() => { });
+    const owner = S.session;
+    Repo.loadDispatches(inc.uuid).then(() => { if (S.session === owner) render(); }).catch(() => { });
+    if (inc.remote_photo && !inc.photo_url) {
+      Repo.signedPhotoUrl(inc.remote_photo).then((url) => {
+        if (url && S.session === owner && S.openId === id) { inc.photo_url = url; render(); }
+      }).catch(() => { });
+    }
     loadHistoryFor(inc);
   }
 
@@ -1340,10 +1406,12 @@
      card; `status` remembers which status they were loaded at, so a live
      change to the open report reloads them */
   function loadHistoryFor(inc) {
+    const owner = S.session;
     UG.DATA.reportHistory = UG.DATA.reportHistory || {};
     UG.DATA.reportHistoryAt = UG.DATA.reportHistoryAt || {};
     UG.DATA.reportHistoryAt[inc.uuid] = inc.status;
     Repo.reportHistory(inc.uuid).then((rows) => {
+      if (S.session !== owner) return;
       if (rows && rows.length) UG.DATA.reportHistory[inc.uuid] = rows;
       if (S.session) render();
     }).catch(() => { });
@@ -1351,6 +1419,7 @@
     if (inc.status === 'resolved') {
       UG.DATA.reportHandlers = UG.DATA.reportHandlers || {};
       Repo.reportHandlers(inc.uuid).then((h) => {
+        if (S.session !== owner) return;
         UG.DATA.reportHandlers[inc.uuid] = h || { failed: true };
         if (S.session) render();
       }).catch(() => { });
@@ -1394,10 +1463,14 @@
       toast('Verify the report before dispatching a response', 'warning'); return;
     }
     if (dispatchOpening) return;
+    const owner = S.session;
     dispatchOpening = true;
     Promise.resolve(Repo.loadDispatchDirectory ? Repo.loadDispatchDirectory() : null)
       .catch(() => { })
-      .then(() => { dispatchOpening = false; openDispatchModal(inc, supportRequestId); });
+      .then(() => {
+        dispatchOpening = false;
+        if (S.session === owner) openDispatchModal(inc, supportRequestId);
+      });
   }
   async function openUnitSetup(unit, deactivate) {
     if (!isSuperAdmin()) { toast('Only the Super Admin can manage unit setup', 'warning'); return; }
@@ -1625,6 +1698,10 @@
               team: team, instructions: instructions, eta: eta.toISOString(),
               unit_id: unitId, equipment_ids: eqIds.length ? eqIds : null, supportRequestId
             });
+            if (S.session !== me) { close(); return; }
+            if (UG.DATA.detailReport?.uuid === inc.uuid && inc.status === 'verified') {
+              UG.DATA.detailReport.status = 'dispatched';
+            }
             toast(team + ' dispatched to ' + inc.id, 'prepared');
             try {
               if (!Repo.client || !Repo.client()) {
@@ -1679,9 +1756,21 @@
       render();
       loadDispatchesFor(d.id);
     },
+    'open-replacement': async (d) => {
+      const owner = S.session;
+      if (!requireRole(['lgu_ldrrmc', 'barangay_official']) || isSuperAdmin()) return;
+      const route = S.route;
+      try {
+        const report = await Repo.loadReport(d.id);
+        if (S.session !== owner || S.route !== route) return;
+        if (!report) { toast('This incident is no longer available.', 'warning'); return; }
+        UG.DATA.detailReport = report;
+        APP_ACTIONS['open-incident'](d);
+      } catch (error) { if (S.session === owner) toast(UG_UTIL.friendlyError(error), 'warning'); }
+    },
     'response-fit-map': () => {
       const el = q('[data-response-report]');
-      if (el && MapView.owns(el)) fitResponseMap((UG.DATA.incidents || []).find((i) => i.uuid === el.dataset.responseReport));
+      if (el && MapView.owns(el)) fitResponseMap(Repo.findReport(el.dataset.responseReport));
     },
     'open-report': (d) => {
       S.openId = d.id;
@@ -2040,7 +2129,7 @@
 
     'start-edit-report': (d) => {
       if (S.role !== 'citizen') { APP_ACTIONS['edit-report'](d); return; }
-      const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
+      const inc = Repo.findReport(d.id);
       if (!inc) return;
       const age = Date.now() - Date.parse(inc.created_at || '');
       if (age > 15 * 60000) {
@@ -2103,30 +2192,30 @@
           S.editing = null;
           S.route = 'reports';
           S.report = { hazard: r.hazard, hazardOther: '', brgy: r.brgy, urg: 'warning', desc: '', photo: false, photoBlob: null, photoName: '', gps: false, lat: null, lng: null, accuracy: null, error: '', busy: false, address: '', locationNote: '', _autoTriggered: false };
-        } else if (!UG_PWA.state.online || !Repo.online()) {
-          /* the queue refuses null coordinates too — a queued report without a
-             location would be rejected by the server on upload anyway */
-          await UG_PWA.enqueue({
-            hazard_type: r.hazard, hazard_other_text: r.hazardOther || '', barangay: r.brgy, description: r.desc.trim(),
-            severity: r.urg || 'advisory', urgency: r.urg, lat: r.lat, lng: r.lng,
-            location_note: r.locationNote || '',
-            photoBlob: r.photoBlob || null
-          }, owner.id);
-          if (S.session !== owner) return;
-          toast('Saved on this device. It uploads when you are back online.', 'warning');
-          S.lastReport = { id: null, brgy: r.brgy };
         } else {
-          const res = await Repo.createReport({
-            hazard_type: r.hazard, hazard_other_text: r.hazardOther || '', barangay: r.brgy, description: r.desc.trim(),
-            severity: r.urg || 'advisory', urgency: r.urg, lat: r.lat, lng: r.lng,
-            location_note: r.locationNote || '',
-            photoBlob: r.photoBlob, reportCodeHint: 'draft'
-          });
+          const payload = {
+            request_id: r.requestId || (r.requestId = crypto.randomUUID()),
+            hazard_type: r.hazard, hazard_other_text: r.hazardOther || '', barangay: r.brgy,
+            description: r.desc.trim(), severity: r.urg || 'advisory', urgency: r.urg, lat: r.lat, lng: r.lng,
+            location_note: r.locationNote || '', photoBlob: r.photoBlob || null
+          };
+          let result;
+          if (UG_PWA.state.online && Repo.online()) {
+            try { result = await Repo.createReport(payload); }
+            catch (error) { if (!UG_UTIL.isNetworkError(error)) throw error; }
+          }
           if (S.session !== owner) return;
-          /* the barangay the server actually filed it under */
-          const filed = (res.row && res.row.brgy) || r.brgy;
-          toast(res.queued ? 'Saved for upload' : 'Report ' + res.row.id + ' submitted to the ' + filed + ' queue', 'prepared');
-          S.lastReport = { id: res.row ? res.row.id : null, brgy: filed };
+          if (!result) {
+            await UG_PWA.enqueue(payload, owner.id);
+            if (S.session !== owner) return;
+            toast('Saved on this device. It uploads when you are back online.', 'warning');
+            S.lastReport = { id: null, brgy: r.brgy };
+          } else {
+            const filed = result.row?.brgy || r.brgy;
+            S.myReportPage = null;
+            toast('Report ' + result.row.id + ' submitted to the ' + filed + ' queue', 'prepared');
+            S.lastReport = { id: result.row.id, brgy: filed };
+          }
         }
         S.route = 'report-done';
         S.report = { hazard: r.hazard, hazardOther: '', brgy: r.brgy, urg: 'warning', desc: '', photo: false, photoBlob: null, photoName: '', gps: false, lat: null, lng: null, accuracy: null, error: '', busy: false, address: '', locationNote: '', _autoTriggered: false };
@@ -2215,6 +2304,7 @@
       render();
       if (S.rwReport) loadDispatchesFor(d.id);
     },
+    'my-report-history': (d) => loadMyReports(d.more === 'true'),
     'rw-relief-all': () => { UG_RW.reliefAllModal(S); },
     'rw-relief-detail': (d) => {
       if (S.role !== 'citizen') return;
@@ -2285,7 +2375,7 @@
         }
       }
       const order = ['reported', 'verified', 'dispatched', 'resolved'];
-      const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
+      const inc = Repo.findReport(d.id);
       if (!inc) return;
       const next = order.indexOf(inc.status) + 1;
       if (next >= order.length) { toast('This incident is already resolved', 'info'); return; }
@@ -2326,7 +2416,7 @@
     reject: async (d) => {
       if (isSuperAdmin()) { toast('Only duty staff can reject an incident', 'warning'); return; }
       if (!requireRole(['lgu_ldrrmc', 'barangay_official'])) { toast('Only officials can reject a report', 'warning'); return; }
-      const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
+      const inc = Repo.findReport(d.id);
       if (!inc) return;
       const reason = await UG_FEATURES.prompt({
         title: 'Reject report', label: 'Reason (required, sent to the reporter)', placeholder: 'e.g. Duplicate of UG-2026-0140',
@@ -2345,7 +2435,7 @@
        different screen; that one was merged later and won, so this button
        never opened the dispatch form. */
     'incident-add-team': (d) => {
-      const inc = (UG.DATA.incidents || []).find((i) => i.id === d.id || i.uuid === d.id);
+      const inc = Repo.findReport(d.id);
       if (inc) dispatchModal(inc);
     },
 
@@ -3294,7 +3384,9 @@
     reconnect: async () => {
       const r = await UG_PWA.retryNow();
       if (r.online && Auth.state.needsRevalidate) revalidateSession();
-      if (r.refreshed) {
+      if (r.partial) {
+        toast('Some data could not sync. Check the connection banner for details.', 'warning');
+      } else if (r.refreshed) {
         toast('Back online. Data refreshed' +
           (r.uploaded ? ', ' + r.uploaded + ' queued report' + (r.uploaded > 1 ? 's' : '') + ' uploaded' : '') + '.',
           'prepared');
@@ -3336,12 +3428,12 @@
       const r = await Repo.forceReload();
       if (r && r.ok) {
         if (Auth.state.needsRevalidate) revalidateSession();
-        toast(Repo.state.source === 'supabase' ? 'Back online — live data synced' : 'Data refreshed', 'prepared');
+        if (r.partial) toast('Some data could not sync. Check the connection banner for details.', 'warning');
+        else toast(Repo.state.source === 'supabase' ? 'Back online. Live data synced.' : 'Data refreshed', 'prepared');
       } else {
         const msg = (r && r.error) || 'Could not reconnect';
         if (r && r.reason === 'no-session') {
-          toast('Your session expired. Signing you out so you can sign back in.', 'warning');
-          setTimeout(() => { try { AUTH_ACTIONS.logout(); } catch (e) {} }, 1200);
+          if (S.session) leaveApp(T('auth.signInAgain'));
         } else {
           toast(msg, 'warning');
         }
@@ -3358,7 +3450,9 @@
       if (S.route === 'admin-home' && typeof UG_SUPERADMIN !== 'undefined' && UG_SUPERADMIN.load) {
         try { await UG_SUPERADMIN.load(); } catch (e) { }
       }
-      if (r && r.ok && Repo.state.source === 'supabase') {
+      if (r?.ok && r.partial) {
+        toast('Some data could not sync. Check the connection banner for details.', 'warning');
+      } else if (r && r.ok && Repo.state.source === 'supabase') {
         toast('Data synced with the server', 'prepared');
       } else if (r && r.ok) {
         toast('Refreshed from the local cache', 'info');
@@ -5219,10 +5313,12 @@
         at: now.toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }),
         noGps: !pos, kind: kind
       };
-      const queueIt = async () => {
+      const requestId = crypto.randomUUID();
+      const queueIt = async (attempted = false) => {
         try {
           await UG_PWA.upsertQueuedSos({
             lat: base.lat, lng: base.lng, accuracy: base.accuracy, note: '', kind: kind,
+            request_id: requestId, attempted,
             client_sent_at: now.toISOString()
           }, owner.id);
           if (S.session === owner) S.lastSos = Object.assign({ status: 'queued', id: null, reach: null }, base);
@@ -5236,7 +5332,7 @@
         if (navigator.onLine === false) {
           await queueIt();
         } else {
-          const res = await Repo.submitSos({ lat: base.lat, lng: base.lng, accuracy: base.accuracy, kind: kind });
+          const res = await Repo.submitSos({ request_id: requestId, lat: base.lat, lng: base.lng, accuracy: base.accuracy, kind: kind });
           if (S.session !== owner) return;
           if (res && res.queued) {
             S.lastSos = Object.assign({ status: 'queued', id: null, reach: null }, base);
@@ -5254,7 +5350,7 @@
       } catch (e) {
         if (S.session !== owner) return;
         if (UG_UTIL.isNetworkError(e)) {
-          await queueIt();
+          await queueIt(true);
         } else {
           /* the server refused it (rate limit, permission): say so in the card */
           console.error('[UniGuard] SOS rejected', e);
@@ -5823,7 +5919,7 @@
     /* an open report whose history is not loaded yet (opened from a
        notification or a link) or whose status changed: (re)load it */
     if (S.openId && !Repo.state.loading && (S.route === 'report-detail' || S.route === 'incident')) {
-      const inc = (UG.DATA.incidents || []).find((i) => i.id === S.openId || i.uuid === S.openId);
+      const inc = Repo.findReport(S.openId);
       const at = UG.DATA.reportHistoryAt || {};
       if (inc && inc.uuid && at[inc.uuid] !== inc.status) loadHistoryFor(inc);
     }
@@ -6178,25 +6274,30 @@
   let revalidating = false;
   async function revalidateSession() {
     if (revalidating || !S.session || !Repo.client()) return;
+    const owner = S.session;
     revalidating = true;
     try {
       const r = await Auth.revalidate();
-      if (r && r.signedOut) {
-        MapView.destroy();
-        if (typeof UG_DISPATCH !== 'undefined') UG_DISPATCH.signedOut();
-        try { await UG_PWA.clearSnapshot(); } catch (e) { }
-        S.session = null;
-        S.auth = blankAuth();
-        S.auth.notice = T('auth.signInAgain');
-        go('home');
-        render();
+      if (S.session !== owner) return;
+      if (r?.signedOut) leaveApp(T('auth.signInAgain'));
+      if (r?.ok && Auth.state.session && !hasSameScope(owner, Auth.state.session)) {
+        UG_PWA.clearSnapshot(owner).catch(() => { });
+        enterApp(Auth.state.session, 'Your access has been updated.');
       }
     } catch (e) { /* stay as we are; the next reconnection tries again */ }
-    revalidating = false;
+    finally { revalidating = false; }
   }
+  Auth.onChange((state) => {
+    if (!state.session && S.session && Repo.client()) leaveApp(T('auth.signInAgain'));
+  });
   window.addEventListener('online', revalidateSession);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') revalidateSession();
+  });
+  document.addEventListener('ug:report-queue-sent', () => {
+    if (S.session?.role !== 'citizen') return;
+    S.myReportPage = null;
+    if (S.route === 'reports') loadMyReports();
   });
   setInterval(() => {
     if (document.visibilityState === 'visible') revalidateSession();
@@ -6244,6 +6345,13 @@
           (lastSync ? ' · last sync ' + UG_UTIL.esc(lastSync) : '') + '.</span>' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" style="margin-left:auto" data-act="retry-load">' + UG.icon('wave', 13) + UG_UTIL.esc(T('action.tryAgainShort')) + '</button>';
         strip.hidden = false;
+      } else if (Object.values(Repo.state.resourceSync).some((resource) => resource.failed)) {
+        const delayed = Object.entries(Repo.state.resourceSync).filter(([, resource]) => resource.failed)
+          .map(([name, resource]) => name + (resource.lastSuccess ? ' (as of ' + UG_UTIL.absTime(resource.lastSuccess) + ')' : ' (no recent data)'));
+        strip.className = 'ug-banner-strip is-offline';
+        strip.innerHTML = UG.icon('info', 14) + '<span>Could not refresh ' + UG_UTIL.esc(delayed.join(', ')) + '.</span>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="retry-load">Retry</button>';
+        strip.hidden = false;
       } else if (queued) {
         strip.className = 'ug-banner-strip is-sync';
         strip.innerHTML = UG.icon('download', 14) +
@@ -6264,10 +6372,6 @@
     installConnectivityBanner();
     setNav(readNavPref());
     render();
-
-    UG_PWA.hydrateFromCache()
-      .then(function (hit) { if (hit && S.session) render(); })
-      .catch(function () { /* the cache is best effort */ });
 
     if (applyDevDeepLink()) {
       render();

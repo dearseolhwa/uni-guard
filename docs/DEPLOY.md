@@ -139,7 +139,7 @@ in the Supabase SQL Editor before deploying build `uniguard-v562`. It scopes
 relief schedules and beneficiary records by barangay and makes support request
 completion safe to retry. Current relief records stay in the database.
 Run [the migration checker](CHECK-SUPABASE-MIGRATIONS.sql) again and confirm it
-reports that the schema features through `077` are installed.
+marks the `077` milestone as installed.
 
 Older offline queue entries without an account ID are held on the device.
 Residents who still need assistance can file a new report or call the LDRRMO
@@ -149,10 +149,40 @@ Publish the new build to Vercel from the branch containing this migration.
 Check the deployed site's `sw.js` for `uniguard-v562` before testing live sign-in,
 photo uploads, email, and push or SMS.
 
+## Audit fixes from 077
+
+Use the [read-only migration checker](CHECK-SUPABASE-MIGRATIONS.sql) in the
+Supabase SQL Editor. Apply
+[078_report_access_and_reliable_submissions.sql](../migrations/078_report_access_and_reliable_submissions.sql)
+before deploying build `uniguard-v566`. Run the checker again to confirm the
+schema features through 078. Migration 078 restricts the shared report feed,
+restores scoped landmark data and adds transaction-backed submission receipts.
+The existing SOS endpoint remains available for the previous app build during
+the update.
+
+The **Needs a replacement team** queue appears on the Barangay and MDRRMO
+incident screens after the last assigned team declines. MDRRMO duty staff
+coordinate replacement and barangay officials retain their local dispatch
+authority. The queue marks reports overdue after three minutes, using the
+existing unacknowledged-dispatch interval as the review target. The report
+leaves the queue when a team is assigned or the report is closed.
+
+In staging, verify that a same-barangay peer sees a neutral SOS summary without
+identity, notes or exact location. Check that the sender and authorized duty
+staff can still find the details. Test a lost connection during submission and
+confirm that retrying returns the same report or SOS. Follow the [background
+delivery checks](#7-background-sos-and-dispatch-delivery) separately.
+
+The [GitHub checks](../.github/workflows/checks.yml) run the migration chain,
+role access tests, and browser regressions against fixtures. For a local run,
+use `npm ci`, `npx playwright install chromium`, and `npm test` from `tests/`.
+Use the same sequence on each release branch and then verify the staging
+project before promoting it to production.
+
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `077_relief_scope_and_support_completion.sql`.
+`001_align_core_tables.sql` through `078_report_access_and_reliable_submissions.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
 and record each full filename. Enable `pg_trgm` before 011. Apply both `045_*`
 files, followed by 046 and 047. Migration 043 promotes the account matching its
@@ -369,6 +399,24 @@ where extname in ('pg_net', 'pg_cron', 'supabase_vault');
 
 select push_status, count(*) from public.notifications
 where audience = 'super_admin' group by push_status;
+
+select kind, status, count(*) as jobs,
+       now() - min(created_at) filter (where status in ('pending','processing')) as oldest_wait
+from public.emergency_delivery
+group by kind, status
+order by kind, status;
+
+select count(*) as awaiting_acknowledgment, now() - min(created_at) as oldest_wait
+from public.sos_log
+where status = 'sent';
+
+select count(*) as awaiting_replacement, now() - min(r.updated_at) as oldest_wait
+from public.reports r
+where r.status = 'verified'
+  and exists (select 1 from public.report_status_history h
+              where h.report_id = r.id and h.reason = 'all_declined')
+  and not exists (select 1 from public.report_dispatches d
+                  where d.report_id = r.id and d.dispatch_status <> 'declined');
 ```
 
 Run these additional queries only when the corresponding extensions are
@@ -376,7 +424,8 @@ enabled. They verify names and scheduling without showing secret values.
 
 ```sql
 select name from vault.secrets
-where name in ('uniguard_admin_notify_url', 'uniguard_admin_notify_secret');
+where name in ('uniguard_admin_notify_url', 'uniguard_admin_notify_secret',
+               'uniguard_emergency_worker_url', 'uniguard_emergency_worker_secret');
 
 select jobname, schedule, active from cron.job
 where jobname in ('uniguard-admin-notify', 'uniguard-emergency-delivery');
