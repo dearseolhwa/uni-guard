@@ -281,10 +281,51 @@ async function productionAuth(browser, app) {
   } finally { await context.close(); }
 }
 
+async function urgentReceipts(browser, app) {
+  const {page, context} = await fixture(browser, app);
+  try {
+    await enter(page, app, 'citizen', 'home');
+    await page.evaluate(() => {
+      const owner = {...UG_APP.S.session, id: 'reader-a'};
+      Auth.state.session = UG_APP.S.session = owner;
+      UG_URGENT.reset();
+      UG.DATA.advisories = [];
+      window.receiptCalls = [];
+      window.canSaveReceipt = false;
+      Repo.queueUploadSession = async () => ({client: {rpc: async (name, args) => {
+        window.receiptCalls.push({name, args});
+        return window.canSaveReceipt ? {data: null, error: null} : {error: {message: 'Fixture disconnected'}};
+      }}});
+      UG_URGENT.fire({id: 'expired', severity: 'emergency', title: 'Expired flood alert', expires_at: '2000-01-01T00:00:00Z'});
+      UG_URGENT.fire({id: 'first', severity: 'emergency', title: 'First flood alert'});
+      UG_URGENT.fire({id: 'second', severity: 'emergency', title: 'Second flood alert'});
+    });
+    assert.equal(await page.getByRole('alertdialog', {name: /Expired flood/}).count(), 0);
+    await page.getByRole('alertdialog', {name: /First flood/}).getByRole('button', {name: 'Close without acknowledging'}).click();
+    assert.equal(await page.evaluate(() => window.receiptCalls.length), 0);
+    await page.getByRole('alertdialog', {name: /Second flood/}).getByRole('button', {name: 'Acknowledge'}).click();
+    await page.waitForFunction(() => window.receiptCalls.length === 1);
+    await page.evaluate(() => { window.canSaveReceipt = true; window.dispatchEvent(new Event('online')); });
+    await page.waitForFunction(() => window.receiptCalls.length === 2);
+    assert.deepEqual(await page.evaluate(() => window.receiptCalls), Array(2).fill({
+      name: 'acknowledge_emergency_advisory', args: {p_advisory_id: 'second'}
+    }));
+    await page.evaluate(() => {
+      UG_URGENT.reset();
+      const next = {...UG_APP.S.session, id: 'reader-b'};
+      Auth.state.session = UG_APP.S.session = next;
+      UG_URGENT.fire({id: 'second', severity: 'emergency', title: 'Second flood alert'});
+    });
+    await page.getByRole('alertdialog', {name: /Second flood/}).waitFor();
+    console.log('PASS Expired overlays stay closed, acknowledgment retries and one resident’s receipt does not hide another resident’s alert.');
+  } finally { await context.close(); }
+}
+
 module.exports = async function verifyRoleAudits(browser, app) {
   await dispatchFailure(browser, app);
   await advisoryDelivery(browser, app);
   await photoAndDialogs(browser, app);
   await productionAuth(browser, app);
+  await urgentReceipts(browser, app);
   await roleSweep(browser, app);
 };

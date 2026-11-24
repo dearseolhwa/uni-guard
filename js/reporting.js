@@ -44,7 +44,7 @@ const UG_REPORTING = (function () {
     tab: 'sitrep', from: UG_EXPORT.isoDate(Date.now() - 7 * 86400000), to: UG_EXPORT.todayIso(),
     brgy: 'All', eventName: '', remarks: '', incidentId: '', history: {},
     dna: [], dnaMode: 'device', dnaBrgy: 'All',
-    issued: [], issuedMode: 'device', lastSaved: null, loaded: false, loading: false
+    issued: [], issuedMode: 'device', lastSaved: null, saving: false, issueRequest: null, loaded: false, loading: false
   });
   const state = newState();
 
@@ -334,8 +334,14 @@ const UG_REPORTING = (function () {
     return same.reduce((m, r) => Math.max(m, num(r.sitrep_no)), 0) + 1;
   }
 
+  function sitrepDraftKey() {
+    return JSON.stringify([state.eventName.trim(), state.from, state.to, scopeBrgy(), state.remarks.trim()]);
+  }
+
   function sitrepTitle() {
-    return 'Situation Report No. ' + nextSitrepNo() + (state.eventName.trim() ? ' · ' + state.eventName.trim() : '');
+    const saved = state.lastSaved;
+    const label = saved?.key === sitrepDraftKey() ? 'Situation Report No. ' + saved.no : 'Situation Report Draft';
+    return label + (state.eventName.trim() ? ' · ' + state.eventName.trim() : '');
   }
 
   /* ---------------------------------------------------------------- exports */
@@ -369,10 +375,10 @@ const UG_REPORTING = (function () {
      Before that the document says it is a draft and which number it will get. */
   function sitrepReference() {
     const ls = state.lastSaved;
-    const same = ls && ls.event === state.eventName.trim().toLowerCase() && ls.from === state.from && ls.to === state.to && ls.scope === scopeLabel();
+    const same = ls?.key === sitrepDraftKey();
     if (same) return { title: 'Situation Report No. ' + ls.no + (state.eventName.trim() ? ' \u00b7 ' + state.eventName.trim() : ''), reference: 'Situation report register No. ' + ls.no, draft: false };
     return { title: 'Situation Report' + (state.eventName.trim() ? ' \u00b7 ' + state.eventName.trim() : '') + ' (Draft)', reference: '', draft: true,
-      note: 'Draft: not yet saved to the situation report register. When saved it will be Situation Report No. ' + nextSitrepNo() + ' for this event.' };
+      note: 'Draft: the register assigns the official number upon saving.' };
   }
 
   function exportSitrep(kind) {
@@ -403,27 +409,38 @@ const UG_REPORTING = (function () {
       ['Evacuation centers open', c.openCenters, 'int'], ['Affected families (assessed)', c.families, 'int'], ['Affected persons (assessed)', c.persons, 'int'], ['Damage assessments included', c.dna, 'int']] }, sections);
   }
 
-  async function saveSitrep() {
-    const built = sitrepSections();
-    const row = {
-      sitrep_no: nextSitrepNo(), event_name: state.eventName.trim(),
+  async function saveSitrep(owner, key) {
+    const scope = scopeBrgy();
+    const report = {
+      event_name: state.eventName.trim(),
       period_from: state.from || null, period_to: state.to || null,
-      barangay: scopeBrgy() === 'All' ? '' : (scopeBrgy() || ''),
-      barangay_id: scopeBrgy() === 'All' ? null : (isOfficial() ? me().barangay_id : barangayId(scopeBrgy())),
-      summary: built.counts, remarks: state.remarks.trim(), prepared_by_name: me().name || ''
+      barangay_id: scope === 'All' ? null : (isOfficial() ? owner.barangay_id : barangayId(scope)),
+      summary: sitrepSections().counts, remarks: state.remarks.trim()
     };
+    let row;
     if (state.issuedMode === 'server' && state.dnaMode === 'server') {
-      const { error } = await client().from('situation_reports').insert(row);
+      if (scope !== 'All' && !report.barangay_id) throw new Error('Choose a valid barangay before saving the report');
+      if (state.issueRequest?.key !== key) state.issueRequest = { key, id: crypto.randomUUID(), report };
+      const request = state.issueRequest;
+      const upload = await Repo.queueUploadSession(owner.id);
+      if (!upload || S().session !== owner) throw new Error('Sign in again to save this situation report');
+      const { data, error } = await upload.client.rpc('issue_situation_report', {
+        p_request_id: request.id, p_report: request.report
+      });
       if (error) throw new Error(error.message);
-      await loadIssued();
+      if (S().session !== owner) return null;
+      row = data;
+      state.issueRequest = null;
+      state.issued = [row, ...state.issued.filter((saved) => saved.id !== row.id)];
     } else {
       requireDevicePreview();
-      const rows = readLocal(LOCAL_SITREP);
-      rows.unshift(Object.assign({ id: 'SR-' + Date.now(), created_at: new Date().toISOString() }, row));
+      row = { ...report, id: 'SR-' + Date.now(), sitrep_no: nextSitrepNo(), barangay: scope === 'All' ? '' : scope,
+        prepared_by_name: owner.name || '', created_at: new Date().toISOString() };
+      const rows = [row, ...readLocal(LOCAL_SITREP)];
       writeLocal(LOCAL_SITREP, rows);
       state.issued = rows;
     }
-    state.lastSaved = { no: row.sitrep_no, event: state.eventName.trim().toLowerCase(), from: state.from, to: state.to, scope: scopeLabel() };
+    state.lastSaved = { no: row.sitrep_no, key };
     return row;
   }
 
@@ -599,9 +616,9 @@ const UG_REPORTING = (function () {
   function vSitrep() {
     const built = sitrepSections();
     const c = built.counts;
-    const controls = '<section class="rp-form"><header class="rp-form-h"><div><h3>' + esc(sitrepTitle()) + '</h3><p>' + esc(scopeLabel()) + ' · the number advances when you save it to the register.</p></div>' +
+    const controls = '<section class="rp-form"><header class="rp-form-h"><div><h3>' + esc(sitrepTitle()) + '</h3><p>' + esc(scopeLabel()) + ' · the register assigns the report number when you save.</p></div>' +
         '<div class="rp-acts">' + exportButtons('rp-sitrep-pdf', 'rp-sitrep-xlsx') +
-          '<button class="hl-ghost hl-primary"' + A('rp-sitrep-save') + '>' + I('check', 14) + 'Save to register</button></div>' + exportMenu('rp-sitrep-pdf', 'rp-sitrep-xlsx') + '</header>' +
+          '<button class="hl-ghost hl-primary"' + A('rp-sitrep-save') + (state.saving ? ' disabled aria-busy="true"' : '') + '>' + I('check', 14) + 'Save to register</button></div>' + exportMenu('rp-sitrep-pdf', 'rp-sitrep-xlsx') + '</header>' +
       '<div class="rp-grid">' +
         field('Event or incident name', '<input class="rl-in" data-rp="eventName" value="' + esc(state.eventName) + '" placeholder="e.g. Typhoon Pepito, Southwest Monsoon">', 'grid-column:span 2') +
         field('From', '<input class="rl-in" type="date" data-rp="from" value="' + esc(state.from) + '">') +
@@ -609,7 +626,7 @@ const UG_REPORTING = (function () {
         (isLgu() ? field('Barangay', '<select class="rl-in rl-sel" data-rp="brgy">' + brgyOptions(state.brgy, true) + '</select>') : '') +
       '</div>' +
       '<div class="rp-grid rp-grid--1">' + field('Remarks and actions taken (optional)', '<textarea class="rp-ta" rows="3" data-rp="remarks" placeholder="Actions taken, coordination with BFP / PNP / DSWD / DOH / OCD, and next steps.">' + esc(state.remarks) + '</textarea>') + '</div>' +
-      '<div class="rp-msave"><button class="rp-msave-b"' + A('rp-sitrep-save') + '>' + I('check', 15) + 'Save to register</button><small>Records the number, period and headline figures.</small></div>' +
+      '<div class="rp-msave"><button class="rp-msave-b"' + A('rp-sitrep-save') + (state.saving ? ' disabled aria-busy="true"' : '') + '>' + I('check', 15) + 'Save to register</button><small>Records the number, period and headline figures.</small></div>' +
       '</section>';
 
     const stats = '<div class="rp-figs">' +
@@ -842,12 +859,22 @@ const UG_REPORTING = (function () {
        success message only after the file was actually generated */
     'rp-sitrep-pdf': () => UG_EXPORT.run('rp-sitrep-pdf', () => exportSitrep('pdf'), { label: 'situation report PDF' }),
     'rp-sitrep-xlsx': () => UG_EXPORT.run('rp-sitrep-xlsx', () => exportSitrep('xlsx'), { label: 'situation report workbook' }),
-    'rp-sitrep-save': guard(async () => {
+    'rp-sitrep-save': async () => {
+      if (state.saving) return;
+      const owner = S().session;
+      if (!owner) return;
       if (!state.eventName.trim()) { toast('Give the event a name before saving it to the register', 'warning'); return; }
-      const row = await saveSitrep();
-      toast('Situation Report No. ' + row.sitrep_no + ' saved to the register', 'prepared');
-      rerender();
-    }),
+      state.saving = true;
+      const key = sitrepDraftKey();
+      try {
+        const row = await saveSitrep(owner, key);
+        if (row && S().session === owner) toast('Situation Report No. ' + row.sitrep_no + ' saved to the register', 'prepared');
+      } catch (error) {
+        if (S().session === owner) toast(error.message, 'warning');
+      } finally {
+        if (S().session === owner) { state.saving = false; rerender(); }
+      }
+    },
 
     'rp-inc-pdf': () => UG_EXPORT.run('rp-inc-pdf', () => exportIncident('pdf'), { label: 'incident summary PDF' }),
     'rp-inc-xlsx': () => UG_EXPORT.run('rp-inc-xlsx', () => exportIncident('xlsx'), { label: 'incident summary workbook' }),

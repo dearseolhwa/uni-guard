@@ -125,7 +125,7 @@ The first entry is **Home**, which is the operations dashboard.
 ## Getting started
 
 1. **Database.** Apply missing SQL files in `migrations/` in filename order through
-   `082_shelter_occupancy_and_analytics.sql`. `000` only inspects the schema. Apply
+   `083_alert_receipts_and_report_register.sql`. `000` only inspects the schema. Apply
    `045_super_admin_improvements.sql`, then 046 and 047. Use sample seed files
    only in development or staging.
 2. **Auth settings.** Set the Site URL, redirect URLs, and email delivery settings.

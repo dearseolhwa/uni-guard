@@ -98,5 +98,37 @@ export async function verifyOperationsAudit(db) {
   } finally { await db.exec('alter table public.reports enable trigger user'); }
   const [day] = await as('official', "select day::text,total::int from public.analytics_daily('2024-01-18','2024-01-18')");
   assert.deepEqual(day, {day: '2024-01-18', total: 1});
+  const declarationId = randomUUID();
+  const declare = "select public.declare_emergency_once($1,'Fixture retrying declaration','Fixture details') as declaration";
+  const firstDeclaration = await as('duty', declare, [declarationId]);
+  assert.deepEqual(await as('duty', declare, [declarationId]), firstDeclaration);
+  assert.equal(firstDeclaration[0].declaration.advisory_id, declarationId);
+  assert.deepEqual(await rows("select count(*)::int as count from public.audit_log where entity_id=$1 and action='emergency.declared'", [declarationId]),
+    [{count: 1}]);
+
+  await db.exec('grant select, insert on public.alert_acknowledgments, public.situation_reports to authenticated');
+  await db.exec('grant select on public.barangays, public.profiles to authenticated');
+  const acknowledge = 'select public.acknowledge_emergency_advisory($1)';
+  await as('citizen', acknowledge, [declarationId]);
+  await as('citizen', acknowledge, [declarationId]);
+  await as('otherCitizen', acknowledge, [declarationId]);
+  assert.equal((await rows('select count(*)::int as count from public.alert_acknowledgments where advisory_id=$1', [declarationId]))[0].count, 2);
+  await assert.rejects(as('disabled', acknowledge, [declarationId]), {code: '42501'});
+
+  const issue = 'select public.issue_situation_report($1,$2::jsonb) as report';
+  const report = {event_name: 'Fixture River Flood', barangay_id: remote.id, period_from: '2024-01-17', period_to: '2024-01-18'};
+  const firstId = randomUUID();
+  assert.equal((await as('otherOfficial', issue, [firstId, report]))[0].report.sitrep_no, 1);
+  assert.deepEqual(await as('official', 'select id from public.situation_reports where id=$1', [firstId]), []);
+  const secondId = randomUUID();
+  const secondDraft = {...report, event_name: '  fixture river flood ', barangay_id: local.id, remarks: 'Original notes'};
+  const secondIssue = await as('official', issue, [secondId, secondDraft]);
+  assert.equal(secondIssue[0].report.sitrep_no, 2);
+  assert.deepEqual(await as('official', issue, [secondId, {...secondDraft, remarks: 'Retry payload'}]), secondIssue);
+  await assert.rejects(as('official', issue, [randomUUID(), report]), {code: '42501'});
+  await assert.rejects(as('duty', issue, [randomUUID(), {...report, period_from: '2024-01-20'}]), {code: '22023'});
+  const [legacy] = await rows("insert into public.situation_reports(event_name,sitrep_no) values ('FIXTURE RIVER FLOOD',1) returning sitrep_no");
+  assert.equal(legacy.sitrep_no, 3);
+  console.log('PASS Independent alert receipts, declaration retries and server-issued event-wide situation report numbers.');
   console.log('PASS Atomic and repeatable advisory publishing, real emergency device count, shelter occupancy and Philippine date cutoffs.');
 }

@@ -878,7 +878,7 @@
     S.error = null;
     MapView.destroy();
     try { UG_DISPATCH.signedOut(); } catch (e) { }
-    UG_URGENT.dismiss();
+    UG_URGENT.reset();
     UG_ALARM.stopPendingSos();
     Repo.resetScopedData();
     S.myReportPage = null;
@@ -898,6 +898,7 @@
       UG_FEATURES.closeDialogs();
       UG_REPORTING.reset();
       UG_SUPERADMIN.reset();
+      UG_URGENT.reset();
       UG_DISPATCH.signedOut();
       Repo.resetScopedData();
       S.lastOpen = null;
@@ -909,6 +910,7 @@
       S.advisoryRequest = null;
       S.publishing = false;
       S.declaring = false;
+      S.declarationRequestId = null;
       S.myReportPage = null;
       S.users = null;
       S.audit = null;
@@ -3167,11 +3169,14 @@
           danger: true
         });
         if (!ok || S.session !== owner) return;
+        S.declarationRequestId ||= crypto.randomUUID();
         const result = await Repo.declareEmergency({
+          request_id: S.declarationRequestId,
           title: 'Emergency declaration: municipality-wide response activated',
           body: 'The Lingayen LDRRMO has declared a municipality-wide emergency. Follow official instructions, move to the nearest open evacuation center if advised, and keep monitoring UniGuard advisories.'
         });
         if (S.session !== owner) return;
+        S.declarationRequestId = null;
         if (result.local) toast('Emergency declaration is available only on the connected project.', 'warning');
         else {
           toastDelivery('Emergency declaration published in UniGuard.', result.delivery, 'emergency');
@@ -5542,14 +5547,7 @@
       if (panel) panel.hidden = !S.mapPanelOpen;
     },
 
-    'urgent-dismiss': (d) => { UG_URGENT.dismiss(d.id || ''); },
-    'urgent-view': (d) => {
-      UG_URGENT.dismiss(d.id || '');
-      if (d.id) {
-        const a = (UG.DATA.advisories || []).find((x) => x.id === d.id);
-        if (a) { S.openId = a.id; S.route = 'advisory-detail'; render(); }
-      }
-    }
+    'urgent-view': (d) => APP_ACTIONS['open-advisory'](d)
   };
 
   /* ─────────────────────────────────────────────────────────────────────
@@ -6263,11 +6261,14 @@
       navigator.serviceWorker.addEventListener('message', (e) => {
         if (e.data?.type !== 'UG_PUSH' || !S.session || e.data.ownerId !== S.session.id) return;
         const p = e.data.payload || {};
+        if (Date.parse(p.expires_at) <= Date.now()) return;
+        if (p.severity === 'emergency' && p.advisory_id && S.session.role !== 'dispatch_team') {
+          UG_URGENT.fire({ id: p.advisory_id, severity: 'emergency', title: p.title, body: p.body, time: 'just now', expires_at: p.expires_at });
+          return;
+        }
         const kind = p.tag && p.tag.startsWith('dispatch-') ? 'dispatch' : /sos/i.test(p.title || '') ? 'sos' : ((p.title || '') + ' ' + (p.body || ''));
         try { UG_ALARM.play(kind, { force: p.severity === 'emergency' || kind === 'sos' }); } catch (err) { }
-        if (p.severity === 'emergency' && p.advisory_id && S.session.role !== 'dispatch_team') {
-          try { UG_URGENT.fire({ id: p.advisory_id, severity: 'emergency', title: p.title, body: p.body, time: 'just now' }); } catch (err) { }
-        }
+
       });
     }
   } catch (e) { }

@@ -11,36 +11,63 @@
  * fatigue.
  *
  * The overlay is a single element appended to <body>, driven by a small
- * pending queue. Multiple emergencies stack in reverse-chronological order.
+ * pending queue. Each emergency gets its own card and acknowledgment.
  */
 const UG_URGENT = (function () {
   const esc = UG_UTIL.esc, I = UG.icon;
   let host = null;
-  const ACKED_KEY = 'uniguard.urgent.acked';
-
-  /* the IDs we've already shown so a refresh doesn't re-fire the same one */
-  function ackedIds() {
-    try { return JSON.parse(localStorage.getItem(ACKED_KEY) || '[]'); } catch (e) { return []; }
+  const ACKED_KEY = 'uniguard.urgent.acked.';
+  const ownerId = () => window.UG_APP?.S.session?.id;
+  const receipts = (owner) => {
+    try {
+      const value = JSON.parse(localStorage.getItem(ACKED_KEY + owner) || '{}');
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    } catch (e) { return {}; }
+  };
+  function storeReceipt(owner, id, status) {
+    const all = receipts(owner);
+    all[id] = status;
+    try { localStorage.setItem(ACKED_KEY + owner, JSON.stringify(all)); } catch (e) {}
   }
-  function markAcked(id) {
-    if (!id) return;
-    const arr = ackedIds();
-    if (arr.indexOf(id) === -1) { arr.push(id); try { localStorage.setItem(ACKED_KEY, JSON.stringify(arr.slice(-60))); } catch (e) {} }
-  }
-  function isAcked(id) { return ackedIds().indexOf(id) !== -1; }
+  const isAcked = (id) => !!ownerId() && Object.hasOwn(receipts(ownerId()), id);
 
-  /* scan() runs after every live refresh, not just at boot: never stack a
-     second card for an alert already on screen, and keep one closed with the
-     X (which does not acknowledge) from popping back until the next page load */
-  const shown = new Set();
+  const syncing = new Set();
+  async function flushReceipts() {
+    const owner = ownerId();
+    if (!owner || owner !== Auth.state.session?.id || navigator.onLine === false || syncing.has(owner)) return;
+    const waiting = Object.entries(receipts(owner)).filter(([, status]) => status === 'pending');
+    if (!waiting.length) return;
+    syncing.add(owner);
+    try {
+      const upload = await Repo.queueUploadSession(owner);
+      if (!upload) return;
+      for (const [id] of waiting) {
+        if (ownerId() !== owner || Auth.state.session?.id !== owner) break;
+        const { error } = await upload.client.rpc('acknowledge_emergency_advisory', { p_advisory_id: id });
+        if (error) continue;
+        storeReceipt(owner, id, 'saved');
+      }
+    } finally { syncing.delete(owner); }
+  }
+  const syncReceipts = () => flushReceipts().catch(() => {});
+  window.addEventListener('online', syncReceipts);
+
+  let current = null;
+  let expiryTimer = null;
   const closed = new Set();
+  const pending = new Map();
+  function isActive(advisory) {
+    return !!advisory?.id && advisory.severity === 'emergency' &&
+      advisory.active !== false && advisory.status !== 'draft' &&
+      !(Date.parse(advisory.expires_at) <= Date.now());
+  }
 
   /* ----------------------------------------------------------- audio */
   /* the hazard's own alarm (js/alarm.js), read from the advisory text; the
      overlay is forced audible even right after another alarm */
   let toneAt = 0;
   function playTone(advisory) {
-    if (Date.now() - toneAt < 1500) return;   /* never two alarms on top of each other */
+    if (!isActive(advisory) || Date.now() - toneAt < 1500) return;   /* never two alarms on top of each other */
     toneAt = Date.now();
     try { UG_ALARM.play((advisory.title || '') + ' ' + (advisory.body || ''), { force: true }); } catch (e) { }
   }
@@ -91,15 +118,16 @@ const UG_URGENT = (function () {
     host.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-act]');
       if (!btn) return;
+      e.stopPropagation();
       const act = btn.dataset.act;
       const id = btn.dataset.id || '';
       if (act === 'urgent-mute') { mutedNow = true; stopLoop(); return; }
       if (act === 'urgent-sound-help') { try { UG_ALARM.soundHelp(); } catch (err) { } return; }
       if (act === 'urgent-sound') { if (loopAd) startLoop(loopAd); return; }
       if (act === 'urgent-dismiss') {
-        dismiss(id);
+        dismiss(id || btn.closest('.ug-urgent')?.dataset.id, !!id);
       } else if (act === 'urgent-view') {
-        dismiss(id);
+        dismiss(id, true);
         /* notify the app to navigate to the advisory */
         try { document.dispatchEvent(new CustomEvent('ug:urgent-view', { detail: { id: id } })); } catch (e) {}
       }
@@ -109,11 +137,18 @@ const UG_URGENT = (function () {
   }
 
   function fire(advisory) {
-    if (!advisory || !advisory.id) return;
-    if (advisory.severity !== 'emergency') return;
-    if (isAcked(advisory.id)) return;
-    if (shown.has(advisory.id) || closed.has(advisory.id)) return;
-    shown.add(advisory.id);
+    if (current && current.advisory.id === advisory?.id) {
+      current.advisory.expires_at = advisory.expires_at ?? current.advisory.expires_at;
+      clearTimeout(expiryTimer);
+      if (!isActive(current.advisory)) dismiss(advisory.id);
+      else scheduleExpiry();
+      return;
+    }
+    if (!ownerId() || !isActive(advisory) || isAcked(advisory.id) || closed.has(advisory.id)) return;
+    if (current) {
+      if (current.advisory.id !== advisory.id) pending.set(advisory.id, advisory);
+      return;
+    }
     const h = ensureHost();
     h.style.display = '';   /* dismiss() hides the host once it empties */
     const tone = 'emergency';
@@ -138,51 +173,78 @@ const UG_URGENT = (function () {
           '<span>' + I('clock', 13) + esc(advisory.time || 'just now') + '</span>' +
           '<span>' + I('shield', 13) + 'Official advisory' + (advisory.code ? ' · ' + esc(advisory.code) : '') + '</span>' +
         '</div>' +
+        '<div class="ux-sound" data-ux-sound><i aria-hidden="true"></i><span role="status">Alarm stopped</span>' +
+          '<button type="button" data-act="urgent-sound">Play again</button></div>' +
         '<div class="ux-acts">' +
           '<button class="ux-ack" data-act="urgent-dismiss" data-id="' + esc(advisory.id) + '"><span class="ux-ack-i">' + I('check', 14) + '</span>Acknowledge</button>' +
           '<button class="ux-view" data-act="urgent-view" data-id="' + esc(advisory.id) + '">View advisory' + I('chevron', 14) + '</button>' +
         '</div>' +
       '</div>';
+    current = { advisory, card };
     h.appendChild(card);
     /* animate in */
     requestAnimationFrame(() => card.classList.add('is-on'));
     /* fire sound + vibration only here, not for routine advisories; it
        repeats until the alert is acknowledged, closed or muted */
     startLoop(advisory);
+    scheduleExpiry();
   }
 
-  function dismiss(id) {
-    stopLoop(); loopAd = null;
-    if (id) markAcked(id);
-    shown.forEach((s) => closed.add(s));
-    shown.clear();
-    if (!host) return;
-    const cards = host.querySelectorAll('.ug-urgent');
-    cards.forEach((c) => { c.classList.remove('is-on'); });
-    setTimeout(() => {
-      if (!host) return;
-      host.querySelectorAll('.ug-urgent').forEach((c) => c.remove());
-      if (!host.children.length) host.style.display = 'none';
-    }, 280);
-
-    /* log the acknowledgment through Repo, best-effort */
-    try {
-      if (typeof Repo !== 'undefined' && Repo.client && id) {
-        const c = Repo.client();
-        if (c) c.from('alert_acknowledgments').insert({ advisory_id: id }).then(() => {}, () => {});
-      }
-    } catch (e) {}
+  function scheduleExpiry() {
+    const expiry = Date.parse(current?.advisory.expires_at);
+    if (!Number.isFinite(expiry)) return;
+    const delay = expiry - Date.now();
+    if (delay <= 0) { dismiss(current.advisory.id); return; }
+    expiryTimer = setTimeout(scheduleExpiry, Math.min(delay, 2147483647));
   }
 
-  /* called from app.js after every loadAll: scan advisories, fire any
-     emergency ones that haven't been acknowledged on this device yet */
+  function removeCurrent() {
+    if (!current) return;
+    const { advisory, card } = current;
+    closed.add(advisory.id);
+    clearTimeout(expiryTimer);
+    expiryTimer = null;
+    stopLoop();
+    loopAd = null;
+    current = null;
+    card.remove();
+    if (!host.children.length) host.style.display = 'none';
+  }
+
+  function dismiss(id, acknowledge = false) {
+    if (!id) {
+      for (const key of pending.keys()) closed.add(key);
+      pending.clear();
+      removeCurrent();
+      return;
+    }
+    if (current?.advisory.id !== id) return;
+    const owner = ownerId();
+    if (acknowledge && owner) {
+      storeReceipt(owner, id, 'pending');
+      syncReceipts();
+    }
+    removeCurrent();
+    scan();
+  }
+
+  function reset() {
+    dismiss();
+    closed.clear();
+  }
+
   function scan() {
-    const ads = (typeof UG !== 'undefined' && UG.DATA && UG.DATA.advisories) || [];
-    /* newest first; only the most recent emergency fires at a time so the
-       overlay doesn't pile up if multiple emergencies are live */
-    const newest = ads.find((a) => a.severity === 'emergency' && !isAcked(a.id));
-    if (newest) fire(newest);
+    syncReceipts();
+    if (!ownerId() || window.UG_APP?.S.session?.role === 'dispatch_team') return;
+    if (current && !isActive(current.advisory)) removeCurrent();
+    if (current) return;
+    const ads = UG.DATA.advisories || [];
+    for (const advisory of [...pending.values(), ...ads]) {
+      pending.delete(advisory.id);
+      fire(advisory);
+      if (current) return;
+    }
   }
 
-  return { fire, dismiss, scan, isAcked };
+  return { fire, dismiss, scan, isAcked, reset };
 })();

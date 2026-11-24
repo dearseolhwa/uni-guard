@@ -6,7 +6,7 @@
  */
 importScripts('./js/device-store.js');
 
-const VERSION = 'uniguard-v569';
+const VERSION = 'uniguard-v570';
 const SHELL = 'uniguard-shell-' + VERSION;
 const TILES = 'uniguard-tiles-' + VERSION;
 const IMAGES = 'uniguard-images-' + VERSION;
@@ -216,6 +216,7 @@ self.addEventListener('push', (event) => {
     : payload.severity === 'prepared' ? '#2FD08A' : '#4D9BFF';
 
   event.waitUntil((async () => {
+    if (Date.parse(payload.expires_at) <= Date.now()) return;
     const binding = await UG_DEVICE_DB.readPush().catch(() => ({ suspended: true }));
     if (!binding?.owner || binding.suspended) return;
     await Promise.all([

@@ -237,10 +237,21 @@ single bulletin, and that the emergency screen distinguishes publication from
 delivery. Confirm shelter occupancy updates from the duty and barangay roles.
 The [audit report](FULL-SYSTEM-AUDIT.md) lists the remaining live checks.
 
+## Alert receipt and situation report release
+
+Run the [migration checker](CHECK-SUPABASE-MIGRATIONS.sql) and apply the missing
+steps through [083](../migrations/083_alert_receipts_and_report_register.sql)
+before releasing web build `uniguard-v570`. Deploy the updated
+`push-dispatch` Edge Function to enforce advisory expiry during delivery.
+
+In staging, acknowledge the same advisory from two accounts on one device,
+retry an emergency declaration after interrupting its response, and issue
+situation reports for the same event from two barangays.
+
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `082_shelter_occupancy_and_analytics.sql`.
+`001_align_core_tables.sql` through `083_alert_receipts_and_report_register.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
 and record each full filename. Migration 011 installs `pg_trgm` before creating
 its index. Apply `045_super_admin_improvements.sql`, followed by 046 and 047. Migration 043 promotes the account matching its

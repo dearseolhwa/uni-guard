@@ -46,8 +46,9 @@ try {
     if (version === '031') {
       await db.exec("insert into public.road_status(road_name,status) values ('Fixture Road','caution')");
     }
-    if (version === '081') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 081, then 082.');
-    if (version === '082') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 082.');
+    if (version === '081') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 081 through 083.');
+    if (version === '082') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 082, then 083.');
+    if (version === '083') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 083.');
     try { await db.exec(await readMigration(file)); }
     catch (error) { throw Error(file + ': ' + error.message, { cause: error }); }
     if (version === '010') {
@@ -83,14 +84,15 @@ try {
   await db.exec(await readMigration('080_backend_audit_fixes.sql'));
   await db.exec(await readMigration('081_advisory_publishing.sql'));
   await db.exec(await readMigration('082_shelter_occupancy_and_analytics.sql'));
+  await db.exec(await readMigration('083_alert_receipts_and_report_register.sql'));
   console.log('PASS Fresh migration chain, legacy hazard and road records, staged help requests and escalation replay.');
   const checkerResults = await db.exec(checkerSql);
   const milestones = checkerResults.find((result) => result.rows?.some((row) => row.migration === '076_super_admin_notifications.sql'))?.rows || [];
   assert.ok(milestones.length > 0);
   assert.deepEqual(milestones.filter((row) => row.status !== 'INSTALLED'), []);
   assert.equal(recommendation(checkerResults),
-    'CURRENT: schema features through 082 are installed.');
-  console.log('Applied the entire 001–082 chain in embedded PostgreSQL with Auth/Storage fixtures.');
+    'CURRENT: schema features through 083 are installed.');
+  console.log('Applied the entire 001–083 chain in embedded PostgreSQL with Auth/Storage fixtures.');
   await db.exec(`
     insert into auth.users(id,email) values
       ('00000000-0000-4000-8000-000000000001', 'actor@example.test'),

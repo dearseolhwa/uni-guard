@@ -1091,7 +1091,7 @@ const Repo = (function () {
       const { data, error } = await c.functions.invoke('push-dispatch', {
         body: {
           title: advisory.title, body: advisory.body, severity: advisory.severity,
-          advisoryId: advisory.id, barangayIds: advisory.barangay_ids, area: advisory.affected_area,
+          advisoryId: advisory.id, barangayIds: advisory.barangay_ids, area: advisory.affected_area, expiresAt: advisory.expires_at,
           url: './index.html?advisory=' + encodeURIComponent(advisory.id) + '#advisory-detail'
         }
       });
@@ -1233,9 +1233,13 @@ const Repo = (function () {
     const title = payload.title;
     const body = payload.body;
     const area = payload.area || UG_GEO.PLACE.areaAll;
-    const { data, error } = await c.rpc('declare_emergency', { p_title: title, p_body: body, p_area: area });
+    const upload = await queueUploadSession(Auth.state.session?.id);
+    if (!upload) throw new Error('Sign in again to declare an emergency.');
+    const { data, error } = await upload.client.rpc('declare_emergency_once', {
+      p_request_id: payload.request_id, p_title: title, p_body: body
+    });
     if (error) fail(error);
-    data.delivery = await sendAdvisoryPush(c, {
+    data.delivery = await sendAdvisoryPush(upload.client, {
       id: data.advisory_id, title, body, severity: 'emergency', affected_area: area
     });
     await loadAll();

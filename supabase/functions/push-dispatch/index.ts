@@ -95,8 +95,13 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  const expiresAt = typeof body.expiresAt === 'string' ? Date.parse(body.expiresAt) : NaN;
+  const remaining = () => Number.isFinite(expiresAt) ? Math.ceil((expiresAt - Date.now()) / 1000) : Infinity;
+  if (remaining() <= 0) return json({ ok: true, sent: 0, failed: 0, removed: 0, smsQueued: 0 });
+
   const payload = JSON.stringify({
     title, body: message, severity, advisory_id: advisoryId, url: urlTarget,
+    expires_at: Number.isFinite(expiresAt) ? new Date(expiresAt).toISOString() : undefined,
     tag: advisoryId || 'uniguard', renotify: severity === 'emergency'
   });
 
@@ -120,11 +125,13 @@ Deno.serve(async (req: Request) => {
     afterId = subs[subs.length - 1].id;
 
     for (let start = 0; start < subs.length; start += batchSize) {
+      const ttl = Math.min(severity === 'emergency' ? 3600 : 900, remaining());
+      if (ttl <= 0) break;
       const batch = subs.slice(start, start + batchSize);
       const results = await Promise.allSettled(batch.map(async (device) => webpush.sendNotification(
         { endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } },
         payload,
-        { TTL: severity === 'emergency' ? 3600 : 900, urgency: severity === 'emergency' ? 'high' : 'normal', timeout: 8000 }
+        { TTL: ttl, urgency: severity === 'emergency' ? 'high' : 'normal', timeout: 8000 }
       )));
       const stale = [];
       for (const [i, result] of results.entries()) {
@@ -141,12 +148,12 @@ Deno.serve(async (req: Request) => {
         removed += data?.length || 0;
       }));
     }
-    if (subs.length < pageSize) break;
+    if (subs.length < pageSize || remaining() <= 0) break;
   }
 
   // ---- SMS fallback for accounts with no push device ----------------------
   let smsQueued = 0;
-  if (body.alsoSms !== false) {
+  if (body.alsoSms !== false && remaining() > 0) {
     try {
       // sms-fallback only accepts this function (service key) as its caller
       const { data: smsResult } = await admin.functions.invoke('sms-fallback', {

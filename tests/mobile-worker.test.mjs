@@ -102,6 +102,13 @@ test('a worker renewal uses its device proof and updates the stored endpoint', a
   assert.equal(w.posts[0].type, 'UG_PUSH_SUBSCRIPTION_CHANGED');
 });
 
+test('expired advisory push does not display or reach open windows', async () => {
+  const env = worker({binding: {owner: 'fixture-owner'}, clients: [{url: scope}]});
+  await env.dispatch('push', {data: {json: () => ({title: 'fixture expired alert', expires_at: '2000-01-01T00:00:00Z'})}});
+  assert.deepEqual(env.notices, []);
+  assert.deepEqual(env.posts, []);
+});
+
 test('push contents are scoped to the registered account and suspended on sign-out', async () => {
   const active = worker({ binding: { owner: 'fixture' }, clients: [{ url: scope }] });
   const suspended = worker({ binding: { suspended: true }, clients: [{ url: scope }] });

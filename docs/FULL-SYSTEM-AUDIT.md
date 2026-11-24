@@ -57,3 +57,13 @@ and includes screens with fixture data.
   PWA behavior, delivery through the configured push and SMS providers, and
   scheduled Supabase jobs. Use test records and recipients.
 - The code release requires [the Supabase migration checker and deployment steps](DEPLOY.md#full-system-audit-release).
+
+## Follow-up findings
+
+Build `uniguard-v570` adds three corrections. Acknowledgment receipts are
+account-specific and retry when the device reconnects. Expired notifications
+no longer ring, and closing one alert leaves other active alerts available.
+The situation report register assigns the next event-wide number in the
+database and returns the saved report when the client retries an unchanged
+request. Retrying a declaration after a lost response reuses its original
+bulletin and log entry. See the [updated deployment steps](DEPLOY.md#alert-receipt-and-situation-report-release).

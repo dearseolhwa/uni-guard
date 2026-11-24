@@ -99,6 +99,9 @@ try {
   assert.deepEqual(await result.json(), { ok: true, sent: 224, failed: 1, removed: 1, smsQueued: 2 });
   assert.equal(sent, 224);
   assert.equal(peak, 20);
+  const expired = await invoke(push, 'fixture-caller', { ...payload, expiresAt: '2000-01-01T00:00:00Z' });
+  assert.deepEqual(await expired.json(), { ok: true, sent: 0, failed: 0, removed: 0, smsQueued: 0 });
+  assert.equal(sent, 224);
   const repeated = await invoke(sms, service, { ...payload, actorId });
   assert.equal((await repeated.json()).queued, 0);
   assert.deepEqual(requests, people.map(({ id }) => alertId + ':' + id));
