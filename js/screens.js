@@ -2185,7 +2185,7 @@ const UG_SCREENS = (() => {
                     (isBarangay ? 'Send Barangay Response Team' : 'Dispatch Response') : 'Advance Status') + '</button>')) +
           /* verified but not sent (auto-verified by residents, or no unit was
              free): one tap sends the hazard's teams (migration 057) */
-          (isLGU && status === 'verified' && (UG_HAZARDS.suggestedTeams(i.hazard_type).length || i.sev === 'emergency')
+          (isLGU && status === 'verified' && UG_HAZARDS.suggestedTeams(i.hazard_type || i.hazard).length
             ? '<button class="ug-btn ug-btn--sm"' + A('auto-dispatch', attr({ id: i.uuid || i.id })) + '>' + I('truck', 15) + 'Auto-dispatch</button>' : '') +
           (isLGU && ['verified', 'dispatched'].includes(status) ? '<button class="ug-btn ug-btn--sm"' +
             A('incident-notify-hospital', attr({ id: i.uuid || i.id })) + '>' + I('truck', 15) + 'Notify hospital</button>' : '') +

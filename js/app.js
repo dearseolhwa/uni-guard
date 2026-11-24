@@ -6294,7 +6294,7 @@
           UG_URGENT.fire({ id: p.advisory_id, severity: 'emergency', title: p.title, body: p.body, time: 'just now', expires_at: p.expires_at });
           return;
         }
-        if (/^(sos|dispatch|report_review|dispatch_gap)-/.test(p.tag || '')) {
+        if (/^(sos|dispatch|report_review|dispatch_gap|hazard_confirmed)-/.test(p.tag || '')) {
           if (S.session.role === 'dispatch_team') refreshDispatch();
           else Repo.scheduleRefresh(0);
         }

@@ -139,6 +139,8 @@ export async function verifyRoles(db) {
   for (const [kind, target] of [['crime', teams[1]], ['rescue', teams[2]], ['medical', teams[3]]]) {
     const result = await value(citizen, "select public.submit_sos(16.0223,120.2312,10,'Fixture SOS',$1) as value", [kind]);
     assert.ok(result.report_id);
+    const routed = (await query('select team from public.report_dispatches where report_id=$1',[result.report_id])).rows.map(row => row.team).sort();
+    assert.deepEqual(routed, [target.name,'Barangay Response Team'].sort(), kind);
     const assignment = await first('select id,unit_id from public.report_dispatches where report_id=$1 and team=$2',[result.report_id,target.name]);
     assert.equal(assignment.unit_id,target.unit.id);
     assert.equal((await runAs(target.member, reportFromAssignment, [assignment.id])).length, 1);
@@ -169,6 +171,8 @@ export async function verifyRoles(db) {
   assert.ok((await deliveries(ordinary.id)).includes(lgu.id));
   assert.ok(await first("select id from public.emergency_delivery where kind='dispatch_gap' and event_id=$1 and user_id=$2",[ordinary.id,lgu.id]));
 
+  const secondBfp = await first("insert into public.dispatch_units(name,unit_type,status,created_at) values ('Alternate staffed BFP','BFP','on_duty',now()+interval '1 day') returning id");
+  const alternateBfpStaff = await account('dispatch_team', null, secondBfp, 'member');
   const local = 'Barangay Response Team';
   const water = ['Rescue Unit', local];
   const earth = ['Rescue Unit', 'Ambulance', local];
@@ -200,15 +204,15 @@ export async function verifyRoles(db) {
     const queued = await query("select user_id from public.emergency_delivery where kind='report_review' and event_id=$1",[incident.id]);
     assert.ok(queued.rows.some(row => row.user_id === official.id), label);
     assert.ok(queued.rows.some(row => row.user_id === lgu.id), label);
-    assert.ok(!queued.rows.some(row => [otherOfficial.id, superAdmin.id, bfp.member.id].includes(row.user_id)), label);
+    assert.ok(!queued.rows.some(row => [otherOfficial.id, superAdmin.id, bfp.member.id, alternateBfpStaff.id].includes(row.user_id)), label);
     assert.ok((await runAs(official,"select id from public.notifications where report_id=$1 and type='report_review'",[incident.id])).length, label);
     assert.equal((await runAs(lgu,"select is_severity_bypass from public.reports_feed where id=$1",[incident.id]))[0].is_severity_bypass,
       ['fire','power_line','vehicular_accident','landslide'].includes(key), label);
     await runAs(lgu,"select public.advance_report_status($1,'verified','Fixture verified hazard')",[incident.id]);
     const assignments = (await query('select id,team,assignment_role from public.report_dispatches where report_id=$1',[incident.id])).rows;
-    const ordered = [...new Set([...expected,'Ambulance'])];
+    const ordered = expected;
     assert.deepEqual(assignments.map(row => row.team).sort(), [...ordered].sort(), label);
-    assert.equal(assignments.find(row => row.assignment_role==='lead').team,ordered[0],label);
+    assert.equal(assignments.find(row => row.assignment_role==='lead')?.team,ordered[0],label);
     for (const assignment of assignments) {
       const team = teams.find(item => item.name === assignment.team);
       const recipients = await deliveries(assignment.id);
@@ -219,6 +223,11 @@ export async function verifyRoles(db) {
     values ('Electrical / Power Line Hazard','Fixture forwarded hazard','warning',16.0223,120.2312) returning id`))[0];
   await runAs(official,"select public.advance_report_status($1,'verified','Fixture barangay verified')",[forwarded.id]);
   assert.equal((await first('select count(*)::int as n from public.report_dispatches where report_id=$1',[forwarded.id])).n,0);
+  const confirmed = (await query("select user_id from public.emergency_delivery where kind='hazard_confirmed' and event_id=$1",[forwarded.id])).rows.map(row => row.user_id).sort();
+  assert.deepEqual(confirmed,[...localRecipients,bfp.member.id,bfp.admin.id].sort());
+  assert.equal((await runAs(bfp.member,"select id from public.notifications where report_id=$1 and type='hazard_confirmed'",[forwarded.id])).length,1);
+  assert.deepEqual(await runAs(bfp.member,'select id from public.reports where id=$1',[forwarded.id]),[]);
+
   assert.ok(await first("select id from public.emergency_delivery where kind='dispatch_gap' and event_id=$1 and user_id=$2",[forwarded.id,lgu.id]));
   await runAs(lgu,'select public.auto_dispatch_report($1)',[forwarded.id]);
   assert.ok(await first("select id from public.report_dispatches where report_id=$1 and team='BFP'",[forwarded.id]));
@@ -237,6 +246,9 @@ export async function verifyRoles(db) {
   assert.equal((await first('select status from public.reports where id=$1',[corroborated.id])).status,'verified');
   assert.ok(await first("select id from public.emergency_delivery where kind='dispatch_gap' and event_id=$1 and user_id=$2",[corroborated.id,lgu.id]));
   assert.ok(await first("select id from public.notifications where title='Corroborated report needs MDRRMO review' and report_id=$1 and user_id=$2",[corroborated.id,lgu.id]));
+  const corroboratedTarget = (await query("select user_id from public.emergency_delivery where kind='hazard_confirmed' and event_id=$1",[corroborated.id])).rows.map(row => row.user_id).sort();
+  assert.deepEqual(corroboratedTarget,[...localRecipients,...[teams[2],teams[3]].flatMap(team => [team.admin.id,team.member.id])].sort());
+
   console.log('PASS Every hazard label routes to the expected teams, required review offices receive scoped alerts, and a barangay-verified hazard reaches MDRRMO before municipal dispatch.');
 
   await db.exec('drop schema net cascade');

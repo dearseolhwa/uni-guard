@@ -2104,6 +2104,7 @@ const UG_DISPATCH = (function () {
       }
       const disp = d.report ? (state.data.dispatches || []).find((x) => x.report_id === d.report) : null;
       if (disp) { openDispatch(disp.id); return; }
+      if (n?.type === 'hazard_confirmed') app().toast(n.body, 'warning');
       else if (d.report) app().toast('That dispatch is no longer assigned to your unit', 'info');
       app().render();
     },

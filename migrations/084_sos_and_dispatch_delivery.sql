@@ -5,10 +5,12 @@ begin;
 -- An automatic assignment has no meaningful ETA without an incident location.
 alter table public.report_dispatches alter column eta drop not null;
 
-alter table public.emergency_delivery add column if not exists urgent boolean not null default true;
+alter table public.emergency_delivery
+  add column if not exists urgent boolean not null default true,
+  add column if not exists unit_id uuid references public.dispatch_units(id) on delete cascade;
 alter table public.emergency_delivery drop constraint if exists emergency_delivery_kind_check;
 alter table public.emergency_delivery add constraint emergency_delivery_kind_check
-  check (kind in ('sos', 'dispatch', 'report_review', 'dispatch_gap'));
+  check (kind in ('sos', 'dispatch', 'report_review', 'dispatch_gap', 'hazard_confirmed'));
 
 create index if not exists profiles_active_dispatch_unit_idx
   on public.profiles (dispatch_unit_id)
@@ -109,33 +111,27 @@ begin
 end;
 $$;
 
--- Preserve the listed order so the primary responder is dispatched before support teams.
+-- The order sets the primary responder. Severity controls urgency, not team selection.
 create or replace function public.auto_dispatch_teams(p_hazard text, p_severity text)
 returns text[] language sql immutable as $$
-  select array(
-    select t from unnest(
-      case
-        when lower(trim(coalesce(p_hazard, ''))) in ('fire', 'electrical / power line hazard', 'power_line')
-          then array['BFP', 'Barangay Response Team']
-        when lower(trim(coalesce(p_hazard, ''))) in ('flood', 'river overflow', 'river_overflow',
-               'drainage blockage', 'drainage_blockage', 'storm surge', 'storm_surge',
-               'coastal erosion', 'coastal_erosion')
-          then array['Rescue Unit', 'Barangay Response Team']
-        when lower(trim(coalesce(p_hazard, ''))) in ('strong wind / typhoon damage', 'strong_wind',
-               'fallen tree', 'fallen_tree')
-          then array['Barangay Response Team']
-        when lower(trim(coalesce(p_hazard, ''))) in ('landslide / soil erosion', 'landslide', 'earthquake')
-          then array['Rescue Unit', 'Ambulance', 'Barangay Response Team']
-        when lower(trim(coalesce(p_hazard, ''))) in ('vehicular accident', 'vehicular_accident')
-          then array['PNP', 'Ambulance']
-        when lower(trim(coalesce(p_hazard, ''))) in ('road damage', 'road_damage')
-          then array['PNP', 'Barangay Response Team']
-        else array[]::text[]
-      end
-      || case when p_severity = 'emergency' then array['Ambulance'] else array[]::text[] end
-    ) with ordinality as teams(t, priority)
-    group by t order by min(priority)
-  );
+  select case
+    when lower(trim(coalesce(p_hazard, ''))) in ('fire', 'electrical / power line hazard', 'power_line')
+      then array['BFP', 'Barangay Response Team']
+    when lower(trim(coalesce(p_hazard, ''))) in ('flood', 'river overflow', 'river_overflow',
+           'drainage blockage', 'drainage_blockage', 'storm surge', 'storm_surge',
+           'coastal erosion', 'coastal_erosion')
+      then array['Rescue Unit', 'Barangay Response Team']
+    when lower(trim(coalesce(p_hazard, ''))) in ('strong wind / typhoon damage', 'strong_wind',
+           'fallen tree', 'fallen_tree')
+      then array['Barangay Response Team']
+    when lower(trim(coalesce(p_hazard, ''))) in ('landslide / soil erosion', 'landslide', 'earthquake')
+      then array['Rescue Unit', 'Ambulance', 'Barangay Response Team']
+    when lower(trim(coalesce(p_hazard, ''))) in ('vehicular accident', 'vehicular_accident')
+      then array['PNP', 'Ambulance']
+    when lower(trim(coalesce(p_hazard, ''))) in ('road damage', 'road_damage')
+      then array['PNP', 'Barangay Response Team']
+    else array[]::text[]
+  end;
 $$;
 
 create or replace function public.report_is_life_safety(p_hazard text)
@@ -290,6 +286,61 @@ for each row when (old.dispatch_status is distinct from new.dispatch_status
   and new.dispatch_status = 'declined' and new.no_ack_rerouted_at is null)
 execute function public.queue_declined_dispatch_followup();
 
+create or replace function public.pick_staffed_dispatch_unit(
+  p_team text, p_lat double precision, p_lng double precision
+)
+returns table (unit_id uuid, distance double precision)
+language sql stable security definer set search_path = public as $$
+  select u.id, case when u.lat is not null and u.lng is not null and p_lat is not null and p_lng is not null
+                    then public.distance_m(u.lat, u.lng, p_lat, p_lng) end as dist
+    from public.dispatch_units u
+   where u.active and u.status <> 'off_duty'
+     and u.unit_type = case p_team when 'BFP' then 'BFP' when 'PNP' then 'PNP'
+                                 when 'Rescue Unit' then 'Rescue' when 'Ambulance' then 'Hospital' end
+     and (p_team <> 'Ambulance' or u.ambulance_available)
+     and public.dispatch_unit_has_active_staff(u.id)
+   order by (u.status = 'available') desc, dist asc nulls last, u.created_at, u.id
+   limit 1;
+$$;
+revoke all on function public.pick_staffed_dispatch_unit(text, double precision, double precision)
+  from public, anon, authenticated;
+
+-- Alert the specific response unit about the confirmation while duty staff
+-- retain authority to make the assignment.
+create or replace function public.notify_confirmed_hazard(p_report_id uuid, p_teams text[])
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_report public.reports;
+  v_urgent boolean;
+  v_team text;
+  v_unit uuid;
+begin
+  select * into v_report from public.reports where id = p_report_id;
+  if v_report.status is distinct from 'verified' then return; end if;
+  v_urgent := v_report.severity is not distinct from 'emergency' or public.report_is_life_safety(v_report.hazard_type);
+  foreach v_team in array p_teams loop
+    select unit_id into v_unit from public.pick_staffed_dispatch_unit(v_team, v_report.lat, v_report.lng);
+    with queued as (
+      insert into public.emergency_delivery (kind, event_id, user_id, unit_id, urgent)
+      select 'hazard_confirmed', p_report_id, p.id, v_unit, v_urgent from public.profiles p
+       where not p.disabled and p.removed_at is null
+         and ((v_team = 'Barangay Response Team' and p.role = 'barangay_official' and p.barangay_id = v_report.barangay_id)
+           or (p.role = 'dispatch_team' and p.dispatch_unit_id = v_unit))
+      on conflict do nothing
+      returning user_id
+    )
+    insert into public.notifications (user_id, title, body, tone, icon, type, report_id)
+    select user_id, 'Confirmed hazard for ' || v_team,
+           left(concat_ws(' · ', v_report.code, v_report.hazard_type, nullif(v_report.barangay, '')) ||
+             case when v_unit is not null then '. Wait for an MDRRMO assignment.' else '. Review the incident in UniGuard.' end, 240),
+           case when v_urgent then 'emergency' else 'warning' end,
+           'alert', 'hazard_confirmed', p_report_id
+      from queued;
+  end loop;
+end;
+$$;
+revoke all on function public.notify_confirmed_hazard(uuid, text[]) from public, anon, authenticated;
+
 create or replace function public.ug_auto_dispatch(p_report_id uuid, p_teams text[], p_source text)
 returns int
 language plpgsql
@@ -298,7 +349,6 @@ as $$
 declare
   v_row      public.reports;
   v_team     text;
-  v_type     text;
   v_unit_id  uuid;
   v_dist     double precision;
   v_eta      timestamptz;
@@ -357,19 +407,8 @@ begin
       v_unit_id := null;
       v_eta := case when v_row.lat is not null and v_row.lng is not null then now() + interval '15 minutes' end;
     else
-      v_type := case v_team when 'BFP' then 'BFP' when 'PNP' then 'PNP'
-                            when 'Rescue Unit' then 'Rescue' when 'Ambulance' then 'Hospital' end;
-      v_unit_id := null;
-      select u.id,
-             case when u.lat is null or u.lng is null or v_row.lat is null or v_row.lng is null then null
-                  else public.distance_m(u.lat, u.lng, v_row.lat, v_row.lng) end as dist
-        into v_unit_id, v_dist
-        from public.dispatch_units u
-       where u.active = true and u.unit_type = v_type
-         and (v_type <> 'Hospital' or u.ambulance_available) and u.status <> 'off_duty'
-         and public.dispatch_unit_has_active_staff(u.id)
-       order by (u.status = 'available') desc, dist asc nulls last, u.created_at
-       limit 1;
+      select unit_id, distance into v_unit_id, v_dist
+        from public.pick_staffed_dispatch_unit(v_team, v_row.lat, v_row.lng);
       if v_unit_id is null then
         v_missing := v_missing || v_team;
         continue;
@@ -442,18 +481,21 @@ begin
       perform public.enqueue_dispatch_gap(new.id);
       perform public.write_audit('dispatch.auto_failed', 'reports', new.id, jsonb_build_object('reason', sqlerrm));
     end;
-  elsif (new.verified_by_role = 'barangay_official' and public.is_official()
-         and (cardinality(v_teams) = 0 or cardinality(array_remove(v_teams, 'Barangay Response Team')) > 0))
+  elsif (new.verified_by_role = 'barangay_official' and public.is_official())
      or current_setting('uniguard.reason', true) = 'auto_corroboration' then
-    insert into public.notifications (user_id, title, body, tone, icon, type, report_id)
-    select p.id, case when new.verified_by_role = 'barangay_official'
-                     then 'Barangay-verified report needs MDRRMO review'
-                     else 'Corroborated report needs MDRRMO review' end,
-           left(concat_ws(' · ', new.code, new.hazard_type, nullif(array_to_string(v_teams, ', '), '')), 240),
-           'warning', 'truck', 'dispatch_request', new.id
-      from public.profiles p
-     where p.role = 'lgu_ldrrmc' and not p.is_super_admin and not p.disabled and p.removed_at is null;
-    perform public.enqueue_dispatch_gap(new.id);
+    perform public.notify_confirmed_hazard(new.id, v_teams);
+    if cardinality(v_teams) = 0 or cardinality(array_remove(v_teams, 'Barangay Response Team')) > 0
+       or current_setting('uniguard.reason', true) = 'auto_corroboration' then
+      insert into public.notifications (user_id, title, body, tone, icon, type, report_id)
+      select p.id, case when new.verified_by_role = 'barangay_official'
+                       then 'Barangay-verified report needs MDRRMO review'
+                       else 'Corroborated report needs MDRRMO review' end,
+             left(concat_ws(' · ', new.code, new.hazard_type, nullif(array_to_string(v_teams, ', '), '')), 240),
+             'warning', 'truck', 'dispatch_request', new.id
+        from public.profiles p
+       where p.role = 'lgu_ldrrmc' and not p.is_super_admin and not p.disabled and p.removed_at is null;
+      perform public.enqueue_dispatch_gap(new.id);
+    end if;
   end if;
   return null;
 end;
@@ -899,7 +941,7 @@ begin
       'emergency','alert','emergency_delivery_failure',
       case when j.kind='sos' then j.event_id end,
       case when j.kind='dispatch' then (select report_id from public.report_dispatches where id=j.event_id)
-           when j.kind in ('report_review','dispatch_gap') then j.event_id end
+           when j.kind in ('report_review','dispatch_gap','hazard_confirmed') then j.event_id end
     from public.profiles p where p.role='lgu_ldrrmc' and not p.is_super_admin and not p.disabled and p.removed_at is null;
     perform public.write_audit('emergency_delivery.failed','emergency_delivery',j.id,
       jsonb_build_object('event_id',j.event_id,'kind',j.kind,'recipient_id',j.user_id,'reason',j.reason));

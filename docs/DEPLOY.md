@@ -274,12 +274,12 @@ driving directions.
 | Fire, medical, crime, and rescue SOS | MDRRMO and the affected barangay receive the SOS. The assigned BFP, ambulance, PNP, or rescue unit receives its own alert. |
 | Other / not sure SOS | MDRRMO and the affected barangay review the SOS and arrange any specialized response. |
 | New hazard report | The affected barangay receives a review alert. MDRRMO duty staff also receive urgent, life-safety, unclassified reports and reports without an active barangay reviewer. |
-| Verified hazard report | The response team for each hazard receives a separate assignment alert. Emergency severity adds ambulance where it is absent from the route. Barangay verification alerts MDRRMO when municipal response is needed. Corroborated reports go to duty review. Unclassified hazards need duty review to choose a team. |
+| Verified hazard report | The response team for each hazard receives a separate assignment alert. Severity controls alert urgency. Barangay verification and resident corroboration send a heads-up to the mapped response team accounts while MDRRMO arranges any municipal assignment. Unclassified hazards need duty review to choose a team. |
 | Needed team unavailable or declines | MDRRMO duty staff receive a follow-up alert. Use the incident queue to arrange another response. |
 
 The routing rules cover the departments with UniGuard roles. The duty officer
-coordinates with external agencies, such as the electric utility, that lack an
-account or routing integration.
+can assign additional responders when needed and coordinates with agencies
+such as the electric utility that lack an account or routing integration.
 
 ## 1. Database
 

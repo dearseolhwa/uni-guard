@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
 
-type Job = { id: string; kind: 'sos' | 'dispatch' | 'report_review' | 'dispatch_gap'; event_id: string; user_id: string; lease_id: string; urgent: boolean };
+type Job = { id: string; kind: 'sos' | 'dispatch' | 'report_review' | 'dispatch_gap' | 'hazard_confirmed'; event_id: string; user_id: string; lease_id: string; urgent: boolean; unit_id: string | null };
 type Outcome = { outcome: 'sent' | 'failed' | 'retry' | 'cancelled'; channel?: string; reason?: string };
 
 Deno.serve(async (request) => {
@@ -72,12 +72,22 @@ Deno.serve(async (request) => {
       if (!report || (review ? report.status !== 'reported' : !['verified', 'dispatched'].includes(report.status))) {
         return { outcome: 'cancelled', reason: 'Report no longer needs this alert' };
       }
-      const dutyStaff = profile.role === 'lgu_ldrrmc' && !profile.is_super_admin;
-      const localReviewer = review && profile.role === 'barangay_official' &&
+      const localStaff = profile.role === 'barangay_official' &&
         report.barangay_id && profile.barangay_id === report.barangay_id;
-      if (!dutyStaff && !localReviewer) return { outcome: 'cancelled', reason: 'Recipient changed roles or coverage' };
-      title = review ? 'New hazard report needs review' : 'Response team needs duty follow-up';
-      url = './index.html?incident=' + encodeURIComponent(job.event_id) + '#incidents';
+      const incidentUrl = './index.html?incident=' + encodeURIComponent(job.event_id) + '#incidents';
+      if (job.kind === 'hazard_confirmed') {
+        const unitMember = job.unit_id && profile.role === 'dispatch_team' && profile.dispatch_unit_id === job.unit_id;
+        if (job.unit_id ? !unitMember : !localStaff) {
+          return { outcome: 'cancelled', reason: 'Recipient changed roles or coverage' };
+        }
+        title = 'Confirmed hazard for your response team';
+        url = job.unit_id ? './index.html#notifications' : incidentUrl;
+      } else {
+        const dutyStaff = profile.role === 'lgu_ldrrmc' && !profile.is_super_admin;
+        if (!dutyStaff && !(review && localStaff)) return { outcome: 'cancelled', reason: 'Recipient changed roles or coverage' };
+        title = review ? 'New hazard report needs review' : 'Response team needs duty follow-up';
+        url = incidentUrl;
+      }
     }
 
     const body = 'Open UniGuard to review the alert.';

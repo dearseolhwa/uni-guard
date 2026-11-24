@@ -123,6 +123,7 @@ const staff = {
   bfp: { role: 'dispatch_team', dispatch_unit_id: unit },
   duty: { role: 'lgu_ldrrmc', phone: '09123456781' },
   local: { role: 'barangay_official', barangay_id: barangay },
+  alternate: { role: 'dispatch_team', dispatch_unit_id: 'other-bfp-unit' },
   foreign: { role: 'barangay_official', barangay_id: 'other-barangay' },
   removed: { role: 'dispatch_team', dispatch_unit_id: unit, removed_at: '2000-01-01' }
 };
@@ -131,12 +132,16 @@ const rowsToSend = [
   ['sos-job', 'sos', 'sos-log', 'duty'],
   ['review-job', 'report_review', 'intake', 'local'],
   ['gap-job', 'dispatch_gap', 'verified', 'duty'],
+  ['confirmed-job', 'hazard_confirmed', 'verified', 'bfp', unit],
+  ['alternate-job', 'hazard_confirmed', 'verified', 'alternate', unit],
   ['foreign-job', 'report_review', 'intake', 'foreign'],
   ['removed-job', 'dispatch', 'assignment', 'removed'],
   ['stale-job', 'report_review', 'verified', 'duty'],
   ['acknowledged-job', 'sos', 'sos-log', 'local']
-].map(([id, kind, event_id, user_id]) => ({ id, kind, event_id, user_id, lease_id: 'lease-' + id, urgent: kind !== 'report_review' }));
-const pushPayloads: Array<{ recipient_id: string; url: string; title: string }> = [];
+].map(([id, kind, event_id, user_id, unit_id = null]) => ({
+  id, kind, event_id, user_id, unit_id, lease_id: 'lease-' + id, urgent: kind !== 'report_review'
+}));
+const pushPayloads: Array<{ recipient_id: string; url: string; title: string; tag: string }> = [];
 const finished = new Map<string, { channel: string; outcome: string }>();
 const smsJobs: string[] = [];
 let claims = 0;
@@ -187,17 +192,19 @@ try {
   const result = await invoke(emergency, 'fixture-emergency-token', {});
   assert.equal(result.status, 200);
   assert.deepEqual(await result.json(), { claimed: rowsToSend.length, writeFailures: 0 });
-  assert.deepEqual(pushPayloads.sort((a, b) => a.recipient_id.localeCompare(b.recipient_id)), [
+  assert.deepEqual(pushPayloads.sort((a, b) => a.tag.localeCompare(b.tag)), [
     { title: 'BFP dispatch needs acknowledgment', body: 'Open UniGuard to review the alert.', severity: 'emergency',
       url: './index.html?dispatch=assignment#dispatch', recipient_id: 'bfp', tag: 'dispatch-assignment' },
+    { title: 'Confirmed hazard for your response team', body: 'Open UniGuard to review the alert.', severity: 'emergency',
+      url: './index.html#notifications', recipient_id: 'bfp', tag: 'hazard_confirmed-verified' },
     { title: 'New hazard report needs review', body: 'Open UniGuard to review the alert.', severity: 'warning',
       url: './index.html?incident=intake#incidents', recipient_id: 'local', tag: 'report_review-intake' }
   ]);
   assert.deepEqual(smsJobs.sort(), ['gap-job', 'sos-job']);
-  for (const [id, channel] of [['bfp-job', 'push'], ['review-job', 'push'], ['sos-job', 'sms'], ['gap-job', 'sms']]) {
+  for (const [id, channel] of [['bfp-job', 'push'], ['review-job', 'push'], ['confirmed-job', 'push'], ['sos-job', 'sms'], ['gap-job', 'sms']]) {
     assert.deepEqual(finished.get(id), { channel, outcome: 'sent' });
   }
-  for (const id of ['foreign-job', 'removed-job', 'stale-job', 'acknowledged-job']) {
+  for (const id of ['foreign-job', 'alternate-job', 'removed-job', 'stale-job', 'acknowledged-job']) {
     assert.deepEqual(finished.get(id), { channel: null, outcome: 'cancelled' });
   }
   console.log('PASS Emergency worker sends scoped BFP and hazard push links, falls back to SMS, and skips stale and unauthorized jobs.');
