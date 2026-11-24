@@ -8,12 +8,12 @@ import { resolve } from 'node:path';
 import { verifyRoles as verifyReportAccess } from './report-access.mjs';
 import { verifyRoles as verifyDispatchReplacement } from './dispatch-replacement.mjs';
 import { verifyMobileDelivery } from './mobile-delivery.mjs';
+import { verifyBackendAudit } from './backend-audit.mjs';
 const db = await PGlite.create({extensions:{pgcrypto,pg_trgm}});
 const root = fileURLToPath(new URL('../', import.meta.url));
 const migrations = resolve(root, 'migrations');
 try {
   await db.exec(`
-    create extension pg_trgm;
     create role anon; create role authenticated; create role service_role bypassrls; create role authenticator;
     create schema auth; grant usage on schema auth to anon, authenticated, service_role;
     create function auth.uid() returns uuid language sql stable as $$
@@ -28,18 +28,62 @@ try {
     create table storage.objects (id uuid primary key, bucket_id text, name text);
     alter table storage.objects enable row level security;
   `);
-  for (const f of (await fs.readdir(migrations)).sort().filter(f=>f.endsWith('.sql')&&!f.startsWith('000'))) {
-    try { await db.exec(await fs.readFile(migrations+'/'+f, 'utf8')); }
-    catch (e) { throw Error(f+': '+e.message, {cause:e}); }
+  const readMigration = (file) => fs.readFile(resolve(migrations, file), 'utf8');
+  const files = (await fs.readdir(migrations)).sort().filter(file => file.endsWith('.sql') && !file.startsWith('000'));
+  assert.equal(new Set(files.map(file => file.split('_')[0])).size, files.length);
+  const legacyReport = '00000000-0000-4000-8000-000000000099';
+  const stageDispatch = '00000000-0000-4000-8000-000000000098';
+  for (const file of files) {
+    const version = file.split('_')[0];
+    if (version === '010') {
+      await db.exec('alter table public.reports disable trigger user');
+      await db.query("insert into public.reports(id,hazard_type,description) values ($1,'Others','Legacy description')", [legacyReport]);
+      await db.exec('alter table public.reports enable trigger user');
+    }
+    if (version === '031') {
+      await db.exec("insert into public.road_status(road_name,status) values ('Fixture Road','caution')");
+    }
+    try { await db.exec(await readMigration(file)); }
+    catch (error) { throw Error(file + ': ' + error.message, { cause: error }); }
+    if (version === '010') {
+      const { rows } = await db.query('select hazard_other_text,description from public.reports where id=$1', [legacyReport]);
+      assert.deepEqual(rows, [{ hazard_other_text: 'Unspecified legacy hazard', description: 'Legacy description' }]);
+      await db.query('delete from public.reports where id=$1', [legacyReport]);
+    }
+    if (version === '011') {
+      const { rows } = await db.query("select indexdef from pg_indexes where indexname='authorized_beneficiaries_name_trgm'");
+      assert.match(rows[0].indexdef, /gin_trgm_ops/);
+    }
+    if (version === '031') {
+      const { rows } = await db.query("delete from public.road_status where road_name='Fixture Road' returning status");
+      assert.deepEqual(rows, [{ status: 'one_lane' }]);
+    }
+    if (version === '049') {
+      await db.exec('alter table public.reports disable trigger user');
+      await db.query("insert into public.reports(id,hazard_type,description) values ($1,'Flood','Help request fixture')", [legacyReport]);
+      await db.exec('alter table public.reports enable trigger user');
+      await db.query("insert into public.report_dispatches(id,report_id,team,eta) values ($1,$2,'BFP',now())", [stageDispatch, legacyReport]);
+      await db.query("insert into public.dispatch_help_requests(dispatch_id,updated_at) values ($1,'2000-01-01')", [stageDispatch]);
+      const { rows } = await db.query("update public.dispatch_help_requests set status='acknowledged' where dispatch_id=$1 returning updated_at>'2000-01-01' as touched", [stageDispatch]);
+      assert.deepEqual(rows, [{ touched: true }]);
+      await db.query('delete from public.reports where id=$1', [legacyReport]);
+    }
   }
-  await db.exec(await fs.readFile(resolve(migrations,'079_mobile_delivery_reliability.sql'),'utf8'));
+  const queueDefinition = "select pg_get_viewdef('public.lgu_escalation_queue'::regclass) as definition";
+  const oldQueue = (await db.query(queueDefinition)).rows;
+  await db.exec(await readMigration('047_one_hour_lgu_escalation.sql'));
+  assert.deepEqual((await db.query(queueDefinition)).rows, oldQueue);
+  assert.equal((await db.query("select to_regprocedure('public.lgu_verify_overdue_report(uuid)') as obsolete")).rows[0].obsolete, null);
+  await db.exec(await readMigration('079_mobile_delivery_reliability.sql'));
+  await db.exec(await readMigration('080_backend_audit_fixes.sql'));
+  console.log('PASS Fresh migration chain, legacy hazard and road records, staged help requests and escalation replay.');
   const checkerResults = await db.exec(await fs.readFile(resolve(root, 'docs/CHECK-SUPABASE-MIGRATIONS.sql'), 'utf8'));
   const milestones = checkerResults.find((result) => result.rows?.some((row) => row.migration === '076_super_admin_notifications.sql'))?.rows || [];
   assert.ok(milestones.length > 0);
   assert.deepEqual(milestones.filter((row) => row.status !== 'INSTALLED'), []);
   assert.equal(checkerResults.find((result) => result.rows?.[0]?.recommendation)?.rows[0].recommendation,
-    'CURRENT: schema features through 079 are installed.');
-  console.log('Applied the entire 001–079 chain in embedded PostgreSQL with Auth/Storage fixtures.');
+    'CURRENT: schema features through 080 are installed.');
+  console.log('Applied the entire 001–080 chain in embedded PostgreSQL with Auth/Storage fixtures.');
   await db.exec(`
     insert into auth.users(id,email) values
       ('00000000-0000-4000-8000-000000000001', 'actor@example.test'),
@@ -73,4 +117,5 @@ try {
   await verifyReportAccess(db);
   await verifyDispatchReplacement(db);
   await verifyMobileDelivery(db);
+  await verifyBackendAudit(db);
 } finally { await db.close(); }

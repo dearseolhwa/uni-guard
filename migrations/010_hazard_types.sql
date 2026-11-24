@@ -29,8 +29,11 @@ begin
   end if;
 end $$;
 
--- validate separately so an already-clean table applies this instantly, and a
--- table with a pre-existing inconsistent row does not fail the whole migration
+-- Preserve the original report description and mark the missing legacy type
+-- before validating the constraint on data predating this column.
+update public.reports
+   set hazard_other_text = 'Unspecified legacy hazard'
+ where lower(btrim(hazard_type)) = 'others' and nullif(btrim(hazard_other_text), '') is null;
 alter table public.reports validate constraint reports_other_requires_text;
 
 -- reports_feed (migration 004) is the read view the client queries; recreate

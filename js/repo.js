@@ -211,7 +211,7 @@ const Repo = (function () {
       /* who answered it (migration 064) */
       acknowledged_by_name: s.acknowledged_by_name || '', acknowledged_by_office: s.acknowledged_by_office || '',
       acknowledged_at: s.acknowledged_at || null, resolved_by_name: s.resolved_by_name || '', resolved_at: s.resolved_at || null,
-      /* closed automatically after 12 h with no answer (migration 067) */
+      /* Retains the legacy expiry marker for SOS alerts closed before migration 069. */
       expired_at: s.expired_at || null, expired: !!s.expired_at,
       time: UG_UTIL.relTime(s)
     };
@@ -1629,11 +1629,11 @@ const Repo = (function () {
     return data;
   }
   /* ------------------------------------------------------------- error log */
-  function logClientError(message, context) {
+  async function logClientError(message, context) {
     const c = client();
-    if (!c) return;
+    if (!c || !Auth.state.session) return;
     try {
-      c.rpc('log_client_error', { p_message: String(message || '').slice(0, 500), p_context: context || {} });
+      await c.rpc('log_client_error', { p_message: String(message || '').slice(0, 500), p_context: context || {} });
     } catch (e) { /* reporting must never throw */ }
   }
 

@@ -687,6 +687,9 @@ create table if not exists public.dispatch_help_requests (
   resolved_at     timestamptz
 );
 
+alter table public.dispatch_help_requests
+  add column if not exists updated_at timestamptz not null default now();
+
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'dispatch_help_requests_kind_check') then

@@ -1,10 +1,10 @@
 # UniGuard · Migration notes for the live project
 
-How to bring the existing live Supabase project up to the fixed schema, in
-order, with a manual verification query per step. **Never edit an
-already-numbered migration**; everything here is additive and safe to re-run
-(idempotent). Run each file in the Supabase SQL editor, or copy them into
-`supabase/migrations/` and `supabase db push`.
+Start with the [schema checker](CHECK-SUPABASE-MIGRATIONS.sql) in the Supabase
+SQL Editor. Follow the missing steps in order and record each full filename.
+Use the new release migrations for an existing project. The corrections to
+earlier files cover new installations and installations paused at one of
+those steps.
 
 ## Run order
 
@@ -211,16 +211,16 @@ GPS, outside Lingayen, or no free unit), the duty officers and the officials
 of the sender's barangay get an urgent "NO TEAM SENT — SOS · …" notification
 (type sos, so it rings) saying why and to call the sender, then dispatch.
 
-## 067 · Unanswered SOS and unverified reports: escalate, then expire
+## 067 · Unanswered SOS and unverified reports
 
 Run after 066 (safe to re-run; needs pg_cron like 063). One job,
 `uniguard-unanswered-sweep`, runs every minute:
 
 - **SOS nobody acknowledged:** a reminder to the sender's barangay officials
   and the LGU at 5 min, an urgent "UNANSWERED 15 MIN" alert to every LGU
-  account at 15 min, and after 12 h it closes automatically (status
-  `resolved`, `expired_at` set). The consoles show it as "Unanswered", and the
-  sender is told to call 911 or the LDRRMO hotline, or to send a new SOS.
+  account at 15 min. Migration 069 removed the original 12-hour auto-close.
+  Unanswered SOS alerts stay open and remain in the pending staff receipt
+  list for each eligible staff member until they record a receipt.
 - **Reports nobody verified:** the LGU and the barangay's officials are
   notified once when a report is 1 h overdue. After 3 days it closes
   automatically (status `rejected`, `expired_at` set, reason `expired` in its
@@ -233,3 +233,18 @@ last column. Check with:
 
     select jobname, schedule, active from cron.job where jobname = 'uniguard-unanswered-sweep';
     select public.ug_unanswered_sweep();   -- runs one pass now, returns the counts
+
+## 080 · Backend database audit
+
+Apply after 079. The migration updates equipment and relief RPCs, adds account
+guards to newer RLS tables, limits the Others review to active LGU accounts,
+and restores the current overdue-report queue if legacy SQL was replayed.
+It also normalizes the old ban date for removed staff accounts. It cannot
+recover equipment notes already erased by a past edit.
+
+Fresh installations run a single 045 file, `045_super_admin_improvements.sql`.
+Migration 047 owns the original escalation setup. Its replay guard preserves
+the two-argument verification RPC introduced in 051. For a database previously
+managed with a CLI ledger, check the actual schema before relying on the stored
+045 version. The checker reports the Super Admin activity log view as evidence.
+Missing earlier features need to be reconciled before continuing.

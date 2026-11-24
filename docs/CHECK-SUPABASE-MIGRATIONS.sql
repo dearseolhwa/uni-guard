@@ -35,6 +35,9 @@ with checks(sort_order, migration, installed, evidence) as (
     (44, '044_reports_documentation.sql',
       to_regclass('public.damage_assessments') is not null and to_regclass('public.situation_reports') is not null,
       'damage_assessments and situation_reports'),
+    (45, '045_super_admin_improvements.sql',
+      to_regclass('public.audit_log_with_actor') is not null,
+      'audit_log_with_actor'),
     (46, '046_super_admin_verify_block_and_change_requests.sql',
       to_regclass('public.change_requests') is not null,
       'change_requests'),
@@ -118,7 +121,15 @@ with checks(sort_order, migration, installed, evidence) as (
       to_regprocedure('public.renew_mobile_push_device(text,uuid,text,text,text)') is not null and
       to_regprocedure('public.claim_advisory_sms(uuid,uuid)') is not null and
       to_regclass('public.advisory_sms_deliveries') is not null,
-      'Device renewal RPCs and per-advisory SMS ledger')
+      'Device renewal RPCs and per-advisory SMS ledger'),
+    (80, '080_backend_audit_fixes.sql',
+      exists (select 1 from pg_class where oid=to_regclass('public.others_hazard_review') and 'security_invoker=true'=any(reloptions)) and
+      exists (select 1 from pg_policies where schemaname='public' and tablename='advisory_sms_deliveries'
+              and policyname='reject_removed_account' and permissive='RESTRICTIVE') and
+      exists (select 1 from pg_proc where oid=to_regprocedure('public.update_equipment(uuid,text,text,text,text)')
+              and position('coalesce(left(trim(p_notes), 1000), notes)' in prosrc)>0) and
+      to_regprocedure('public.lgu_verify_overdue_report(uuid)') is null,
+      'Equipment note preservation, scoped review and account policy guards')
 )
 select migration,
        case when installed then 'INSTALLED' else 'MISSING' end as status,
@@ -128,6 +139,7 @@ order by sort_order;
 
 with current_state as (
   select
+    to_regclass('public.audit_log_with_actor') is not null as has_045,
     to_regprocedure('public.ug_unanswered_sweep()') is not null and
       exists (select 1 from information_schema.columns where table_schema='public' and table_name='reports' and column_name='expired_at') as has_067,
     to_regprocedure('public.remove_staff_account(uuid)') is not null as has_068,
@@ -149,23 +161,31 @@ with current_state as (
     to_regprocedure('public.sync_mobile_push_device(text,text,text,text,uuid,text)') is not null and
       to_regprocedure('public.renew_mobile_push_device(text,uuid,text,text,text)') is not null and
       to_regprocedure('public.claim_advisory_sms(uuid,uuid)') is not null and
-      to_regclass('public.advisory_sms_deliveries') is not null as has_079
+      to_regclass('public.advisory_sms_deliveries') is not null as has_079,
+      exists (select 1 from pg_class where oid=to_regclass('public.others_hazard_review') and 'security_invoker=true'=any(reloptions)) and
+      exists (select 1 from pg_policies where schemaname='public' and tablename='advisory_sms_deliveries'
+              and policyname='reject_removed_account' and permissive='RESTRICTIVE') and
+      exists (select 1 from pg_proc where oid=to_regprocedure('public.update_equipment(uuid,text,text,text,text)')
+              and position('coalesce(left(trim(p_notes), 1000), notes)' in prosrc)>0) and
+      to_regprocedure('public.lgu_verify_overdue_report(uuid)') is null as has_080
 )
 select case
   when not has_067 then 'STOP: the database is behind 067 or has gaps. Share the full results before applying the update.'
-  when not has_068 then 'NEXT: apply 068, then continue in filename order through 079.'
-  when not has_069 then 'NEXT: apply 069, then continue in filename order through 079.'
-  when not has_070 then 'NEXT: apply 070, then continue in filename order through 079.'
-  when not has_071 then 'NEXT: apply 071, then continue in filename order through 079.'
-  when not has_072 then 'NEXT: apply 072, then continue in filename order through 079.'
-  when not has_073 then 'NEXT: apply 073, then continue in filename order through 079.'
-  when not has_074 then 'NEXT: apply 074, then 075 through 079.'
-  when not has_075 then 'READY: apply 075 through 079.'
-  when not has_076 then 'READY: apply 076 through 079.'
-  when not has_077 then 'READY: apply 077 through 079.'
-  when not has_078 then 'READY: apply 078, then 079.'
-  when not has_079 then 'READY: apply 079.'
-  else 'CURRENT: schema features through 079 are installed.'
+  when not has_045 then 'STOP: the Super Admin improvements from 045 are missing. Review the full milestone results.'
+  when not has_068 then 'NEXT: apply 068, then continue in filename order through 080.'
+  when not has_069 then 'NEXT: apply 069, then continue in filename order through 080.'
+  when not has_070 then 'NEXT: apply 070, then continue in filename order through 080.'
+  when not has_071 then 'NEXT: apply 071, then continue in filename order through 080.'
+  when not has_072 then 'NEXT: apply 072, then continue in filename order through 080.'
+  when not has_073 then 'NEXT: apply 073, then continue in filename order through 080.'
+  when not has_074 then 'NEXT: apply 074, then 075 through 080.'
+  when not has_075 then 'READY: apply 075 through 080.'
+  when not has_076 then 'READY: apply 076 through 080.'
+  when not has_077 then 'READY: apply 077 through 080.'
+  when not has_078 then 'READY: apply 078 through 080.'
+  when not has_079 then 'READY: apply 079, then 080.'
+  when not has_080 then 'READY: apply 080.'
+  else 'CURRENT: schema features through 080 are installed.'
 end as recommendation
 from current_state;
 

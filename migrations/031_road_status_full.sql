@@ -24,19 +24,11 @@ alter table public.road_status add column if not exists created_by        uuid;
 
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'road_status_status_check') then
-    alter table public.road_status add constraint road_status_status_check
-      check (status in ('passable','one_lane','blocked','under_repair'));
-  else
-    -- widen the legacy constraint (it only allowed passable/blocked/caution)
-    alter table public.road_status drop constraint road_status_status_check;
-    alter table public.road_status add constraint road_status_status_check
-      check (status in ('passable','one_lane','blocked','under_repair'));
-  end if;
+  alter table public.road_status drop constraint if exists road_status_status_check;
+  update public.road_status set status = 'one_lane' where status = 'caution';
+  alter table public.road_status add constraint road_status_status_check
+    check (status in ('passable','one_lane','blocked','under_repair'));
 end $$;
-
--- legacy 'caution' -> 'one_lane'
-update public.road_status set status = 'one_lane' where status = 'caution';
 
 do $$
 begin

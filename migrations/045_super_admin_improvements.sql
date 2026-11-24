@@ -1,8 +1,7 @@
 -- ============================================================================
 --  UniGuard · 045 (super admin) · Super Admin improvements
---  NOTE: shares the number 045 with 045_one_hour_lgu_escalation.sql. Apply
---  both (this one second). 047 is NOT a duplicate of 045_one_hour: it closes
---  the verify-block gap and must always be applied (audit F-16).
+--  This is the only runnable migration numbered 045. One-hour escalation
+--  is installed by 047.
 --
 --  Companion to migration 043 (the Super Admin role). This file:
 --    · Reclassifies inventory rows from the broad "Shelter" category into

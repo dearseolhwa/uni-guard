@@ -92,16 +92,15 @@ alter table public.authorized_beneficiaries add column if not exists created_at 
 alter table public.authorized_beneficiaries add column if not exists updated_at        timestamptz not null default now();
 
 create index if not exists authorized_beneficiaries_barangay_idx on public.authorized_beneficiaries (barangay_id, active);
-create index if not exists authorized_beneficiaries_name_trgm    on public.authorized_beneficiaries
-  using gin (lower(beneficiary_name) gin_trgm_ops);
--- ^ requires pg_trgm. Guarded below so the migration still runs without it.
 
+create extension if not exists pg_trgm;
 do $$
+declare trgm_schema name;
 begin
-  if not exists (select 1 from pg_extension where extname = 'pg_trgm') then
-    create extension if not exists pg_trgm;
-  end if;
-exception when others then null;
+  select n.nspname into strict trgm_schema
+    from pg_extension e join pg_namespace n on n.oid = e.extnamespace
+   where e.extname = 'pg_trgm';
+  execute format('create index if not exists authorized_beneficiaries_name_trgm on public.authorized_beneficiaries using gin (lower(beneficiary_name) %I.gin_trgm_ops)', trgm_schema);
 end $$;
 
 alter table public.authorized_beneficiaries enable row level security;

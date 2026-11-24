@@ -206,13 +206,29 @@ use `npm ci`, `npx playwright install chromium`, and `npm test` from `tests/`.
 Use the same sequence on each release branch and then verify the staging
 project before promoting it to production.
 
+## Backend database audit release
+
+Run the [migration checker](CHECK-SUPABASE-MIGRATIONS.sql) in Supabase. Apply the
+missing release migrations in order, then run
+[080_backend_audit_fixes.sql](../migrations/080_backend_audit_fixes.sql).
+Run the checker again and confirm it reports features through 080. If you are
+also releasing the mobile audit changes, deploy the four delivery functions
+listed above before promoting the `uniguard-v568` web build.
+
+Verify in staging that an equipment edit can keep or clear its notes. Check
+that only active LGU accounts see the Others hazard review, a failed relief
+void leaves both stock and the ledger intact, and an unread SOS stays in the
+staff inbox after 12 hours. Use [the dispatch delivery checks](#7-background-sos-and-dispatch-delivery)
+for the live delivery configuration. Check the configured app URL and
+redirect origins against the production domain when testing staff invites.
+
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `079_mobile_delivery_reliability.sql`.
+`001_align_core_tables.sql` through `080_backend_audit_fixes.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
-and record each full filename. Enable `pg_trgm` before 011. Apply both `045_*`
-files, followed by 046 and 047. Migration 043 promotes the account matching its
+and record each full filename. Migration 011 installs `pg_trgm` before creating
+its index. Apply `045_super_admin_improvements.sql`, followed by 046 and 047. Migration 043 promotes the account matching its
 bootstrap email if the account and profile exist. For a fresh project, use an
 email you control in the bootstrap block. If the account does not exist yet,
 create it and run only that promotion block once it has a profile.

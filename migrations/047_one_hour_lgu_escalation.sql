@@ -1,22 +1,10 @@
--- Migration 047 · one-hour LGU escalation for unverified barangay reports
---
--- Implements the DOCX requirement: "Dapat jan sa LGU kung di na check ng
--- barangay within 1hr mag aapear agad sa lgu to verify it." A report that
--- has not been verified by the Barangay Official within 60 minutes of
--- submission becomes visible in the LGU verification queue with a clear
--- "overdue" marker. The barangay official can still verify it later;
--- the LGU verification is a fallback, not a takeover.
---
--- NOTE: migration 036 already implements a 30-minute "is_stale" flag on the
--- reports_feed view + a severity bypass for life-safety hazards. This
--- migration adds the explicit persisted escalation_status column + a 1-hour
--- boundary + an RPC the LGU uses to verify an overdue report. The two
--- mechanisms coexist: 30-minute "stale" surfaces the report as a chip;
--- 60-minute "overdue" persists the status and exposes a verification queue.
---
--- This migration is purely additive: a new status flag, a new view, and a
--- new security-definer RPC. No existing column, row or policy is changed.
--- Re-runnable: every CREATE is guarded by IF NOT EXISTS.
+-- Migration 047 · one-hour LGU escalation for unverified barangay reports.
+-- Replaying this file after 051 must not replace the current queue or RPC.
+do $migration$
+begin
+  if to_regprocedure('public.lgu_verify_overdue_report(uuid,text)') is not null then
+    return;
+  end if;
 
 /* ---------------------------------------------------------------------------
    1. escalation_status column on reports
@@ -97,7 +85,7 @@ WHERE escalation_status IS NULL OR escalation_status = 'pending';
    elapsed without a barangay verification) along with the columns the LGU
    verification screen needs.
 */
-CREATE OR REPLACE VIEW public.lgu_escalation_queue AS
+CREATE OR REPLACE VIEW public.lgu_escalation_queue WITH (security_invoker = true) AS
 SELECT
   r.id, r.code, r.hazard_type, r.barangay, r.barangay_id,
   r.severity, r.description, r.status,
@@ -111,96 +99,32 @@ ORDER BY r.created_at ASC;
 COMMENT ON VIEW public.lgu_escalation_queue IS
   'Reports that the Barangay Official has not verified within 1 hour of submission. Surfaced to the LGU as a fallback verification queue. The original barangay official can still verify later.';
 
-/* ---------------------------------------------------------------------------
-   5. an RPC the LGU can call to "claim" an overdue report for verification
-   ---------------------------------------------------------------------------
-   The LGU verifies an overdue report by setting its status to 'verified'
-   through this RPC. The RPC re-checks that the caller is an LGU staff
-   member (NOT a Super Admin — Super Admin verify is blocked per migration
-   046) and writes an audit log row. Idempotent: calling it twice on the
-   same report is a no-op after the first call.
-*/
-CREATE OR REPLACE FUNCTION public.lgu_verify_overdue_report(p_report_id uuid)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_caller uuid := auth.uid();
-  v_report public.reports%ROWTYPE;
-  v_profile public.profiles%ROWTYPE;
-BEGIN
-  SELECT * INTO v_profile FROM public.profiles WHERE id = v_caller;
-  IF NOT FOUND OR v_profile.role NOT IN ('lgu_ldrrmc') THEN
-    RAISE EXCEPTION 'Only LGU staff can verify overdue reports' USING ERRCODE = '42501';
-  END IF;
-
-  -- Super Admin cannot verify reports (defense-in-depth, same rule as
-  -- migration 046's lgu_verify_report and advance_report_status guards).
-  IF COALESCE(v_profile.is_super_admin, false) THEN
-    RAISE EXCEPTION 'Super Admin cannot verify reports. Use Edit to correct the record instead.' USING ERRCODE = '42501';
-  END IF;
-
-  SELECT * INTO v_report FROM public.reports WHERE id = p_report_id;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Report not found' USING ERRCODE = 'P0002';
-  END IF;
-
-  -- short-circuit: already verified
-  IF v_report.status IN ('verified','dispatched','resolved') THEN
-    RETURN jsonb_build_object('ok', true, 'already_verified', true, 'report_id', p_report_id);
-  END IF;
-
-  -- advance the report to verified
-  UPDATE public.reports
-     SET status = 'verified',
-         verified_at = now(),
-         verified_by = v_caller,
-         escalation_status = 'verified'
-   WHERE id = p_report_id;
-
-  -- write an audit row (only if the audit_log table exists)
-  BEGIN
-    INSERT INTO public.audit_log (actor_id, action, entity, entity_id, meta, created_at)
-    VALUES (v_caller, 'lgu_verify', 'reports', p_report_id,
-            jsonb_build_object('from', v_report.status, 'to', 'verified',
-                               'overdue_minutes', EXTRACT(EPOCH FROM (now() - v_report.created_at)) / 60.0),
-            now());
-  EXCEPTION WHEN OTHERS THEN
-    NULL; -- audit_log missing or different schema — non-fatal
-  END;
-
-  RETURN jsonb_build_object('ok', true, 'report_id', p_report_id, 'status', 'verified');
-END;
+-- This compatibility signature is removed by 051.
+create or replace function public.lgu_verify_overdue_report(p_report_id uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_report public.reports;
+begin
+  if not public.is_active_user() or not public.is_lgu() or public.is_super_admin() then
+    raise insufficient_privilege using message = 'Only LGU duty staff can verify overdue reports';
+  end if;
+  select * into v_report from public.reports where id = p_report_id for update;
+  if not found then raise no_data_found using message = 'Report not found'; end if;
+  if v_report.status in ('verified','dispatched','resolved') then
+    return jsonb_build_object('ok', true, 'already_verified', true, 'report_id', p_report_id);
+  end if;
+  if v_report.status <> 'reported' or v_report.created_at > now() - interval '1 hour' then
+    raise exception 'This report is not waiting for overdue verification';
+  end if;
+  return public.lgu_verify_report(p_report_id, 'Overdue: waiting for barangay verification for 1 hour')
+    || jsonb_build_object('ok', true, 'report_id', p_report_id);
+end;
 $$;
 
-COMMENT ON FUNCTION public.lgu_verify_overdue_report(uuid) IS
-  'Lets the LGU verify a report that the barangay official did not verify within 1 hour of submission. Re-checks the caller is LGU staff (not Super Admin).';
-
-/* ---------------------------------------------------------------------------
-   6. RLS — the escalation queue is visible to LGU / Super Admin only
-   ---------------------------------------------------------------------------
-   The view inherits the reports table RLS for now (security_invoker was
-   applied in migration 024). The explicit policy below is a defensive
-   double-check for older engines. It is additive — never replaces existing
-   reports policies.
-*/
-ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "reports_lgu_escalation_read" ON public.reports;
-CREATE POLICY "reports_lgu_escalation_read"
-  ON public.reports FOR SELECT
-  TO authenticated
-  USING (
-    escalation_status = 'overdue'
-    AND EXISTS (
-      SELECT 1 FROM public.profiles p
-      WHERE p.id = auth.uid()
-        AND p.role IN ('lgu_ldrrmc','barangay_official')
-    )
-  );
-
--- Allow LGU/Super Admin to call the verification RPC.
--- Postgres grants EXECUTE on functions to PUBLIC by default; the function
--- re-checks the caller internally, so no extra grant is required.
+revoke all on function public.lgu_verify_overdue_report(uuid) from public, anon;
+grant execute on function public.lgu_verify_overdue_report(uuid) to authenticated;
+drop policy if exists "reports_lgu_escalation_read" on public.reports;
+revoke all on public.lgu_escalation_queue from public, anon;
+grant select on public.lgu_escalation_queue to authenticated;
+end;
+$migration$;

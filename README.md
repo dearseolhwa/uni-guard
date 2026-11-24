@@ -125,8 +125,8 @@ The first entry is **Home**, which is the operations dashboard.
 ## Getting started
 
 1. **Database.** Apply missing SQL files in `migrations/` in filename order through
-   `079_mobile_delivery_reliability.sql`. `000` only inspects the schema. Apply both
-   `045_*` files and then `047_one_hour_lgu_escalation.sql`. Use sample seed files
+   `080_backend_audit_fixes.sql`. `000` only inspects the schema. Apply
+   `045_super_admin_improvements.sql`, then 046 and 047. Use sample seed files
    only in development or staging.
 2. **Auth settings.** Set the Site URL, redirect URLs, and email delivery settings.
    See [Auth settings](docs/DEPLOY.md#2-auth-settings).

@@ -7,15 +7,18 @@
 --  it is a read-only summary.
 -- ============================================================================
 
-create or replace view public.others_hazard_review as
+create or replace view public.others_hazard_review with (security_invoker = true) as
   select hazard_other_text as description,
          count(*)          as occurrences,
          max(created_at)   as latest_at
     from public.reports
-   where hazard_type = 'Others'
+   where lower(trim(hazard_type)) = 'others'
+     and (select public.is_lgu())
+     and (select public.is_active_user())
      and hazard_other_text is not null
      and length(trim(hazard_other_text)) > 0
    group by lower(trim(hazard_other_text)), hazard_other_text
    order by occurrences desc, latest_at desc;
 
+revoke all on public.others_hazard_review from public, anon;
 grant select on public.others_hazard_review to authenticated;
