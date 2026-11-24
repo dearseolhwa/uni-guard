@@ -4,10 +4,13 @@
  * map tiles and the last synced data available, and serves a push notification
  * payload sent by the push-dispatch Edge Function.
  */
-const VERSION = 'uniguard-v564';
+const VERSION = 'uniguard-v565';
 const SHELL = 'uniguard-shell-' + VERSION;
 const TILES = 'uniguard-tiles-' + VERSION;
 const IMAGES = 'uniguard-images-' + VERSION;
+const APP_ICON = './icons-192.png?v=565';
+const ICONS = ['./favicon.ico?v=565', APP_ICON, './icons-512.png?v=565', './icons-maskable-512.png?v=565'];
+const ICON_URLS = new Set(ICONS.map((path) => new URL(path, self.location.href).href));
 
 const PRECACHE = [
   './',
@@ -82,9 +85,7 @@ const PRECACHE = [
   './js/urgent-alerts.js',
   './js/dispatch.js',
 
-  './icons-192.png',
-  './icons-512.png',
-  './icons-maskable-512.png'
+  ...ICONS
 ];
 
 self.addEventListener('install', (event) => {
@@ -167,6 +168,11 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin !== self.location.origin) return;
 
+  if (ICON_URLS.has(url.href)) {
+    event.respondWith(cacheFirst(req, SHELL));
+    return;
+  }
+
   /* the shell: mark up and code update from the network whenever it is reachable */
   if (req.mode === 'navigate' || /\.(?:js|css|html|json)$/.test(url.pathname) || url.pathname.endsWith('/')) {
     event.respondWith(
@@ -202,8 +208,8 @@ self.addEventListener('push', (event) => {
   });
   event.waitUntil(self.registration.showNotification(payload.title, {
     body: payload.body,
-    icon: './icons-192.png',
-    badge: './icons-192.png',
+    icon: APP_ICON,
+    badge: APP_ICON,
     tag: payload.tag || payload.advisory_id || 'uniguard',
     renotify: !!payload.renotify,
     requireInteraction: payload.severity === 'emergency',
