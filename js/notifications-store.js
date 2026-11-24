@@ -1,126 +1,73 @@
-/* UniGuard · notification store
- *
- * One small IndexedDB-backed ring buffer that keeps the most recent 200
- * notifications on this device, so a citizen who closes the app and reopens it
- * still sees the alerts that came in between.
- *
- * This module is best-effort: it writes from JS, it never blocks the boot.
- * The live source of truth stays in Postgres (public.notifications), and the
- * store only exists to fill the gap between an advisory arriving on the wire
- * and the user opening the app to look at it.
- *
- * Used by js/app.js when computing the bell badge count, and by the
- * notifications screen to render the list when Supabase is unreachable.
- */
+/* Keep the most recent 200 inbox entries for the current account and role. */
 const UG_NOTIF_STORE = (function () {
-  const DB_NAME = 'uniguard';
-  const DB_VERSION = 1;
-  const STORE = 'notifications';
+  const STORE = 'notification_history';
+  const LIMIT = 200;
+  const tx = (mode, operation) => UG_DEVICE_DB.tx(STORE, mode, operation).catch(() => null);
+  const range = (scope) => IDBKeyRange.bound([scope, 0], [scope, Number.MAX_SAFE_INTEGER]);
 
-  function openDB() {
-    return new Promise((resolve) => {
-      if (typeof indexedDB === 'undefined') return resolve(null);
-      let req;
-      try { req = indexedDB.open(DB_NAME, DB_VERSION); }
-      catch (e) { return resolve(null); }
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(STORE)) {
-          const os = db.createObjectStore(STORE, { keyPath: 'id' });
-          os.createIndex('created_at', 'created_at');
-        }
-        if (!db.objectStoreNames.contains('snapshot')) { /* created by pwa.js */ }
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
-    });
-  }
-
-  function tx(mode, fn) {
-    return openDB().then((db) => {
-      if (!db) return null;
-      return new Promise((resolve) => {
-        try {
-          const t = db.transaction(STORE, mode);
-          const os = t.objectStore(STORE);
-          const out = fn(os);
-          t.oncomplete = () => resolve(out && out.result !== undefined ? out.result : out);
-          t.onerror = () => resolve(null);
-          t.onabort = () => resolve(null);
-        } catch (e) { resolve(null); }
-      });
-    });
-  }
-
-  /* merge a fresh set from Repo.loadAll into the local store, capping at 200 */
   function mergeAll(rows) {
-    if (!rows || !rows.length) return Promise.resolve();
-    return tx('readwrite', (os) => {
-      rows.forEach((r) => {
-        try { os.put(r); } catch (e) {}
-      });
-    }).then(() => trim());
-  }
+    const scope = UG_PWA.dataScope();
+    if (!scope || !rows?.length) return Promise.resolve();
+    return tx('readwrite', (store) => {
+      for (const notice of rows) {
+        if (!notice.id) continue;
+        const createdAt = Math.max(0, Date.parse(notice.created_at) || 0);
+        store.put({ scope, id: notice.id, createdAt, notice });
+      }
 
-  function trim() {
-    return tx('readonly', (os) => os.count()).then((n) => {
-      if (!n || n <= 200) return;
-      return tx('readwrite', (os) => {
-        const idx = os.index('created_at');
-        const range = IDBKeyRange.upperBound(Date.now(), false);
-        /* advance past everything we want to keep, then delete the rest */
-        let skipped = 0;
-        const keep = n - 200;
-        const req = idx.openCursor(range);
-        req.onsuccess = () => {
-          const cur = req.result;
-          if (!cur) return;
-          if (skipped < keep) { skipped++; cur.continue(); }
-          else {
-            /* we are now at the (keep+1)th oldest entry; nuke it and continue */
-            os.delete(cur.primaryKey);
-            cur.continue();
-          }
-        };
-      });
+      let retained = 0;
+      const request = store.index('created_at').openCursor(range(scope), 'prev');
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        if (++retained > LIMIT) cursor.delete();
+        cursor.continue();
+      };
     });
   }
 
-  function list() {
-    return tx('readonly', (os) => os.getAll()).then((rows) => {
-      rows = rows || [];
-      rows.sort((a, b) => {
-        const ta = Date.parse(a.created_at || a.time || 0);
-        const tb = Date.parse(b.created_at || b.time || 0);
-        return tb - ta;
-      });
-      return rows;
-    });
+  async function list() {
+    const scope = UG_PWA.dataScope();
+    if (!scope) return [];
+    const rows = await tx('readonly', (store) => store.index('created_at').getAll(range(scope)));
+    return UG_PWA.dataScope() === scope ? (rows || []).reverse().map((row) => row.notice) : [];
   }
 
   function markReadLocal(id) {
-    return tx('readwrite', (os) => {
-      const get = os.get(id);
-      get.onsuccess = () => {
-        if (get.result) { get.result.unread = false; get.result.read_at = new Date().toISOString(); os.put(get.result); }
+    const scope = UG_PWA.dataScope();
+    if (!scope) return Promise.resolve();
+    return tx('readwrite', (store) => {
+      const request = store.get([scope, id]);
+      request.onsuccess = () => {
+        const row = request.result;
+        if (!row) return;
+        row.notice.unread = false;
+        store.put(row);
+      };
+    });
+  }
+
+  function updateAccountRows(operation) {
+    const scope = UG_PWA.dataScope();
+    if (!scope) return Promise.resolve();
+    return tx('readwrite', (store) => {
+      const request = store.index('created_at').openCursor(range(scope));
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        operation(cursor);
+        cursor.continue();
       };
     });
   }
 
   function markAllReadLocal() {
-    return tx('readwrite', (os) => {
-      const req = os.openCursor();
-      req.onsuccess = () => {
-        const cur = req.result;
-        if (!cur) return;
-        cur.value.unread = false;
-        cur.value.read_at = new Date().toISOString();
-        cur.update(cur.value);
-        cur.continue();
-      };
+    return updateAccountRows((cursor) => {
+      const row = cursor.value;
+      row.notice.unread = false;
+      cursor.update(row);
     });
   }
 
-  return { mergeAll, list, markReadLocal, markAllReadLocal };
+  return { mergeAll, list, markReadLocal, markAllReadLocal, clear: () => updateAccountRows((cursor) => cursor.delete()) };
 })();

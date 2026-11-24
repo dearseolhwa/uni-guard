@@ -704,6 +704,14 @@
       render();
       return;
     }
+    if (!Repo.state.hasSynced && Repo.client()) {
+      const notices = await UG_NOTIF_STORE.list();
+      if (S.session !== owner) return;
+      if (notices.length && !Repo.state.hasSynced) {
+        UG.DATA.notifications = notices;
+        render();
+      }
+    }
     await Repo.loadAll();
     if (S.session !== owner) return;
     /* Audit F-03: with no server, keep what the PWA cache restored instead of
@@ -734,7 +742,6 @@
     /* merge the freshly loaded notifications into the local store so a citizen
        who closes the app and reopens it still sees the alerts that came in
        between; then fire any emergency overlay that has not been acknowledged. */
-    try { UG_NOTIF_STORE.mergeAll(UG.DATA.notifications || []); } catch (e) { }
     try { UG_URGENT.scan(); } catch (e) { }
     render();
   }
@@ -825,6 +832,7 @@
     go('home');
     render();
     UG_PWA.clearSnapshot(owner).catch(() => { });
+    return UG_PWA.releasePush(owner?.id);
   }
 
   function enterApp(session, message) {
@@ -871,7 +879,9 @@
     toast(message || ('Signed in as ' + (session.title || UG_WEB.ROLE_INFO[session.role].label) + ' · ' + session.scope), 'prepared');
     render();
     bootstrapData();
+    refreshQueuedList().catch(() => {});
     UG_PWA.refreshQueueCount();
+    autoPush(false);
     if (S.route === 'admin-home') loadRouteData('admin-home');
   }
 
@@ -1220,7 +1230,7 @@
         confirmLabel: 'Sign out'
       });
       if (!ok) return;
-      leaveApp('You have been signed out.');
+      await leaveApp('You have been signed out.');
       await Auth.signOut();
     }
   };
@@ -5308,12 +5318,12 @@
       catch (e) { pos = null; /* send or queue without coordinates */ }
       if (S.session !== owner) return;
       const now = new Date();
+      const requestId = crypto.randomUUID();
       const base = {
         lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, accuracy: pos ? pos.accuracy : null,
         at: now.toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }),
-        noGps: !pos, kind: kind
+        timestamp: now.getTime(), requestId, noGps: !pos, kind: kind
       };
-      const requestId = crypto.randomUUID();
       const queueIt = async (attempted = false) => {
         try {
           await UG_PWA.upsertQueuedSos({
@@ -5360,6 +5370,7 @@
       if (S.session === owner) {
         S.sosSending = false;
         render();
+        if (S.lastSos?.status === 'queued') refreshQueuedList().catch(() => {});
       }
     },
 
@@ -5826,9 +5837,11 @@
 
   /* a queued SOS reached the server after the connection came back */
   document.addEventListener('ug:sos-delivered', (e) => {
+    const row = e.detail?.row;
     const res = (e.detail && e.detail.result) || {};
-    if (S.lastSos && (S.lastSos.status === 'queued' || S.lastSos.status === 'error')) {
-      S.lastSos = Object.assign({}, S.lastSos, {
+    if (row?.owner_id !== S.session?.id) return;
+    if (!S.sosSending && (!S.lastSos || S.lastSos.requestId === row.request_id)) {
+      S.lastSos = Object.assign(queuedSosView(row), {
         status: 'sent', message: '', id: res.id || null,
         reach: typeof res.reach === 'number' ? res.reach : null,
         team: res.dispatched ? res.team : null,
@@ -5839,9 +5852,10 @@
     if (S.session) render();
   });
   document.addEventListener('ug:sos-rejected', (e) => {
-    if (S.lastSos && S.lastSos.status === 'queued') {
-      S.lastSos = Object.assign({}, S.lastSos, { status: 'error', message: (e.detail && e.detail.message) || T('error.generic') });
-      if (S.session) render();
+    const row = e.detail?.row;
+    if (row?.failed && row.owner_id === S.session?.id && S.lastSos?.requestId === row.request_id) {
+      S.lastSos = queuedSosView(row);
+      render();
     }
   });
 
@@ -5926,7 +5940,10 @@
     /* a live refresh can bring in an emergency advisory: store it for the
        notifications list and raise the overlay, as bootstrapData does */
     if (!Repo.state.loading && S.session.role !== 'dispatch_team') {
-      try { UG_NOTIF_STORE.mergeAll(UG.DATA.notifications || []); } catch (e) { }
+      if (Repo.state.source === 'supabase' && !Repo.state.resourceSync.notifications?.failed &&
+          hasSameScope(S.session, Auth.state.session)) {
+        UG_NOTIF_STORE.mergeAll(UG.DATA.notifications);
+      }
       try { UG_URGENT.scan(); } catch (e) { }
       alarmOnNew();
     }
@@ -6103,7 +6120,7 @@
   try {
     if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
       navigator.serviceWorker.addEventListener('message', (e) => {
-        if (!e.data || e.data.type !== 'UG_PUSH' || !S.session) return;
+        if (e.data?.type !== 'UG_PUSH' || !S.session || e.data.ownerId !== S.session.id) return;
         const p = e.data.payload || {};
         const kind = p.tag && p.tag.startsWith('dispatch-') ? 'dispatch' : /sos/i.test(p.title || '') ? 'sos' : ((p.title || '') + ' ' + (p.body || ''));
         try { UG_ALARM.play(kind, { force: p.severity === 'emergency' || kind === 'sos' }); } catch (err) { }
@@ -6180,6 +6197,8 @@
   document.addEventListener('click', () => { autoPush(true); }, true);
   setTimeout(() => autoPush(false), 4000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') autoPush(false); });
+  window.addEventListener('online', () => autoPush(false));
+  document.addEventListener('ug:push-device-changed', () => autoPush(false));
 
   /* The alarm unlocks on the first pointerdown / touchstart / keydown. Redrawing
      right then replaced the very field being tapped (the search boxes lost
@@ -6247,22 +6266,50 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshDispatch(); });
   UG_PWA.onChange(() => { if (S.session) render(); });
 
-  /* My Reports lists the reports still waiting in the offline queue (SOS rows
-     are shown on the SOS card instead). IndexedDB is async, so keep a copy in
-     UG.DATA.queuedReports and refresh it whenever the queue changes. */
+  /* Restore the signed-in resident's offline reports and SOS after a restart. */
   let queueKey = '';
+  let queueRead = 0;
+  function queuedSosView(row) {
+    const date = new Date(row.client_sent_at || row.queued_at);
+    return {
+      status: row.failed ? 'error' : 'queued',
+      message: row.last_error || '',
+      requestId: row.request_id,
+      queueId: row.id,
+      kind: row.kind || 'other',
+      at: UG_UTIL.absTime(date),
+      timestamp: date.getTime(),
+      lat: row.lat ?? null,
+      lng: row.lng ?? null,
+      accuracy: row.accuracy ?? null,
+      noGps: row.lat == null || row.lng == null
+    };
+  }
   async function refreshQueuedList() {
     const owner = S.session;
+    const read = ++queueRead;
     const rows = (await UG_PWA.listQueue()) || [];
-    if (S.session !== owner) return;
-    UG.DATA.queuedReports = rows.filter((r) => r._kind !== 'sos').map((r) => ({
-      qid: r.id, hazard: r.hazard_type, brgy: r.barangay, description: r.description,
-      queued_at: r.queued_at, failed: !!r.failed, last_error: r.last_error || '', sev: r.severity
+    if (!owner || S.session !== owner || read !== queueRead) return;
+    UG.DATA.queuedReports = rows.map((r) => ({
+      qid: r.id, kind: r._kind, hazard: r._kind === 'sos' ? 'SOS · ' + UG_SOS.kindLabel(r.kind) : r.hazard_type,
+      brgy: r.barangay, description: r.description, queued_at: r.queued_at,
+      failed: !!r.failed, last_error: r.last_error || '', sev: r.severity
     }));
+    if (owner.role === 'citizen' && !S.sosSending) {
+      const latest = rows.filter((row) => row._kind === 'sos')
+        .sort((a, b) => Number(!!a.failed) - Number(!!b.failed) ||
+          Date.parse(b.updated_at || b.queued_at) - Date.parse(a.updated_at || a.queued_at))[0];
+      const pending = latest && queuedSosView(latest);
+      if (pending && (!latest.failed || S.lastSos?.status !== 'sent' || pending.timestamp >= S.lastSos.timestamp)) {
+        S.lastSos = pending;
+      } else if (!latest && S.lastSos?.status !== 'sent' && S.lastSos?.queueId != null) {
+        S.lastSos = null;
+      }
+    }
     if (S.session) render();
   }
   UG_PWA.onChange((st) => {
-    const k = [S.session?.id, st.queued, st.failed].join(':');
+    const k = [S.session?.id, st.queueKey].join(':');
     if (k === queueKey) return;
     queueKey = k;
     refreshQueuedList().catch(() => { });
@@ -6375,6 +6422,7 @@
 
     if (applyDevDeepLink()) {
       render();
+      refreshQueuedList().catch(() => {});
       /* a deep-linked preview route still needs its own data (reports register,
          activity log); enterApp is skipped on this path */
       bootstrapData().then(() => loadRouteData(S.route)).catch(() => { });

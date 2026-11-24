@@ -103,54 +103,45 @@ Deno.serve(async (req: Request) => {
   webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
-  // ---- collect recipients -------------------------------------------------
-  // Build a list of user_ids the audience allows, then join with the push
-  // subscriptions. This way a barangay audience never reaches another
-  // barangay's devices, and a unit audience never reaches another unit.
-  let targetUserIds: string[] | null = null;
-  if (barangayIds.length) {
-    const { data: rows } = await admin.from('profiles')
-      .select('id').in('barangay_id', barangayIds).eq('disabled', false);
-    targetUserIds = (rows ?? []).map((r: { id: string }) => r.id);
-  } else if (unitId) {
-    const { data: rows } = await admin.from('profiles')
-      .select('id').eq('dispatch_unit_id', unitId).eq('role', 'dispatch_team').eq('disabled', false);
-    targetUserIds = (rows ?? []).map((r: { id: string }) => r.id);
-  }
+  const batchSize = 20;
+  const pageSize = 200;
+  let afterId = '';
+  let sent = 0, failed = 0, removed = 0;
+  while (true) {
+    let query = admin.from('push_subscriptions')
+      .select('id, endpoint, p256dh, auth, profiles!inner(disabled, barangay_id, dispatch_unit_id, role)')
+      .eq('profiles.disabled', false).order('id').limit(pageSize);
+    if (afterId) query = query.gt('id', afterId);
+    if (barangayIds.length) query = query.in('profiles.barangay_id', barangayIds);
+    else if (unitId) query = query.eq('profiles.dispatch_unit_id', unitId).eq('profiles.role', 'dispatch_team');
+    const { data: subs, error } = await query;
+    if (error) return json({ error: error.message }, 500);
+    if (!subs?.length) break;
+    afterId = subs[subs.length - 1].id;
 
-  let subsQuery = admin.from('push_subscriptions').select('id, endpoint, p256dh, auth, user_id');
-  if (targetUserIds) {
-    if (targetUserIds.length === 0) return json({ ok: true, sent: 0, failed: 0, removed: 0, smsQueued: 0 });
-    subsQuery = subsQuery.in('user_id', targetUserIds);
-  }
-  const { data: subs, error } = await subsQuery;
-
-  if (error) return json({ error: error.message }, 500);
-
-  let sent = 0;
-  let failed = 0;
-  let removed = 0;
-  const stale: string[] = [];
-
-  for (const s of subs ?? []) {
-    try {
-      await webpush.sendNotification(
-        { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+    for (let start = 0; start < subs.length; start += batchSize) {
+      const batch = subs.slice(start, start + batchSize);
+      const results = await Promise.allSettled(batch.map(async (device) => webpush.sendNotification(
+        { endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } },
         payload,
-        { TTL: severity === 'emergency' ? 3600 : 900, urgency: severity === 'emergency' ? 'high' : 'normal' }
-      );
-      sent++;
-    } catch (e) {
-      failed++;
-      const status = (e as { statusCode?: number }).statusCode;
-      // 404 and 410 mean the subscription is dead; stop trying it
-      if (status === 404 || status === 410) stale.push(s.id);
+        { TTL: severity === 'emergency' ? 3600 : 900, urgency: severity === 'emergency' ? 'high' : 'normal', timeout: 8000 }
+      )));
+      const stale = [];
+      for (const [i, result] of results.entries()) {
+        if (result.status === 'fulfilled') sent++;
+        else {
+          failed++;
+          if ([404, 410].includes(result.reason?.statusCode)) stale.push(batch[i]);
+        }
+      }
+      await Promise.all(stale.map(async (device) => {
+        // A device might have renewed the endpoint since this send began.
+        const { data } = await admin.from('push_subscriptions').delete()
+          .eq('id', device.id).eq('endpoint', device.endpoint).select('id');
+        removed += data?.length || 0;
+      }));
     }
-  }
-
-  if (stale.length) {
-    const { error: delErr } = await admin.from('push_subscriptions').delete().in('id', stale);
-    if (!delErr) removed = stale.length;
+    if (subs.length < pageSize) break;
   }
 
   // ---- SMS fallback for accounts with no push device ----------------------
@@ -159,7 +150,7 @@ Deno.serve(async (req: Request) => {
     try {
       // sms-fallback only accepts this function (service key) as its caller
       const { data: smsResult } = await admin.functions.invoke('sms-fallback', {
-        body: { title, message, severity, area, advisoryId, barangayIds, unitId }
+        body: { title, message, severity, area, advisoryId, barangayIds, unitId, actorId: userData.user.id }
       }) as { data: { queued?: number } | null };
       smsQueued = smsResult?.queued ?? 0;
     } catch {
@@ -168,6 +159,7 @@ Deno.serve(async (req: Request) => {
   }
 
   await admin.from('audit_log').insert({
+    actor_id: userData.user.id,
     action: 'push.dispatched',
     entity: 'advisories',
     entity_id: advisoryId,

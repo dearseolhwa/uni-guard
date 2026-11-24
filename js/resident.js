@@ -200,7 +200,12 @@ const UG_RW = (() => {
       (queued.length ? '<section class="rw-card"><div class="rw-card-h"><h3>Waiting to send</h3><span class="rw-live" style="color:#92400E;background:#FFFBEB;border-color:#FCD34D">' + queued.length + ' saved on this device</span></div>' +
         '<ul class="rw-mrlist">' + queued.map((q) => '<li><div class="rw-mr" style="cursor:default"><div class="rw-main"><div class="rw-t"><b>' + esc(q.hazard || 'Hazard') + '</b></div>' +
           (q.description ? '<p class="rw-mr-desc rw-clamp2">' + esc(q.description) + '</p>' : '') +
-          '<div class="rw-meta"><span>' + I('pin', 14) + 'Brgy. ' + esc(q.brgy || '') + '</span><span>' + I('wifioff', 14) + 'Sends when you are online</span></div></div></div></li>').join('') + '</ul></section>' : '') +
+          '<div class="rw-meta">' + (q.brgy ? '<span>' + I('pin', 14) + 'Brgy. ' + esc(q.brgy) + '</span>' : '') +
+          '<span class="rw-pill rw-pill--soft">' + I('wifioff', 14) +
+          (q.failed ? 'Could not send' : q.kind === 'sos' ? 'Waiting for signal' : 'Sends when you are online') +
+          '</span></div>' + (q.failed ? '<div class="rw-row-acts"><button class="rw-btn rw-btn--line"' + A('queue-retry') + '>Retry</button>' +
+            (q.kind === 'sos' ? '<a class="rw-btn rw-btn--red" href="' + telOf(mdrrmo()) + '">Call the LDRRMO</a>' : '') + '</div>' : '') +
+          '</div></div></li>').join('') + '</ul></section>' : '') +
       '<section class="rw-card"><div class="rw-card-h rw-nhead"><div><h3>My reports</h3>' +
           (page.total != null ? '<span class="rw-hint">' + page.total + ' total</span>' : rows.length ? '<span class="rw-hint">' + rows.length + ' available</span>' : '') + '</div>' +
           '<button class="rw-newrep"' + A('nav', attr({ route: 'report' })) + '>' + I('plus', 14) + 'New report</button></div>' +
@@ -739,7 +744,8 @@ const UG_RW = (() => {
       '<section class="rw-card rw-off-wait"><div class="rw-card-h"><h3>Reports waiting to send</h3><span class="rw-live">' + queued.length + '</span></div>' +
         (UG_PWA.state.unassigned ? '<p class="rw-warn rw-warn--amber" role="status">Older reports or SOS messages without an account are held on this device. If you still need help, send a new report or call the LDRRMO.</p>' : '') +
         (queued.length ? '<div class="rw-rows">' + queued.map((q) => '<div class="rw-row" style="cursor:default"><div class="rw-main"><div class="rw-t"><h4>' + esc(q.hazard || 'Hazard') + '</h4></div>' +
-            '<div class="rw-meta"><span>' + I('pin', 14) + 'Brgy. ' + esc(q.brgy || '') + '</span><span>' + I('clock', 14) + 'Sends automatically when you are online</span></div></div></div>').join('') + '</div>'
+            '<div class="rw-meta">' + (q.brgy ? '<span>' + I('pin', 14) + 'Brgy. ' + esc(q.brgy) + '</span>' : '') +
+              '<span>' + I('clock', 14) + (q.failed ? 'Could not send' : 'Sends automatically when you are online') + '</span></div></div></div>').join('') + '</div>'
           : '<p class="rw-empty rw-empty--row" style="margin:0;font-size:14px">Nothing waiting. Every report has been sent.</p>') + '</section>' +
     '</div>';
   }

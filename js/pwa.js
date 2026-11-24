@@ -4,8 +4,6 @@
  * push subscription.
  */
 const UG_PWA = (function () {
-  const DB_NAME = 'uniguard';
-  const DB_VERSION = 1;
   const STORE_SNAPSHOT = 'snapshot';
   const STORE_QUEUE = 'queue';
 
@@ -24,44 +22,7 @@ const UG_PWA = (function () {
   function emit() { watchers.forEach((fn) => { try { fn(state); } catch (e) {} }); }
 
   /* ---------------------------------------------------------------- storage */
-  function openDB() {
-    return new Promise((resolve, reject) => {
-      if (typeof indexedDB === 'undefined') return reject(new Error('IndexedDB unavailable'));
-      /* a blocked or unavailable store must never stall the boot sequence */
-      const timer = setTimeout(() => reject(new Error('IndexedDB timed out')), 4000);
-      let req;
-      try { req = indexedDB.open(DB_NAME, DB_VERSION); }
-      catch (e) { clearTimeout(timer); return reject(e); }
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(STORE_SNAPSHOT)) db.createObjectStore(STORE_SNAPSHOT);
-        if (!db.objectStoreNames.contains(STORE_QUEUE)) db.createObjectStore(STORE_QUEUE, { keyPath: 'id', autoIncrement: true });
-      };
-      req.onsuccess = () => { clearTimeout(timer); resolve(req.result); };
-      req.onerror = () => { clearTimeout(timer); reject(req.error); };
-      req.onblocked = () => { clearTimeout(timer); reject(new Error('IndexedDB blocked')); };
-    });
-  }
-
-  function tx(store, mode, fn) {
-    return openDB().then((db) => new Promise((resolve, reject) => {
-      try {
-        const transaction = db.transaction(store, mode);
-        transaction.onabort = () => {
-          db.close();
-          reject(transaction.error || new Error('IndexedDB transaction aborted'));
-        };
-        const result = fn(transaction.objectStore(store));
-        transaction.oncomplete = () => {
-          db.close();
-          resolve(result instanceof IDBRequest ? result.result : result);
-        };
-      } catch (error) {
-        db.close();
-        reject(error);
-      }
-    }));
-  }
+  const tx = UG_DEVICE_DB.tx;
 
   function snapshotKey(session = Auth.state.session || (UG_CONFIG.DEV ? window.UG_APP?.S.session : null)) {
     if (!session?.id) return null;
@@ -107,23 +68,8 @@ const UG_PWA = (function () {
     return tx(STORE_QUEUE, 'readwrite', (s) => s.clear()).catch(() => null);
   }
 
-  /* wipe the local notifications ring buffer (same DB, different store; created
-     by js/notifications-store.js). Best-effort: if the store does not exist on
-     this connection the clear is a no-op. */
   function clearNotifications() {
-    return openDB().then((db) => {
-      if (!db) return null;
-      if (!db.objectStoreNames.contains('notifications')) return null;
-      return new Promise((resolve) => {
-        try {
-          const t = db.transaction('notifications', 'readwrite');
-          t.objectStore('notifications').clear();
-          t.oncomplete = () => resolve(true);
-          t.onerror = () => resolve(null);
-          t.onabort = () => resolve(null);
-        } catch (e) { resolve(null); }
-      });
-    }).catch(() => null);
+    return UG_NOTIF_STORE.clear();
   }
   async function hydrateFromCache() {
     const key = snapshotKey();
@@ -236,6 +182,7 @@ const UG_PWA = (function () {
     const own = ownerId ? rows.filter((row) => row.owner_id === ownerId) : [];
     state.queued = own.length;
     state.failed = own.filter((row) => row.failed).length;
+    state.queueKey = JSON.stringify(own.map((row) => [row.id, row.revision, row.attempts]));
     state.unassigned = rows.filter((row) => !row.owner_id).length;
     emit();
     return state.queued;
@@ -339,6 +286,7 @@ const UG_PWA = (function () {
   async function register() {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return false;
     try {
+      let controlled = !!navigator.serviceWorker.controller;
       const reg = await navigator.serviceWorker.register('sw.js', {
         /* never serve the worker script itself from the HTTP cache, so a new build
            is always noticed on the next open */
@@ -347,22 +295,9 @@ const UG_PWA = (function () {
       state.swReady = true;
       emit();
 
-      /* A new build must reach installed users. When a replacement worker has
-         finished installing, activate it and reload once so the shell is new. */
-      reg.addEventListener('updatefound', () => {
-        const sw = reg.installing;
-        if (!sw) return;
-        sw.addEventListener('statechange', () => {
-          if (sw.state !== 'installed') return;
-          if (!navigator.serviceWorker.controller) return;   /* very first install */
-          if (state.reloaded) return;
-          state.reloaded = true;
-          try { sw.postMessage('SKIP_WAITING'); } catch (e) {}
-        });
-      });
-
       if (navigator.serviceWorker.addEventListener) {
         navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!controlled) { controlled = true; return; }
           if (state.reloaded) return;
           state.reloaded = true;
           try { location.reload(); } catch (e) {}
@@ -396,51 +331,105 @@ const UG_PWA = (function () {
   }
 
   async function enablePush() {
-    if (!(await pushSupported())) {
-      throw new Error('Push notifications are not available in this browser, or the push key is not configured.');
+    if (!(await pushSupported()) || !Auth.state.session || !Repo.client()) {
+      throw new Error('Sign in on a supported browser to enable push notifications.');
     }
-    const permission = await Notification.requestPermission();
+    const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
     if (permission !== 'granted') throw new Error('Notification permission was not granted.');
-
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(UG_CONFIG.VAPID_PUBLIC_KEY)
-    });
-
-    const c = Repo.client();
-    if (c) {
-      /* fetch the signed-in user id — the push_subscriptions table has a
-         NOT NULL user_id + an RLS policy that requires user_id = auth.uid().
-         The old version never set user_id, so every insert was silently
-         rejected by RLS and the table stayed empty ("no push devices
-         registered yet"). */
-      const { data: userData } = await c.auth.getUser();
-      const userId = userData && userData.user ? userData.user.id : null;
-      if (!userId) throw new Error('Sign in to enable push notifications.');
-      const json = sub.toJSON();
-      const { error: upErr } = await c.from('push_subscriptions').upsert({
-        user_id: userId,
-        endpoint: json.endpoint,
-        p256dh: json.keys ? json.keys.p256dh : '',
-        auth: json.keys ? json.keys.auth : '',
-        user_agent: navigator.userAgent.slice(0, 200)
-      }, { onConflict: 'endpoint' });
-      if (upErr) {
-        /* surface the real reason instead of swallowing it, so a misconfigured
-           RLS policy or missing column no longer looks like "success". */
-        throw new Error('Could not save your push subscription: ' + (upErr.message || upErr.code || 'unknown error'));
-      }
-    }
+    if (!(await syncPushDevice(true))) throw new Error('Could not register push notifications on this device.');
     return true;
   }
 
+  async function syncPushDevice(create) {
+    const owner = Auth.state.session;
+    if (!owner || !Repo.client() || !state.online) return false;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg?.active || !reg.pushManager) return false;
+    const applicationServerKey = urlBase64ToUint8Array(UG_CONFIG.VAPID_PUBLIC_KEY);
+    return UG_DEVICE_DB.withPushLock(async () => {
+      if (Auth.state.session?.id !== owner.id) return false;
+      const credential = await Repo.queueUploadSession(owner.id);
+      if (!credential) return false;
+      const c = credential.client;
+      const binding = await UG_DEVICE_DB.readPush();
+      const subscribe = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub && !create) return false;
+
+      if (sub && binding?.owner === owner.id && binding.endpoint === sub.endpoint && !binding.suspended) {
+        const existing = await c.from('push_subscriptions').select('id')
+          .eq('user_id', owner.id).eq('endpoint', sub.endpoint).maybeSingle();
+        if (existing.error) throw existing.error;
+        if (existing.data) return Auth.state.session?.id === owner.id;
+      }
+
+      const previous = binding?.owner === owner.id ? binding.endpoint : null;
+      const token = binding?.owner === owner.id && binding.token ? binding.token : crypto.randomUUID();
+      const save = async (subscription) => {
+        if (Auth.state.session?.id !== owner.id) return false;
+        const json = subscription.toJSON();
+        const { data, error } = await c.rpc('sync_mobile_push_device', {
+          p_endpoint: json.endpoint, p_p256dh: json.keys?.p256dh, p_auth: json.keys?.auth,
+          p_user_agent: navigator.userAgent, p_renewal_token: token, p_previous_endpoint: previous
+        });
+        if (error) throw error;
+        return data === true;
+      };
+
+      // Suppress old-account notifications during a handoff.
+      if (binding?.owner !== owner.id) {
+        await UG_DEVICE_DB.savePush({ suspended: true });
+        if (binding?.owner && sub) {
+          await sub.unsubscribe();
+          sub = await reg.pushManager.getSubscription();
+          if (sub) return false;
+        }
+      }
+      if (!sub) sub = await subscribe();
+      if (!(await save(sub))) {
+        await sub.unsubscribe();
+        if (await reg.pushManager.getSubscription()) return false;
+        sub = await subscribe();
+        if (!(await save(sub))) return false;
+      }
+      if (Auth.state.session?.id !== owner.id) return false;
+      await UG_DEVICE_DB.savePush({
+        owner: owner.id, endpoint: sub.endpoint, token, applicationServerKey,
+        project: UG_CONFIG.SUPABASE_URL, apiKey: UG_CONFIG.SUPABASE_ANON_KEY
+      });
+      return true;
+    });
+  }
+
   async function pushEnabled() {
-    if (!(await pushSupported())) return false;
+    if (!(await pushSupported()) || typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
+    try { return await syncPushDevice(false); }
+    catch (e) { return false; }
+  }
+
+  async function releasePush(userId) {
+    if (!userId || !navigator.serviceWorker) return;
     try {
-      const reg = await navigator.serviceWorker.ready;
-      return !!(await reg.pushManager.getSubscription());
-    } catch (e) { return false; }
+      await UG_DEVICE_DB.withPushLock(async () => {
+        const binding = await UG_DEVICE_DB.readPush();
+        if (binding?.owner && binding.owner !== userId) return;
+        await UG_DEVICE_DB.savePush({ suspended: true });
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (!reg?.pushManager) return;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) await sub.unsubscribe();
+        const notices = await reg.getNotifications();
+        notices.forEach((notice) => notice.close());
+        const endpoint = sub?.endpoint || binding?.endpoint;
+        if (endpoint && navigator.onLine !== false) {
+          const credential = await Repo.queueUploadSession(userId);
+          if (credential) {
+            await credential.client.from('push_subscriptions').delete().eq('user_id', userId)
+              .eq('endpoint', endpoint).abortSignal(AbortSignal.timeout(3000));
+          }
+        }
+      });
+    } catch (e) { /* a later sign-in reconciles the device */ }
   }
 
   /* ------------------------------------------------------- retry connection */
@@ -517,7 +506,10 @@ const UG_PWA = (function () {
     try {
       if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
         navigator.serviceWorker.addEventListener('message', (e) => {
-          if (e.data && e.data.type === 'FLUSH_QUEUE') syncQueue();
+          if (e.data?.type === 'FLUSH_QUEUE') syncQueue();
+          if (e.data?.type === 'UG_PUSH_SUBSCRIPTION_CHANGED') {
+            document.dispatchEvent(new Event('ug:push-device-changed'));
+          }
         });
       }
     } catch (e) { /* best effort */ }
@@ -531,8 +523,8 @@ const UG_PWA = (function () {
   return {
     state, onChange, init, register, flushQueue, forceRefresh, retryNow,
     enqueue, upsertQueuedSos, listQueue, removeFromQueue, refreshQueueCount,
-    storeSnapshot, readSnapshot, clearSnapshot, clearQueue, clearNotifications,
+    storeSnapshot, readSnapshot, clearSnapshot, clearQueue, clearNotifications, dataScope: snapshotKey,
     hydrateFromCache,
-    enablePush, pushEnabled, pushSupported
+    enablePush, pushEnabled, pushSupported, releasePush
   };
 })();

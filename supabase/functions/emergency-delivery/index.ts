@@ -71,7 +71,7 @@ Deno.serve(async (request) => {
           );
         } catch (err) {
           const code = (err as { statusCode?: number }).statusCode;
-          if (code === 404 || code === 410) await admin.from('push_subscriptions').delete().eq('id', sub.id);
+          if (code === 404 || code === 410) await admin.from('push_subscriptions').delete().eq('id', sub.id).eq('endpoint', sub.endpoint);
           else retry = true;
           throw err;
         }

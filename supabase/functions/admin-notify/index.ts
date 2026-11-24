@@ -64,17 +64,17 @@ Deno.serve(async (request) => {
         url: './index.html#admin-home', tag: 'sa-' + row.id
       });
       let delivered = 0, transient = 0;
-      const stale: string[] = [];
       for (const s of subs) {
         try {
           await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 3600, urgency: 'normal' });
           delivered++;
         } catch (e) {
           const status = (e as { statusCode?: number }).statusCode;
-          if (status === 404 || status === 410) stale.push(s.id); else transient++;
+          if (status === 404 || status === 410) {
+            await admin.from('push_subscriptions').delete().eq('id', s.id).eq('endpoint', s.endpoint);
+          } else transient++;
         }
       }
-      if (stale.length) await admin.from('push_subscriptions').delete().in('id', stale);
       if (delivered) { await finish(row, 'sent'); sent++; }
       else if (transient) { await finish(row, 'retry'); retry++; }
       else { await finish(row, 'none'); none++; }

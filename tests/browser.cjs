@@ -79,6 +79,38 @@ const server = createServer(async (req, res) => {
     });
     console.log('PASS Offline snapshot scoped to account and role, without signed photo URLs');
 
+    const history = await page.evaluate(async () => {
+      const owner = Auth.state.session;
+      await UG_NOTIF_STORE.mergeAll(Array.from({ length: 250 }, (_, id) => ({
+        id: 'fixture-notice-' + id, unread: true, created_at: new Date(Date.UTC(2026,0,1,0,id)).toISOString()
+      })));
+      await UG_NOTIF_STORE.markReadLocal('fixture-notice-249');
+      const original = await UG_NOTIF_STORE.list();
+      Auth.state.session = { ...owner, id: 'another-account' };
+      const other = await UG_NOTIF_STORE.list();
+      Auth.state.session = owner;
+      return { count: original.length, first: original[0], last: original.at(-1), other: other.length };
+    });
+    assert.equal(history.count, 200);
+    assert.equal(history.first.id, 'fixture-notice-249');
+    assert.equal(history.first.unread, false);
+    assert.equal(history.last.id, 'fixture-notice-50');
+    assert.equal(history.other, 0);
+    console.log('PASS Notification history keeps the newest 200 rows for the active account');
+
+    const photoPicker = await page.evaluate(async () => {
+      const click = HTMLInputElement.prototype.click;
+      let capture;
+      HTMLInputElement.prototype.click = function () {
+        capture = this.hasAttribute('capture');
+        this.dispatchEvent(new Event('cancel'));
+      };
+      try { return { file: await UG_FEATURES.pickPhoto(), cameraForced: capture }; }
+      finally { HTMLInputElement.prototype.click = click; }
+    });
+    assert.deepEqual(photoPicker, { file: null, cameraForced: false });
+    console.log('PASS The file picker allows gallery access and resolves cleanly on cancel');
+
     const success = await page.evaluate(() => ({
       at:Repo.state.lastSync, hotlines:Repo.state.resourceSync.hotlines.lastSuccess
     }));
@@ -136,5 +168,43 @@ const server = createServer(async (req, res) => {
     assert.equal(retries.pending,0);
     assert.deepEqual(errors,[]);
     console.log('PASS Report and SOS queues keep the same request ID across a lost response');
+
+    const mobile = await browser.newContext({ serviceWorkers: 'allow', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await mobile.route('**/*', (route) => route.request().url().startsWith(app + '/') ? route.continue() : route.abort());
+    const phone = await mobile.newPage();
+    const mobileErrors = [];
+    phone.on('pageerror', (e) => mobileErrors.push(e.message));
+    await phone.goto(app + '/privacy.html', { waitUntil: 'domcontentloaded' });
+    await phone.evaluate(() => new Promise((resolve, reject) => {
+      const request = indexedDB.open('uniguard', 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        db.createObjectStore('snapshot');
+        db.createObjectStore('notifications', { keyPath: 'id' }).put({ id: 'unowned-old-alert' });
+        db.createObjectStore('queue', { keyPath: 'id', autoIncrement: true })
+          .add({ owner_id: 'dev', description: 'Existing offline report', queued_at: new Date().toISOString() });
+      };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => { request.result.close(); resolve(); };
+    }));
+    await phone.goto(app + '/?role=citizen&route=sos#sos', { waitUntil: 'domcontentloaded' });
+    await phone.waitForFunction(() => window.UG_APP?.S.session?.id === 'dev' && !!navigator.serviceWorker.controller);
+    await mobile.setOffline(true);
+    await phone.evaluate(async () => {
+      if (!(await UG_PWA.listQueue()).some((row) => row.description === 'Existing offline report')) {
+        throw new Error('Existing queue row lost during storage upgrade');
+      }
+      await UG_PWA.upsertQueuedSos({ kind: 'rescue', lat: 16.02, lng: 120.23 });
+      await UG_NOTIF_STORE.mergeAll([{ id: 'offline-notice', title: 'Saved mobile alert', created_at: new Date().toISOString() }]);
+    });
+    await phone.reload({ waitUntil: 'domcontentloaded' });
+    await phone.waitForFunction(() => window.UG_APP?.S.lastSos?.status === 'queued');
+    await phone.getByText('Waiting for signal', { exact: true }).first().waitFor();
+    await phone.waitForFunction(() => UG.DATA.notifications.some((notice) => notice.id === 'offline-notice'));
+    await phone.evaluate(() => { UG_APP.go('reports'); UG_APP.render(); });
+    await phone.getByText('SOS · Rescue', { exact: true }).first().waitFor();
+    await phone.getByText('Waiting for signal', { exact: true }).first().waitFor();
+    assert.deepEqual(mobileErrors, []);
+    console.log('PASS A saved SOS survives a real offline mobile reload and appears in My Reports');
   } finally { await browser.close(); server.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -4,7 +4,9 @@
  * map tiles and the last synced data available, and serves a push notification
  * payload sent by the push-dispatch Edge Function.
  */
-const VERSION = 'uniguard-v566';
+importScripts('./js/device-store.js');
+
+const VERSION = 'uniguard-v567';
 const SHELL = 'uniguard-shell-' + VERSION;
 const TILES = 'uniguard-tiles-' + VERSION;
 const IMAGES = 'uniguard-images-' + VERSION;
@@ -54,6 +56,7 @@ const PRECACHE = [
   './js/map.js',
   './js/features.js',
   './js/pwa.js',
+  './js/device-store.js',
   './js/app.js',
 
   './css/screens-additions.css',
@@ -116,15 +119,25 @@ async function trimCache(name, maxEntries) {
    offline fallback, so an installed app never gets stuck on an old build. */
 async function networkFirst(req, cacheName) {
   const cache = await caches.open(cacheName);
+  const url = new URL(req.url);
+  const scope = new URL(self.registration.scope);
+  const shellNavigation = req.mode === 'navigate' &&
+    (url.pathname === scope.pathname || url.pathname === scope.pathname + 'index.html');
   try {
     /* 'no-cache' makes the browser re-check every file with the server, so a
        code or style change shows on the next refresh (the plain fetch could
        return a stale copy from the browser's own HTTP cache) */
     const res = await fetch(req.mode === 'navigate' ? req : new Request(req, { cache: 'no-cache' }));
-    if (res && res.status === 200 && res.type === 'basic') cache.put(req, res.clone());
+    if (res.ok && !res.redirected) {
+      if (shellNavigation) {
+        if (!url.search) await cache.put('./index.html', res.clone()).catch(() => {});
+      } else if (res.status === 200 && res.type === 'basic') {
+        await cache.put(req, res.clone()).catch(() => {});
+      }
+    }
     return res;
   } catch (e) {
-    const hit = await cache.match(req);
+    const hit = await cache.match(shellNavigation ? './index.html' : req, { ignoreSearch: req.mode !== 'navigate' });
     if (hit) return hit;
     throw e;
   }
@@ -176,7 +189,7 @@ self.addEventListener('fetch', (event) => {
   /* the shell: mark up and code update from the network whenever it is reachable */
   if (req.mode === 'navigate' || /\.(?:js|css|html|json)$/.test(url.pathname) || url.pathname.endsWith('/')) {
     event.respondWith(
-      networkFirst(req, SHELL).catch(() => caches.match('./index.html'))
+      networkFirst(req, SHELL).catch(() => req.mode === 'navigate' ? caches.match('./index.html') : Response.error())
     );
     return;
   }
@@ -202,33 +215,81 @@ self.addEventListener('push', (event) => {
     : payload.severity === 'warning' ? '#FFB020'
     : payload.severity === 'prepared' ? '#2FD08A' : '#4D9BFF';
 
-  /* open UniGuard windows ring their alarm at the same moment */
-  self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-    list.forEach((c) => { try { c.postMessage({ type: 'UG_PUSH', payload: payload }); } catch (e) { } });
-  });
-  event.waitUntil(self.registration.showNotification(payload.title, {
-    body: payload.body,
-    icon: APP_ICON,
-    badge: APP_ICON,
-    tag: payload.tag || payload.advisory_id || 'uniguard',
-    renotify: !!payload.renotify,
-    requireInteraction: payload.severity === 'emergency',
-    data: { url: payload.url || './index.html', advisory_id: payload.advisory_id || null },
-    vibrate: payload.severity === 'emergency' ? [200, 80, 200, 80, 200] : [120]
-  }));
+  event.waitUntil((async () => {
+    const binding = await UG_DEVICE_DB.readPush().catch(() => ({ suspended: true }));
+    if (!binding?.owner || binding.suspended) return;
+    await Promise.all([
+      notifyWindows({ type: 'UG_PUSH', payload, ownerId: binding.owner }),
+      self.registration.showNotification(payload.title, {
+        body: payload.body,
+        icon: APP_ICON,
+        badge: APP_ICON,
+        tag: payload.tag || payload.advisory_id || 'uniguard',
+        renotify: !!payload.renotify,
+        requireInteraction: payload.severity === 'emergency',
+        data: { url: payload.url || './index.html', advisory_id: payload.advisory_id || null },
+        vibrate: payload.severity === 'emergency' ? [200, 80, 200, 80, 200] : [120]
+      })
+    ]);
+  })());
 });
+
+async function notifyWindows(message) {
+  const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  list.filter((client) => client.url.startsWith(self.registration.scope)).forEach((client) => client.postMessage(message));
+}
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(UG_DEVICE_DB.withPushLock(async () => {
+    const binding = await UG_DEVICE_DB.readPush();
+    if (!binding?.owner || !binding.token || binding.suspended) return;
+    if (event.oldSubscription && event.oldSubscription.endpoint !== binding.endpoint) return;
+    const manager = self.registration.pushManager;
+    const subscription = event.newSubscription || await manager.getSubscription() ||
+      await manager.subscribe({ userVisibleOnly: true, applicationServerKey: binding.applicationServerKey });
+    const json = subscription.toJSON();
+    const response = await fetch(new URL('/rest/v1/rpc/renew_mobile_push_device', binding.project), {
+      method: 'POST',
+      redirect: 'error',
+      headers: { apikey: binding.apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        p_previous_endpoint: binding.endpoint, p_renewal_token: binding.token,
+        p_endpoint: json.endpoint, p_p256dh: json.keys?.p256dh, p_auth: json.keys?.auth
+      })
+    });
+    if (response.ok && await response.json() === true) {
+      await UG_DEVICE_DB.savePush({ ...binding, endpoint: json.endpoint });
+    }
+    // If the server already discarded the old endpoint, the signed-in page
+    // registers the new endpoint on its next foreground reconciliation.
+  }).catch(() => {}).then(() => notifyWindows({ type: 'UG_PUSH_SUBSCRIPTION_CHANGED' })));
+});
+
+function notificationTarget(value) {
+  const scope = self.registration.scope;
+  const fallback = new URL('./index.html', scope).href;
+  try {
+    const target = new URL(value || fallback, scope);
+    return target.href.startsWith(scope) ? target.href : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || './index.html';
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-      for (const client of list) {
-        if ('focus' in client) { client.navigate(target); return client.focus(); }
-      }
-      return self.clients.openWindow(target);
-    })
-  );
+  const target = notificationTarget(event.notification.data?.url);
+  event.waitUntil((async () => {
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const client = list.find((item) => 'focus' in item && item.url.startsWith(self.registration.scope));
+    if (client) {
+      try {
+        const focused = await client.focus();
+        if (focused && (focused.url === target || await focused.navigate(target))) return;
+      } catch (e) { /* the window may have closed */ }
+    }
+    return self.clients.openWindow(target);
+  })());
 });
 
 /* Queued reports are flushed by the page on reconnect; a background sync hook

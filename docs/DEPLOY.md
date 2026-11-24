@@ -155,7 +155,7 @@ Use the [read-only migration checker](CHECK-SUPABASE-MIGRATIONS.sql) in the
 Supabase SQL Editor. Apply
 [078_report_access_and_reliable_submissions.sql](../migrations/078_report_access_and_reliable_submissions.sql)
 before deploying build `uniguard-v566`. Run the checker again to confirm the
-schema features through 078. Migration 078 restricts the shared report feed,
+078 milestone is installed. Migration 078 restricts the shared report feed,
 restores scoped landmark data and adds transaction-backed submission receipts.
 The existing SOS endpoint remains available for the previous app build during
 the update.
@@ -173,6 +173,33 @@ staff can still find the details. Test a lost connection during submission and
 confirm that retrying returns the same report or SOS. Follow the [background
 delivery checks](#7-background-sos-and-dispatch-delivery) separately.
 
+## Mobile audit release
+
+Run the [migration checker](CHECK-SUPABASE-MIGRATIONS.sql) in Supabase.
+If 078 is installed, apply
+[079_mobile_delivery_reliability.sql](../migrations/079_mobile_delivery_reliability.sql).
+Then deploy the four delivery functions from this branch before releasing
+the `uniguard-v567` web build.
+
+```bash
+supabase functions deploy sms-fallback
+supabase functions deploy push-dispatch
+supabase functions deploy admin-notify --no-verify-jwt
+supabase functions deploy emergency-delivery --no-verify-jwt
+```
+
+In staging, reopen the installed app while offline after saving an SOS.
+Verify that it appears on the SOS screen and in My Reports. Check the camera
+and gallery chooser on Android, test a push after switching accounts on one
+device, and tap a notification while the app is in the background. Verify
+sender names in the activity log. Retry the same advisory and confirm one
+SMS per recipient. The SMS gateway should honor the `Idempotency-Key`
+header so a retry remains safe after a lost gateway response.
+
+The app's manifest ID is now the site root. If an existing installation
+continues to open an older copy, finish syncing its pending items, then
+reinstall from the current site.
+
 The [GitHub checks](../.github/workflows/checks.yml) run the migration chain,
 role access tests, and browser regressions against fixtures. For a local run,
 use `npm ci`, `npx playwright install chromium`, and `npm test` from `tests/`.
@@ -182,7 +209,7 @@ project before promoting it to production.
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `078_report_access_and_reliable_submissions.sql`.
+`001_align_core_tables.sql` through `079_mobile_delivery_reliability.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
 and record each full filename. Enable `pg_trgm` before 011. Apply both `045_*`
 files, followed by 046 and 047. Migration 043 promotes the account matching its

@@ -112,7 +112,13 @@ with checks(sort_order, migration, installed, evidence) as (
       to_regprocedure('public.submit_hazard_report(uuid,jsonb)') is not null and
       to_regprocedure('public.submit_sos_once(uuid,double precision,double precision,double precision,text,text)') is not null and
       exists (select 1 from information_schema.columns where table_schema='public' and table_name='reports_feed' and column_name='location_note'),
-      'Scoped report feed, landmarks and idempotent submissions')
+      'Scoped report feed, landmarks and idempotent submissions'),
+    (79, '079_mobile_delivery_reliability.sql',
+      to_regprocedure('public.sync_mobile_push_device(text,text,text,text,uuid,text)') is not null and
+      to_regprocedure('public.renew_mobile_push_device(text,uuid,text,text,text)') is not null and
+      to_regprocedure('public.claim_advisory_sms(uuid,uuid)') is not null and
+      to_regclass('public.advisory_sms_deliveries') is not null,
+      'Device renewal RPCs and per-advisory SMS ledger')
 )
 select migration,
        case when installed then 'INSTALLED' else 'MISSING' end as status,
@@ -139,22 +145,27 @@ with current_state as (
       to_regclass('public.dispatch_replacement_queue') is not null and
       to_regprocedure('public.submit_hazard_report(uuid,jsonb)') is not null and
       to_regprocedure('public.submit_sos_once(uuid,double precision,double precision,double precision,text,text)') is not null and
-      exists (select 1 from information_schema.columns where table_schema='public' and table_name='reports_feed' and column_name='location_note') as has_078
+      exists (select 1 from information_schema.columns where table_schema='public' and table_name='reports_feed' and column_name='location_note') as has_078,
+    to_regprocedure('public.sync_mobile_push_device(text,text,text,text,uuid,text)') is not null and
+      to_regprocedure('public.renew_mobile_push_device(text,uuid,text,text,text)') is not null and
+      to_regprocedure('public.claim_advisory_sms(uuid,uuid)') is not null and
+      to_regclass('public.advisory_sms_deliveries') is not null as has_079
 )
 select case
   when not has_067 then 'STOP: the database is behind 067 or has gaps. Share the full results before applying the update.'
-  when not has_068 then 'NEXT: apply 068, then continue in filename order through 078.'
-  when not has_069 then 'NEXT: apply 069, then continue in filename order through 078.'
-  when not has_070 then 'NEXT: apply 070, then continue in filename order through 078.'
-  when not has_071 then 'NEXT: apply 071, then continue in filename order through 078.'
-  when not has_072 then 'NEXT: apply 072, then continue in filename order through 078.'
-  when not has_073 then 'NEXT: apply 073, then continue in filename order through 078.'
-  when not has_074 then 'NEXT: apply 074, then 075 through 078.'
-  when not has_075 then 'READY: apply 075 through 078.'
-  when not has_076 then 'READY: apply 076 through 078.'
-  when not has_077 then 'READY: apply 077, then 078.'
-  when not has_078 then 'READY: apply 078.'
-  else 'CURRENT: schema features through 078 are installed.'
+  when not has_068 then 'NEXT: apply 068, then continue in filename order through 079.'
+  when not has_069 then 'NEXT: apply 069, then continue in filename order through 079.'
+  when not has_070 then 'NEXT: apply 070, then continue in filename order through 079.'
+  when not has_071 then 'NEXT: apply 071, then continue in filename order through 079.'
+  when not has_072 then 'NEXT: apply 072, then continue in filename order through 079.'
+  when not has_073 then 'NEXT: apply 073, then continue in filename order through 079.'
+  when not has_074 then 'NEXT: apply 074, then 075 through 079.'
+  when not has_075 then 'READY: apply 075 through 079.'
+  when not has_076 then 'READY: apply 076 through 079.'
+  when not has_077 then 'READY: apply 077 through 079.'
+  when not has_078 then 'READY: apply 078, then 079.'
+  when not has_079 then 'READY: apply 079.'
+  else 'CURRENT: schema features through 079 are installed.'
 end as recommendation
 from current_state;
 

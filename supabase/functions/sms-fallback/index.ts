@@ -29,10 +29,11 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
 /** Build the provider request. Adapt this one function to your gateway. */
-function buildRequest(gatewayUrl: string, key: string, sender: string, to: string, text: string) {
+function buildRequest(gatewayUrl: string, key: string, sender: string, to: string, text: string, deliveryKey: string) {
   return new Request(gatewayUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, 'Idempotency-Key': deliveryKey },
+    signal: AbortSignal.timeout(10_000),
     body: JSON.stringify({ sender, to, message: text })
   });
 }
@@ -61,6 +62,10 @@ Deno.serve(async (req: Request) => {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { /* allow an empty body */ }
 
+  const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value) ? value : null;
+  const actorId = uuid(body.actorId);
+  const advisoryId = uuid(body.advisoryId);
+  const alertId = advisoryId || crypto.randomUUID();
   const title = String(body.title || 'UniGuard alert');
   const message = String(body.message || '');
   const severity = String(body.severity || 'advisory');
@@ -76,44 +81,63 @@ Deno.serve(async (req: Request) => {
     return json({ ok: true, queued: 0, skipped: 'SMS is only sent for emergency and warning alerts' });
   }
 
-  // Only accounts with a mobile number, and only for anything above an advisory,
-  // so we never burn gateway credit on routine posts.
-  let q = admin.from('profiles').select('id, full_name, phone, barangay').not('phone', 'is', null).eq('disabled', false);
-  if (barangayIds.length) q = q.in('barangay_id', barangayIds);
-  else if (unitId) q = q.eq('dispatch_unit_id', unitId).eq('role', 'dispatch_team');
-
-  const { data: people, error } = await q;
-
-  if (error) return json({ error: error.message }, 500);
-
   const text = `${title}${area ? ' (' + area + ')' : ''}: ${message}`.slice(0, 480);
-  // only people with no push-capable device: the rest already got the push
-  const { data: subs } = await admin.from('push_subscriptions').select('user_id');
-  const hasPush = new Set((subs ?? []).map((x: { user_id: string }) => x.user_id));
-  const recipients = (people ?? []).filter((p) => p.phone && p.phone.length >= 10 && !hasPush.has(p.id));
+  const pageSize = 100;
+  let afterId = '';
+  let wouldSend = 0, queued = 0, failed = 0;
+  while (true) {
+    let query = admin.from('profiles').select('id, phone').not('phone', 'is', null)
+      .eq('disabled', false).order('id').limit(pageSize);
+    if (afterId) query = query.gt('id', afterId);
+    if (barangayIds.length) query = query.in('barangay_id', barangayIds);
+    else if (unitId) query = query.eq('dispatch_unit_id', unitId).eq('role', 'dispatch_team');
+    const { data: people, error } = await query;
+    if (error) return json({ error: error.message }, 500);
+    if (!people?.length) break;
+    afterId = people[people.length - 1].id;
+
+    const { data: subs, error: subsError } = await admin.from('push_subscriptions')
+      .select('user_id').in('user_id', people.map((p) => p.id));
+    if (subsError) return json({ error: subsError.message }, 500);
+    const hasPush = new Set((subs || []).map((sub) => sub.user_id));
+    const recipients = people.filter((p) => p.phone && p.phone.length >= 10 && !hasPush.has(p.id));
+    wouldSend += recipients.length;
+    if (gatewayUrl && gatewayKey) {
+      for (const recipient of recipients) {
+        const args = { p_alert_id: alertId, p_user_id: recipient.id };
+        const { data: lease, error: claimError } = await admin.rpc('claim_advisory_sms', args);
+        if (claimError) { failed++; continue; }
+        if (!lease) continue;
+        try {
+          const response = await fetch(buildRequest(
+            gatewayUrl, gatewayKey, sender, recipient.phone, text, alertId + ':' + recipient.id
+          ));
+          const { error: saveError } = await admin.rpc('finish_advisory_sms', {
+            ...args, p_lease_id: lease, p_sent: response.ok
+          });
+          if (response.ok && !saveError) queued++;
+          else failed++;
+        } catch {
+          // The provider may have accepted the request. Hold the lease until
+          // it expires and use the same gateway idempotency key on a retry.
+          failed++;
+        }
+      }
+    }
+    if (people.length < pageSize) break;
+  }
 
   if (!gatewayUrl || !gatewayKey) {
     await admin.from('audit_log').insert({
-      action: 'sms.skipped_no_gateway', entity: 'advisories', entity_id: (body.advisoryId as string) || null,
-      meta: { wouldSend: recipients.length, severity, text, barangayIds, unitId }
+      actor_id: actorId, action: 'sms.skipped_no_gateway', entity: 'advisories', entity_id: advisoryId,
+      meta: { wouldSend, severity, barangayIds, unitId }
     });
-    return json({ ok: true, queued: 0, wouldSend: recipients.length, note: 'No SMS gateway configured' });
-  }
-
-  let queued = 0, failed = 0;
-  for (const p of recipients) {
-    try {
-      const res = await fetch(buildRequest(gatewayUrl, gatewayKey, sender, p.phone, text));
-      if (res.ok) queued++; else failed++;
-    } catch {
-      failed++;
-    }
+    return json({ ok: true, queued: 0, wouldSend, note: 'No SMS gateway configured' });
   }
 
   await admin.from('audit_log').insert({
-    action: 'sms.dispatched', entity: 'advisories', entity_id: (body.advisoryId as string) || null,
+    actor_id: actorId, action: 'sms.dispatched', entity: 'advisories', entity_id: advisoryId,
     meta: { queued, failed, severity, area, barangayIds, unitId }
   });
-
   return json({ ok: true, queued, failed });
 });

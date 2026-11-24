@@ -11,14 +11,15 @@ const UG_FEATURES = (function () {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = 'image/*';
-      input.setAttribute('capture', 'environment');
       input.style.display = 'none';
       document.body.appendChild(input);
-      input.addEventListener('change', () => {
+      const finish = () => {
         const file = input.files && input.files[0];
         input.remove();
         resolve(file || null);
-      });
+      };
+      input.addEventListener('change', finish, { once: true });
+      input.addEventListener('cancel', finish, { once: true });
       input.click();
     });
   }

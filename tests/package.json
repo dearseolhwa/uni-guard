@@ -2,7 +2,7 @@
   "name": "uniguard-checks",
   "private": true,
   "scripts": {
-    "test": "node database.mjs && node browser.cjs"
+    "test": "node --test mobile-worker.test.mjs && node database.mjs && node browser.cjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.17",
