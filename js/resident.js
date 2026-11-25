@@ -386,7 +386,7 @@ const UG_RW = (() => {
       UG_RELIEF.savedScheduleNote() +
       '<div class="rlf-top"><span class="rlf-top-i">' + I('relief', 20) + '</span>' +
         '<div><h3>Relief schedules</h3><p>' + count + '</p></div>' +
-        (hubs.length > 2 ? '<button class="rlf-all"' + A('rw-relief-all') + '>' + I('layers', 14) + 'View all</button>' : '') + '</div>' +
+        (hubs.length ? '<button class="rlf-all"' + A('rw-relief-all') + '>' + I('layers', 14) + 'View all</button>' : '') + '</div>' +
       (hubs.length
         ? '<div class="rlf-grid">' + hubs.map(hubCard).join('') + '</div>'
         : '<div class="rlf-zero"><span>' + I('relief', 26) + '</span><h3>No relief distribution scheduled</h3><p>New schedules show here and in your notifications.</p></div>') +

@@ -652,7 +652,7 @@ async function reliefDocumentPreviews(browser, app) {
         }];
         UG_APP.render();
       }, documents.map(([label]) => label));
-      const schedule = page.locator('.rw-relief-main .rw-hub');
+      const schedule = page.locator('.rlf .rlf-card');
       assert.equal(await schedule.locator('details').count(), 0);
       for (const [label, file] of documents) {
         const button = schedule.getByRole('button', {name: label + ' View sample', exact: true});
@@ -672,11 +672,11 @@ async function reliefDocumentPreviews(browser, app) {
         await dialog.waitFor({state: 'detached'});
         await page.waitForFunction((label) => {
           const focused = document.activeElement;
-          return focused?.dataset.label === label && !!focused.closest('.rw-relief-main .rw-hub');
+          return focused?.dataset.label === label && !!focused.closest('.rlf .rlf-card');
         }, label);
       }
 
-      await page.locator('.rw-relief-main [data-act="rw-relief-all"]:visible').click();
+      await page.locator('.rlf [data-act="rw-relief-all"]:visible').click();
       const parent = page.getByRole('dialog', {name: 'Available Relief Distribution Schedules'});
       await parent.getByRole('button', {name: /Authorization letter/}).click();
       const authorization = page.getByRole('dialog', {name: documents[2][0], exact: true});
