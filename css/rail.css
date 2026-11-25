@@ -1,0 +1,170 @@
+/* UniGuard · the one sidebar every portal uses (js/rail.js)
+ *
+ * Same size, spacing, states and motion for the resident, barangay, LDRRMO,
+ * Super Admin and dispatch portals. Each portal only sets its colours
+ * (.ug-rail--<theme>). Closed it is a 76px rail of icons; on hover or keyboard
+ * focus it opens to 260px over the page; pinned it stays open beside it.
+ * Phones (below 768px) keep each portal's own bottom bar instead.
+ */
+
+.ug-rail {
+  --rl-closed: 76px;
+  --rl-open: 260px;
+  --rl-gap: 12px;
+  --rl-ease: cubic-bezier(.2, .8, .2, 1);
+  --rl-fg: #fff;
+  --rl-dim: rgba(255,255,255,.8);
+  --rl-faint: rgba(255,255,255,.6);
+  --rl-line: rgba(255,255,255,.16);
+  --rl-hover: rgba(255,255,255,.12);
+  --rl-soft: rgba(255,255,255,.16);
+  position: relative; z-index: 40; flex: none;
+  width: calc(var(--rl-closed) + var(--rl-gap)); height: 100%;
+  transition: width .26s var(--rl-ease);
+  font-family: var(--ug-font);
+}
+.ug-rail.is-pinned { width: calc(var(--rl-open) + var(--rl-gap)); }
+
+.ug-rail .ugr-panel {
+  position: absolute; top: var(--rl-gap); bottom: var(--rl-gap); left: var(--rl-gap);
+  width: var(--rl-closed); display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 24px; background: var(--rl-bg); color: var(--rl-fg);
+  box-shadow: 0 10px 30px -18px var(--rl-glow);
+  transition: width .26s var(--rl-ease), box-shadow .26s var(--rl-ease);
+}
+
+/* ------------------------------------------------------------ open state
+   pinned, or hovered / keyboard-focused (unless a section was just picked) */
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-panel {
+  width: var(--rl-open);
+}
+:is(.ug-rail:not(.is-pinned):not(.is-shut):hover, .ug-rail:not(.is-pinned):not(.is-shut).is-hover, .ug-rail:not(.is-pinned):not(.is-shut):has(:focus-visible)) .ugr-panel {
+  box-shadow: 18px 0 44px -16px var(--rl-glow);
+}
+.ug-rail .ugr-lbl { opacity: 0; transition: opacity .12s; white-space: nowrap; min-width: 0; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-lbl {
+  opacity: 1; transition: opacity .18s .08s;
+}
+
+/* ------------------------------------------------------------------ head */
+.ug-rail .ugr-head { position: relative; flex: none; display: flex; align-items: center; height: 76px; padding: 0 16px; }
+.ug-rail .ugr-brand {
+  display: flex; align-items: center; gap: 12px; width: 100%; height: 44px; padding: 0 5px;
+  border: 0; border-radius: 14px; background: none; color: inherit; cursor: pointer; font: inherit; text-align: left; overflow: hidden;
+}
+.ug-rail .ugr-mark { flex: none; display: grid; place-items: center; width: 34px; height: 34px; }
+.ug-rail .ugr-mark .ug-mark { background: none !important; box-shadow: none !important; }
+.ug-rail .ugr-mark .ug-mark-classic { display: none; }
+.ug-rail .ugr-mark .ug-emblem { display: block; }
+.ug-rail .ugr-word { display: flex; flex-direction: column; padding-right: 36px; }
+.ug-rail .ugr-word b { font-size: 18px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; color: var(--rl-fg); }
+.ug-rail .ugr-word em { font-style: normal; color: var(--rl-tint); }
+.ug-rail .ugr-word small { margin-top: 2px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-faint); }
+.ug-rail .ugr-pin {
+  position: absolute; right: 14px; top: 50%; width: 30px; height: 30px; margin-top: -15px;
+  display: grid; place-items: center; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--rl-line); background: var(--rl-hover); color: var(--rl-dim);
+  opacity: 0; pointer-events: none; transition: opacity .15s, background .15s, color .15s, transform .15s;
+}
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-pin {
+  opacity: 1; pointer-events: auto; transition-delay: .08s;
+}
+.ug-rail .ugr-pin:hover { background: var(--rl-soft); color: var(--rl-fg); }
+.ug-rail .ugr-pin svg { transform: rotate(35deg); transition: transform .2s; }
+.ug-rail.is-pinned .ugr-pin { background: #fff; border-color: #fff; color: var(--rl-accent); }
+.ug-rail.is-pinned .ugr-pin svg { transform: none; }
+
+/* ------------------------------------------------------------------- nav */
+.ug-rail .ugr-nav {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+  display: flex; flex-direction: column; gap: 4px; padding: 4px 16px 12px;
+}
+.ug-rail .ugr-nav::-webkit-scrollbar { display: none; }
+/* group titles: a short line when closed, the title when open (same height) */
+.ug-rail .ugr-g { position: relative; flex: none; height: 28px; margin: 6px 0 0; display: flex; align-items: center; padding: 0 12px; }
+.ug-rail .ugr-g.is-first { margin-top: 0; }
+.ug-rail .ugr-g::before { content: ''; position: absolute; left: 12px; width: 20px; height: 1px; background: var(--rl-line); transition: opacity .12s; }
+.ug-rail .ugr-g span { opacity: 0; white-space: nowrap; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--rl-faint); transition: opacity .12s; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-g::before { opacity: 0; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-g span { opacity: 1; transition-delay: .08s; }
+
+/* one row: icon, label, count */
+.ug-rail .ugr-i {
+  position: relative; flex: none; width: 100%; height: 44px; padding: 0 12px;
+  display: flex; align-items: center; gap: 12px; overflow: hidden;
+  border: 0; border-radius: 14px; background: none; cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 14px; font-weight: 600; line-height: 1.2; color: var(--rl-dim);
+  transition: background .15s, color .15s;
+}
+.ug-rail .ugr-ico { flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
+.ug-rail .ugr-ico svg { width: 20px; height: 20px; }
+.ug-rail .ugr-i .ugr-lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.ug-rail .ugr-i:hover { background: var(--rl-hover); color: var(--rl-fg); }
+.ug-rail .ugr-i.is-on { background: #fff; color: var(--rl-accent); font-weight: 700; box-shadow: 0 6px 16px -8px rgba(0,0,0,.35); }
+.ug-rail :is(.ugr-i, .ugr-brand, .ugr-pin):focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.ug-rail .ugr-i.is-on:focus-visible { outline-color: var(--rl-fg); }
+/* counts: a dot on the icon when closed, a pill at the end when open */
+.ug-rail .ugr-count {
+  position: absolute; top: 7px; left: 27px; width: 9px; height: 9px; padding: 0; overflow: hidden;
+  border-radius: 999px; font-size: 0; background: #fff; box-shadow: 0 0 0 2px var(--rl-ring);
+}
+.ug-rail .ugr-count.is-alert { background: #F87171; }
+.ug-rail .ugr-i.is-on .ugr-count { background: var(--rl-accent); box-shadow: 0 0 0 2px #fff; }
+.ug-rail .ugr-i.is-on .ugr-count.is-alert { background: #DC2626; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-count {
+  position: static; width: auto; height: 20px; min-width: 22px; padding: 0 7px; flex: none;
+  display: grid; place-items: center; font-size: 11px; font-weight: 800; line-height: 1;
+  background: var(--rl-soft); color: var(--rl-fg); box-shadow: none;
+}
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-count.is-alert { background: #DC2626; color: #fff; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-i.is-on .ugr-count:not(.is-alert) { background: var(--rl-accent); color: #fff; }
+
+/* ------------------------------------------------------------------ foot */
+.ug-rail .ugr-foot { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 12px 16px 16px; border-top: 1px solid var(--rl-line); }
+.ug-rail .ugr-me { display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 4px; overflow: hidden; }
+.ug-rail .ugr-av {
+  flex: none; width: 36px; height: 36px; border-radius: 999px; display: grid; place-items: center;
+  background: var(--rl-soft); box-shadow: 0 0 0 2px rgba(255,255,255,.55);
+  font-size: 15px; font-weight: 800; color: var(--rl-fg);
+}
+.ug-rail .ugr-me .ugr-lbl { display: flex; flex-direction: column; overflow: hidden; }
+.ug-rail .ugr-me b { overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 700; color: var(--rl-fg); }
+.ug-rail .ugr-me small { overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--rl-faint); }
+.ug-rail .ugr-out { background: var(--rl-hover); color: var(--rl-fg); }
+.ug-rail .ugr-out:hover { background: var(--rl-soft); }
+
+/* ------------------------------------------------------------ the colours
+   one per role, as everywhere else in the app */
+.ug-rail--resident {
+  --rl-bg: linear-gradient(180deg, #A31F1F 0%, #7F1D1D 55%, #5A0F12 100%);
+  --rl-accent: #991B1B; --rl-tint: #FECACA; --rl-ring: #7F1D1D; --rl-glow: rgba(127,29,29,.55);
+  --ug-em-left: #FFFFFF; --ug-em-right: #FECACA; --ug-em-keel: #F58A8F; --ug-em-hub: #991B1B; --ug-em-dot: #FFFFFF;
+}
+.ug-rail--barangay {
+  --rl-bg: linear-gradient(180deg, #0A3270 0%, #052659 50%, #021433 100%);
+  --rl-accent: #052659; --rl-tint: #C2E8FF; --rl-ring: #052659; --rl-glow: rgba(1,16,37,.55);
+  --ug-em-left: #FFFFFF; --ug-em-right: #C2E8FF; --ug-em-keel: #7EA0C5; --ug-em-hub: #052659; --ug-em-dot: #FFFFFF;
+}
+.ug-rail--command {
+  --rl-bg: linear-gradient(180deg, #3F3F46 0%, #27272A 50%, #18181B 100%);
+  --rl-accent: #18181B; --rl-tint: #D4D4D8; --rl-ring: #27272A; --rl-glow: rgba(9,9,11,.5);
+  --ug-em-left: #FFFFFF; --ug-em-right: #E4E4E7; --ug-em-keel: #A1A1AA; --ug-em-hub: #27272A; --ug-em-dot: #FFFFFF;
+}
+.ug-rail--admin {
+  --rl-bg: linear-gradient(180deg, #A16207 0%, #854D0E 55%, #713F12 100%);
+  --rl-accent: #8A5A00; --rl-tint: #FDE68A; --rl-ring: #854D0E; --rl-glow: rgba(113,63,18,.5);
+  --ug-em-left: #FFFFFF; --ug-em-right: #FDE68A; --ug-em-keel: #FBBF24; --ug-em-hub: #A16207; --ug-em-dot: #FFFFFF;
+}
+.ug-rail--dispatch {
+  --rl-bg: linear-gradient(180deg, #D4491C 0%, #B93C0D 55%, #8C2F0E 100%);
+  --rl-accent: #C2410C; --rl-tint: #FED7AA; --rl-ring: #B93C0D; --rl-glow: rgba(140,47,14,.5);
+  --ug-em-left: #FFFFFF; --ug-em-right: #FED7AA; --ug-em-keel: #FDBA74; --ug-em-hub: #C2410C; --ug-em-dot: #FFFFFF;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ug-rail, .ug-rail .ugr-panel, .ug-rail .ugr-lbl, .ug-rail .ugr-pin, .ug-rail .ugr-g span, .ug-rail .ugr-g::before { transition: none !important; }
+}
+/* phones: each portal's bottom bar and menu drawer take over */
+@media (max-width: 767.98px) {
+  .ug-rail { display: none !important; }
+}

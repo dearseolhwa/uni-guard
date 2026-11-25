@@ -1,0 +1,343 @@
+// UniGuard · Edge Function: admin-users
+//
+// The only way an account becomes anything other than a citizen. It runs with
+// the service role, so it re-checks the caller's role itself before touching
+// anything, and records an audit entry for every change.
+//
+// Extended (migration 038+): supports the new `dispatch_team` role.
+//   · LGU creates a dispatch_units row first (create_dispatch_unit RPC), then
+//     invites the unit_admin through this function with action='create' and
+//     role='dispatch_team' + unitId + unitRole='unit_admin'.
+//   · A unit_admin can invite members INTO THEIR OWN UNIT only, with
+//     action='unit-invite'. The function re-checks they are an admin of that
+//     unit. Members can be deactivated/reactivated by the admin of the same
+//     unit through the admin_change_account_disabled RPC (the former
+//     'unit-set-disabled' action had no caller and was removed).
+//   · Self sign up can NEVER produce dispatch_team — the auth.users trigger
+//     (migration 006) forces role=citizen; the trigger plus the
+//     profiles_dispatch_team_unit_check constraint enforce the rest.
+//
+// Super Admin (migration 043): accounts, roles, barangay assignment and the
+// disabled flag are managed by the Super Admin only. A Super Admin is an
+// `lgu_ldrrmc` account with `profiles.is_super_admin = true`; LDRRMO staff are
+// `lgu_ldrrmc` accounts without it. The app sends role = 'super_admin' as a
+// convenience; it is stored as lgu_ldrrmc + the flag, never as a new role key.
+// Run migration 043 BEFORE deploying this version: it reads is_super_admin.
+//
+// Deploy:
+//   supabase functions deploy admin-users --no-verify-jwt=false
+//   supabase secrets set SUPABASE_SERVICE_ROLE_KEY=... (usually already present)
+//   supabase secrets set APP_PUBLIC_URL=https://your-public-site
+//   (optional) supabase secrets set ALLOWED_REDIRECT_ORIGINS=https://a,https://b
+//   Invitation links only redirect to those origins (audit F-06).
+//
+// Call from the app with the signed in user's access token; the platform passes
+// the Authorization header through and we read the caller from it.
+
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+};
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
+
+const ALL_ROLES = ['citizen', 'barangay_official', 'lgu_ldrrmc', 'dispatch_team'];
+
+/* Audit F-06: the redirect in an invitation email must never be whatever the
+   client sent. Allowed: APP_PUBLIC_URL and ALLOWED_REDIRECT_ORIGINS (comma
+   separated). With neither set, only a non-loopback https origin passes.
+   Anything else falls back to the project's Site URL (undefined). */
+const LOOPBACK = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/i;
+function safeRedirect(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  let u: URL;
+  try { u = new URL(raw); } catch { return undefined; }
+  const allowed = [Deno.env.get('APP_PUBLIC_URL') || '', ...(Deno.env.get('ALLOWED_REDIRECT_ORIGINS') || '').split(',')]
+    .map((x) => x.trim()).filter(Boolean)
+    .map((x) => { try { return new URL(x).origin; } catch { return ''; } }).filter(Boolean);
+  if (allowed.length) return allowed.includes(u.origin) ? u.origin : undefined;
+  return u.protocol === 'https:' && !LOOPBACK.test(u.hostname) ? u.origin : undefined;
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  const url = Deno.env.get('SUPABASE_URL')!;
+  const anon = Deno.env.get('SUPABASE_ANON_KEY')!;
+  const service = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!service) return json({ error: 'Service role key is not configured on this function' }, 500);
+
+  const authHeader = req.headers.get('Authorization') || '';
+  if (!authHeader.startsWith('Bearer ')) return json({ error: 'Missing bearer token' }, 401);
+
+  // 1. identify the caller with their own token (RLS applies)
+  const asCaller = createClient(url, anon, { global: { headers: { Authorization: authHeader } } });
+  const { data: userData, error: userErr } = await asCaller.auth.getUser();
+  if (userErr || !userData?.user) return json({ error: 'Not signed in' }, 401);
+
+  const { data: profile } = await asCaller
+    .from('profiles').select('id, role, barangay_id, dispatch_unit_id, unit_role, is_super_admin, disabled').eq('id', userData.user.id).maybeSingle();
+
+  if (!profile) {
+    return json({ error: 'Your account could not be loaded' }, 403);
+  }
+  if (profile.disabled) return json({ error: 'This account is disabled' }, 403);
+
+  // The one check every account-management action below relies on.
+  const isSuper = profile.role === 'lgu_ldrrmc' && profile.is_super_admin === true;
+  const SUPER_ONLY = 'Only the Super Admin can manage accounts';
+
+  // 2. act with the service role
+  const admin = createClient(url, service, { auth: { persistSession: false } });
+
+  let payload: Record<string, unknown> = {};
+  try { payload = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+
+  const action = String(payload.action || '');
+  /* Audit F-05: best effort. The mutation has already committed when this
+     runs, so a logging failure must never turn success into a 500. */
+  const audit = async (a: string, entityId: string | null, meta: Record<string, unknown>) => {
+    try {
+      const { error } = await admin.from('audit_log').insert({
+        actor_id: profile.id, action: a, entity: 'profiles', entity_id: entityId, meta
+      });
+      if (error) console.error('[admin-users] audit insert failed', a, error.message);
+    } catch (e) {
+      console.error('[admin-users] audit insert failed', a, (e as Error).message);
+    }
+  };
+
+  // helper: is this caller an admin of THIS unit?
+  const isAdminOf = (unitId: string) =>
+    profile.role === 'dispatch_team' &&
+    profile.unit_role === 'unit_admin' &&
+    profile.dispatch_unit_id === unitId;
+
+  try {
+    switch (action) {
+      case 'create': {
+        const email = String(payload.email || '').trim().toLowerCase();
+        const requestedRole = String(payload.role || 'barangay_official');
+        const wantSuper = requestedRole === 'super_admin';
+        const role = wantSuper ? 'lgu_ldrrmc' : requestedRole;
+        const barangayId = (payload.barangayId as string) || null;
+        const unitId = (payload.unitId as string) || null;
+        const unitRole = (payload.unitRole as string) || '';
+        /* the frontend sends Auth.redirectUrl(); only allow-listed origins are
+           forwarded, otherwise Supabase uses the project's Site URL */
+        const redirectUrl = safeRedirect(payload.redirectUrl);
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: 'A valid email is required' }, 400);
+        // Creating ANY non-citizen account is a Super Admin action. (Before
+        // this check the function only verified the caller for dispatch_team,
+        // so any signed-in account could invite a barangay official or an LGU
+        // account.)
+        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
+        if (!ALL_ROLES.includes(role)) return json({ error: 'Unknown role' }, 400);
+        if (role !== 'dispatch_team' && !['barangay_official', 'lgu_ldrrmc'].includes(role)) {
+          return json({ error: 'Residents create their own accounts by signing up. Invite staff roles only.' }, 400);
+        }
+        let barangayName = '';
+        if (role === 'barangay_official') {
+          if (!barangayId) return json({ error: 'Choose a barangay for this official' }, 400);
+          const { data: barangay } = await admin.from('barangays').select('name').eq('id', barangayId).maybeSingle();
+          if (!barangay) return json({ error: 'That barangay does not exist' }, 400);
+          barangayName = barangay.name;
+        }
+        // dispatch_team accounts (the first unit_admin and any further members
+        // the Super Admin wants to seed directly) must name their unit.
+        if (role === 'dispatch_team') {
+          if (!unitId || !['unit_admin', 'member'].includes(unitRole)) {
+            return json({ error: 'A unitId and a unitRole of unit_admin/member are required for dispatch_team' }, 400);
+          }
+          // the unit must exist and be active
+          const { data: unitRow } = await admin.from('dispatch_units').select('id, active').eq('id', unitId).maybeSingle();
+          if (!unitRow || !unitRow.active) return json({ error: 'That unit does not exist or is inactive' }, 400);
+        }
+
+        const { data: invited, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
+          data: { role: 'citizen' }, // the trigger creates the profile; role is set below
+          redirectTo: redirectUrl    // points the email's "Accept" button back to this site
+        });
+        if (inviteErr) return json({ error: inviteErr.message }, 400);
+
+        if (invited?.user) {
+          const patch: Record<string, unknown> = {
+            id: invited.user.id, email, role, is_super_admin: wantSuper, invite_last_attempt_at: new Date().toISOString(),
+            // the name the Super Admin typed; the email prefix only as a fallback
+            full_name: String(payload.fullName || '').trim() || email.split('@')[0],
+            updated_at: new Date().toISOString()
+          };
+          if (role === 'barangay_official') {
+            patch.barangay_id = barangayId;
+            patch.barangay = barangayName;
+          }
+          if (role === 'dispatch_team') {
+            patch.dispatch_unit_id = unitId;
+            patch.unit_role = unitRole;
+          }
+          const { error: profileError } = await admin.from('profiles').upsert(patch, { onConflict: 'id' });
+          if (profileError) {
+            const { error: rollbackError } = await admin.auth.admin.deleteUser(invited.user.id);
+            return json({ error: rollbackError
+              ? 'The invitation was created but the staff role could not be saved. Reconcile the account before retrying.'
+              : profileError.message }, 400);
+          }
+        }
+        await audit('user.invited', invited?.user?.id ?? null, { email, role: requestedRole, barangayId, unitId, unitRole });
+        return json({ ok: true, email, role });
+      }
+
+      case 'unit-invite': {
+        // A unit_admin invites a member into their OWN unit. The role is
+        // always 'dispatch_team' with unit_role='member'; they cannot
+        // promote a member to admin through this path (LGU only).
+        const unitId = String(payload.unitId || '');
+        const email = String(payload.email || '').trim().toLowerCase();
+        const redirectUrl = safeRedirect(payload.redirectUrl);
+        if (!isAdminOf(unitId)) {
+          return json({ error: 'You can only invite into your own unit' }, 403);
+        }
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: 'A valid email is required' }, 400);
+
+        const { data: invited, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
+          data: { role: 'citizen' },
+          redirectTo: redirectUrl
+        });
+        if (inviteErr) return json({ error: inviteErr.message }, 400);
+        if (invited?.user) {
+          // Audit F-04: same rollback as 'create' when the profile cannot be saved
+          const { error: profileError } = await admin.from('profiles').upsert({
+            id: invited.user.id, email, role: 'dispatch_team',
+            dispatch_unit_id: unitId, unit_role: 'member',
+            invite_last_attempt_at: new Date().toISOString(),
+            full_name: email.split('@')[0], updated_at: new Date().toISOString()
+          }, { onConflict: 'id' });
+          if (profileError) {
+            const { error: rollbackError } = await admin.auth.admin.deleteUser(invited.user.id);
+            return json({ error: rollbackError
+              ? 'The invitation was created but the unit membership could not be saved. Ask the Super Admin to reconcile the account.'
+              : profileError.message }, 400);
+          }
+        }
+        await audit('unit.member_invited', invited?.user?.id ?? null, { email, unitId });
+        return json({ ok: true, email, unitId });
+      }
+
+      case 'set-role': {
+        const userId = String(payload.userId || '');
+        const asked = String(payload.role || '');
+        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
+        // 'super_admin' is the app's name for lgu_ldrrmc + is_super_admin
+        const wantSuper = asked === 'super_admin';
+        const role = wantSuper ? 'lgu_ldrrmc' : asked;
+        if (!ALL_ROLES.includes(role)) return json({ error: 'Unknown role' }, 400);
+        // a dispatch account always belongs to an active unit, as admin or member
+        const unitId = (payload.unitId as string) || null;
+        const unitRole = (payload.unitRole as string) || '';
+        if (role === 'dispatch_team') {
+          if (!unitId || !['unit_admin', 'member'].includes(unitRole)) {
+            return json({ error: 'Choose the unit and whether this person is its admin or a member' }, 400);
+          }
+          const { data: unitRow } = await admin.from('dispatch_units').select('id, active').eq('id', unitId).maybeSingle();
+          if (!unitRow || !unitRow.active) return json({ error: 'That unit does not exist or is inactive' }, 400);
+        }
+        const { data: target } = await admin.from('profiles')
+          .select('id, role, is_super_admin, barangay_id').eq('id', userId).maybeSingle();
+        if (!target) return json({ error: 'That account does not exist' }, 400);
+        const wasSuper = target.role === 'lgu_ldrrmc' && target.is_super_admin === true;
+        // never leave the system without a Super Admin
+        if (wasSuper && !wantSuper) {
+          if (userId === profile.id) return json({ error: 'You cannot remove your own Super Admin access. Ask another Super Admin to do it.' }, 400);
+          const { count } = await admin.from('profiles').select('id', { count: 'exact', head: true })
+            .eq('role', 'lgu_ldrrmc').eq('is_super_admin', true).eq('disabled', false);
+          if ((count ?? 0) <= 1) return json({ error: 'This is the last Super Admin. Grant Super Admin to another account first.' }, 400);
+        }
+        const barangayPatch: Record<string, unknown> = {};
+        if (role === 'barangay_official') {
+          const barangayId = String(payload.barangayId || target.barangay_id || '');
+          if (!barangayId) return json({ error: 'Choose a barangay for this official' }, 400);
+          const { data: barangay } = await admin.from('barangays').select('name').eq('id', barangayId).maybeSingle();
+          if (!barangay) return json({ error: 'That barangay does not exist' }, 400);
+          barangayPatch.barangay_id = barangayId;
+          barangayPatch.barangay = barangay.name;
+        } else if (role !== 'citizen') {
+          barangayPatch.barangay_id = null;
+          barangayPatch.barangay = '';
+        }
+        // joining a unit sets it; leaving dispatch clears the unit
+        const unitPatch = role === 'dispatch_team'
+          ? { dispatch_unit_id: unitId, unit_role: unitRole }
+          : { dispatch_unit_id: null, unit_role: '' };
+        const { data, error } = await admin.from('profiles')
+          .update({ role, is_super_admin: wantSuper, ...unitPatch, ...barangayPatch, updated_at: new Date().toISOString() }).eq('id', userId).select('*').single();
+        if (error) return json({ error: error.message }, 400);
+        await audit('user.role_changed', userId, {
+          from: wasSuper ? 'super_admin' : target.role, to: wantSuper ? 'super_admin' : role,
+          ...(role === 'dispatch_team' ? { unitId, unitRole } : {})
+        });
+        return json({ ok: true, profile: data });
+      }
+
+      case 'set-barangay': {
+        const userId = String(payload.userId || '');
+        const barangayId = (payload.barangayId as string) || null;
+        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
+        let name = '';
+        if (barangayId) {
+          const { data: b } = await admin.from('barangays').select('name').eq('id', barangayId).maybeSingle();
+          name = b?.name ?? '';
+        }
+        const { data, error } = await admin.from('profiles')
+          .update({ barangay_id: barangayId, barangay: name, updated_at: new Date().toISOString() })
+          .eq('id', userId).select('*').single();
+        if (error) return json({ error: error.message }, 400);
+        await audit('user.barangay_changed', userId, { barangayId, name });
+        return json({ ok: true, profile: data });
+      }
+
+      case 'resend-invitation': {
+        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
+        const userId = String(payload.userId || '');
+        const { data: email, error: reserveError } = await asCaller.rpc('admin_reserve_invitation_retry', { p_target: userId });
+        if (reserveError || !email) return json({ error: reserveError?.message || 'Invitation not found' }, 400);
+        // The invited user already exists. A fresh recovery/setup link keeps that account's role and identity.
+        const { error: sendError } = await asCaller.auth.resetPasswordForEmail(email, {
+          redirectTo: safeRedirect(payload.redirectUrl)
+        });
+        const { error: statusError } = await admin.from('profiles').update({ invite_last_failed: !!sendError }).eq('id', userId);
+        await audit(sendError ? 'user.invitation_retry_failed' : 'user.invitation_resent', userId, {});
+        if (sendError) return json({ error: sendError.message }, 400);
+        return json({ ok: true, statusRecorded: !statusError });
+      }
+
+      case 'remove': {
+        if (!isSuper) return json({ error: SUPER_ONLY }, 403);
+        const userId = String(payload.userId || '');
+        if (!userId || userId === profile.id) return json({ error: 'Select another account to remove' }, 400);
+        const { error } = await asCaller.rpc('remove_staff_account', { p_user_id: userId });
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true });
+      }
+
+      case 'set-disabled': {
+        const target = String(payload.userId || '');
+        if (typeof payload.disabled !== 'boolean' || !target) return json({ error: 'Select an account and a status' }, 400);
+        const { data, error } = await admin.rpc('admin_change_account_disabled', {
+          p_actor: profile.id, p_target: target, p_disabled: payload.disabled
+        });
+        if (error) return json({ error: error.message }, error.code === '42501' ? 403 : 400);
+        return json({ ok: true, profile: data, sessionsRevoked: payload.disabled });
+      }
+
+      default:
+        return json({ error: 'Unknown action: ' + action }, 400);
+    }
+  } catch (e) {
+    return json({ error: (e as Error).message || 'Unexpected error' }, 500);
+  }
+});

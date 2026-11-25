@@ -1,0 +1,49 @@
+/* UniGuard · type hierarchy (Nov 2026)
+   One typeface (Inter, css/fonts.css) on one scale. Every font-size in the
+   code is snapped to these steps; the roles below pin the levels that set
+   the hierarchy so every portal reads the same way:
+
+     36  hero number            20  section heading       13  table cells, buttons, list text
+     28  figure / stat number   18  large card title      12  meta, secondary text
+     24  page title             16  card title            11  labels, captions, badges
+                                14  body, page subtitle
+
+   Loaded last so it settles the page-level roles over inline styles. */
+:root {
+  --t-hero: 36px; --t-figure: 28px; --t-page: 24px; --t-section: 20px;
+  --t-card-lg: 18px; --t-card: 16px; --t-body: 14px; --t-ui: 13px; --t-meta: 12px; --t-label: 11px;
+}
+
+/* page title + subtitle (every portal's page head) */
+.ug-phead h1, .ug-phead h2, .dp-head h2, .bg-hello h1, .bg-hello h2 {
+  font-size: var(--t-page) !important; line-height: 32px !important; font-weight: 700 !important; letter-spacing: -.02em !important;
+}
+.ug-phead p, .dp-head p { font-size: var(--t-body) !important; line-height: 20px !important; font-weight: 400; margin-top: 4px !important; }
+
+/* card titles */
+.ug-card-h h3, .an-ch h3, .ug-card > .ug-card-b > h3:first-child {
+  font-size: var(--t-card) !important; line-height: 24px; font-weight: 600 !important; letter-spacing: -.01em;
+}
+.an-ch p, .ug-card-h p { font-size: var(--t-meta) !important; line-height: 18px; }
+.an-range-h h3 { font-size: var(--t-card) !important; font-weight: 600; }
+
+/* uppercase section labels and table headers: small, spaced, quiet */
+.ug-lab, .an-h4, .sd-sec h4, .rl-filters label > span:first-child { font-size: var(--t-label) !important; letter-spacing: .08em !important; font-weight: 600; }
+.ug-table th, .rl-table th, .iq-head, .sl-head, .an-kpi-t span, .an-tiles span { font-size: var(--t-label) !important; letter-spacing: .08em !important; }
+.rl-ch h2 { font-size: var(--t-ui) !important; letter-spacing: .06em; }
+
+/* body and secondary text */
+body { font-size: var(--t-body); line-height: 1.5; }
+.ug-table td, .rl-table td { font-size: var(--t-ui); }
+.ug-table td small, .rl-table td small, .ug-dimmer { line-height: 1.45; }
+
+/* figures */
+.an-kpi-t b, .du-fig b, .dp-figs b { font-size: var(--t-figure) !important; line-height: 34px !important; font-weight: 600 !important; letter-spacing: -.02em; }
+.an-big { font-size: var(--t-figure) !important; }
+.an-tiles b { font-size: var(--t-section) !important; }
+
+/* phones: one step down for titles and figures */
+@media (max-width: 640px) {
+  .ug-phead h1, .ug-phead h2, .dp-head h2 { font-size: var(--t-section) !important; line-height: 28px !important; }
+  .an-kpi-t b, .du-fig b, .dp-figs b { font-size: var(--t-page) !important; line-height: 30px !important; }
+}

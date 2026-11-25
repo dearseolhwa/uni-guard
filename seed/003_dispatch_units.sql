@@ -1,0 +1,277 @@
+-- ============================================================================
+--  UniGuard · SAMPLE DATA · Dispatch units (BFP, PNP, Rescue, Hospital) and
+--  the per-type equipment catalogs.
+--
+--  Every phone number, address and coordinate below is a PLACEHOLDER taken
+--  from the design prototype. Verify each entry against the official
+--  Lingayen MDRRMO records before production use, then delete anything that
+--  is wrong. The barangays themselves are the PSA list (already in 001).
+--
+--  Safe to re-run: everything is guarded by ON CONFLICT (DO NOTHING, or for
+--  the 054 block DO UPDATE SET category only).
+--  Run AFTER migrations 054 and 055 (needs the category column).
+-- ============================================================================
+
+-- Opt-in for a development or staging database. Set the flag in the same SQL
+-- Editor query as this file so the setting and the seed share a session.
+begin;
+
+do $$
+begin
+  if current_setting('uniguard.demo_seed', true) is distinct from 'on' then
+    raise exception 'Dispatch demo data requires the uniguard.demo_seed setting in a development or staging database.';
+  end if;
+end;
+$$;
+
+-- ---------------------------------------------------- equipment_catalog
+-- Per unit_type, the labels and the readiness checklist items the unit
+-- admin runs through every shift. The checklist is a JSONB array of strings.
+--
+-- The unique index on (unit_type, label) is created FIRST so the INSERT's
+-- ON CONFLICT clause has an arbiter to match against. (A previous version of
+-- this file ran the INSERT before the index existed, which broke both
+-- first-run and re-run with "there is no unique or exclusion constraint
+-- matching the ON CONFLICT specification".)
+do $$
+begin
+  if not exists (
+    select 1 from pg_indexes
+     where schemaname = 'public' and tablename = 'equipment_catalog'
+       and indexname = 'equipment_catalog_type_label_key'
+  ) then
+    create unique index equipment_catalog_type_label_key
+      on public.equipment_catalog (unit_type, label);
+  end if;
+end $$;
+
+insert into public.equipment_catalog (unit_type, label, checklist)
+select v.unit_type, v.label, v.checklist::jsonb
+  from (values
+    -- BFP
+    ('BFP', 'Fire Truck',          '["Water level","Hose condition","Pump test","Fuel level","Engine start"]'::text),
+    ('BFP', 'Water Tanker',        '["Water volume","Valve operation","Hose connection","Fuel level"]'::text),
+    ('BFP', 'Aerial Ladder',       '["Hydraulic test","Ladder extension","Stabilisers","Controls"]'::text),
+    ('BFP', 'Breathing Apparatus (SCBA)', '["Cylinder pressure","Face mask seal","Regulator","Airflow"]'::text),
+    ('BFP', 'Hose Set',            '["Nozzles","Couplings","Pressure test","Length"]'::text),
+    -- PNP
+    ('PNP', 'Patrol Car',          '["Fuel level","Radio battery","Lights and siren","First-aid kit"]'::text),
+    ('PNP', 'Motorcycle',          '["Fuel level","Tyres","Lights","Radio battery"]'::text),
+    ('PNP', 'Barriers and Cones',  '["Count","Reflective condition","Stands","Bag"]'::text),
+    ('PNP', 'Radios',              '["Battery","Channel scan","Antenna","Speaker"]'::text),
+    ('PNP', 'Crowd-Control Kit',   '["Vests","Megaphone","Baton","Whistle"]'::text),
+    -- Rescue Unit
+    ('Rescue', 'Rescue Boat',      '["Engine start","Fuel level","Life vests","Paddles","Hull"]'::text),
+    ('Rescue', 'Extrication Tools', '["Hydraulic pump","Cutter","Spreader","Ram","Hoses"]'::text),
+    ('Rescue', 'Rope and Rappel Set', '["Rope integrity","Carabiners","Harnesses","Descenders","Anchors"]'::text),
+    ('Rescue', 'Stretcher',        '["Straps","Frame","Wheels","Cleanliness"]'::text),
+    ('Rescue', 'First-Aid Kit',    '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text),
+    -- Hospital
+    ('Hospital', 'Ambulance',      '["Fuel level","Tyres","Stretcher","Oxygen tank","Defibrillator"]'::text),
+    ('Hospital', 'ER Beds',        '["Available count","Bedding","Monitors","Oxygen outlets"]'::text),
+    ('Hospital', 'ICU Beds',       '["Available count","Ventilators","Monitors","Power"]'::text),
+    ('Hospital', 'Oxygen',         '["Cylinder count","Pressure","Backup supply","Flow meters"]'::text),
+    ('Hospital', 'Blood Supply',   '["A+","A-","B+","B-","AB+","AB-","O+","O-","Storage temp"]'::text),
+    -- Barangay Response Team
+    ('Barangay', 'Boat',           '["Hull","Paddles","Life vests","Rope"]'::text),
+    ('Barangay', 'Rope',           '["Length","Knot integrity","Cleanliness"]'::text),
+    ('Barangay', 'Stretcher',      '["Frame","Straps","Wheels"]'::text),
+    ('Barangay', 'Radio',           '["Battery","Channel","Speaker","Antenna"]'::text),
+    ('Barangay', 'First-Aid Kit',   '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text),
+    -- B5 (Oct 24 2026) — additional Barangay Response Team equipment
+    ('Barangay', 'Life Vests',  '["Count","Buckles","Straps","Tear check"]'::text),
+    ('Barangay', 'Sandbags',    '["Stock count","Tie integrity","Mould check"]'::text),
+    ('Barangay', 'Flashlights', '["Battery","Beam test","Spare batteries","Count"]'::text),
+    ('Barangay', 'Megaphone',   '["Battery","Volume test","Microphone","Siren"]'::text),
+    ('Barangay', 'Generator',   '["Fuel level","Oil level","Start test","Output V"]'::text)
+  ) as v(unit_type, label, checklist)
+on conflict (unit_type, label) do nothing;
+
+-- ------------------------------------------ equipment categories (054)
+-- Mirrors migrations/054_equipment_categories.sql. Needs the category column
+-- from 054, so run this seed AFTER the migrations. The UPDATEs are repeated
+-- here because on a fresh install the rows above did not exist yet when
+-- 054 ran.
+
+-- b) ------------------------------------------------- group the existing rows
+-- Barangay rows are left 'General' on purpose: the barangay form stays a
+-- single Type list (the Category field hides when there is one category).
+update public.equipment_catalog set category = 'Vehicles'
+ where label in ('Fire Truck','Water Tanker','Aerial Ladder','Patrol Car','Ambulance','Rescue Boat')
+   and unit_type <> 'Barangay'
+   and category is distinct from 'Vehicles';
+
+update public.equipment_catalog set category = 'Communications'
+ where label in ('Radio','Radios','Megaphone')
+   and unit_type <> 'Barangay'
+   and category is distinct from 'Communications';
+
+update public.equipment_catalog set category = 'Protective gear'
+ where label in ('Breathing Apparatus (SCBA)')
+   and unit_type <> 'Barangay'
+   and category is distinct from 'Protective gear';
+
+update public.equipment_catalog set category = 'Rescue equipment'
+ where label in ('Stretcher','First-Aid Kit','Extrication Tools','Rope and Rappel Set')
+   and unit_type <> 'Barangay'
+   and category is distinct from 'Rescue equipment';
+
+-- c) ----------------------------------------------------------- BFP catalog
+-- Labels Fire Truck, Water Tanker, Aerial Ladder, Breathing Apparatus (SCBA)
+-- and Hose Set match seed/003 exactly, so a later seed run does not
+-- duplicate them.
+insert into public.equipment_catalog (unit_type, label, category, checklist)
+select v.unit_type, v.label, v.category, v.checklist::jsonb
+  from (values
+    -- Vehicles
+    ('BFP', 'Fire Truck',                 'Vehicles', '["Water level","Hose condition","Pump test","Fuel level","Engine start"]'::text),
+    ('BFP', 'Water Tanker',               'Vehicles', '["Water volume","Valve operation","Hose connection","Fuel level"]'::text),
+    ('BFP', 'Aerial Ladder',              'Vehicles', '["Hydraulic test","Ladder extension","Stabilisers","Controls"]'::text),
+    ('BFP', 'Rescue Truck',               'Vehicles', '["Fuel level","Engine start","Tool compartments","Lights and siren","Winch"]'::text),
+    ('BFP', 'Ambulance',                  'Vehicles', '["Fuel level","Tyres","Stretcher","Oxygen tank","Lights and siren"]'::text),
+    ('BFP', 'Command Vehicle',            'Vehicles', '["Fuel level","Engine start","Radio","Lights and siren"]'::text),
+    ('BFP', 'Rescue Boat',                'Vehicles', '["Engine start","Fuel level","Life vests","Paddles","Hull"]'::text),
+    -- Firefighting equipment
+    ('BFP', 'Portable Pump',              'Firefighting equipment', '["Fuel level","Start test","Suction hose","Priming"]'::text),
+    ('BFP', 'Hose Set',                   'Firefighting equipment', '["Nozzles","Couplings","Pressure test","Length"]'::text),
+    ('BFP', 'Nozzle',                     'Firefighting equipment', '["Spray pattern","Shut-off valve","Threads","Gasket"]'::text),
+    ('BFP', 'Fire Extinguisher',          'Firefighting equipment', '["Pressure gauge","Safety pin and seal","Hose and nozzle","Inspection tag"]'::text),
+    ('BFP', 'Foam Unit',                  'Firefighting equipment', '["Foam concentrate level","Eductor","Pick-up tube","Nozzle"]'::text),
+    ('BFP', 'Generator',                  'Firefighting equipment', '["Fuel level","Oil level","Start test","Output V"]'::text),
+    ('BFP', 'Floodlight',                 'Firefighting equipment', '["Lamp test","Cables","Stand","Power source"]'::text),
+    -- Protective gear
+    ('BFP', 'Firefighting Suit',          'Protective gear', '["Count","Tears and burns","Reflective strips","Closures"]'::text),
+    ('BFP', 'Helmet',                     'Protective gear', '["Count","Shell cracks","Visor","Chin strap"]'::text),
+    ('BFP', 'Breathing Apparatus (SCBA)', 'Protective gear', '["Cylinder pressure","Face mask seal","Regulator","Airflow"]'::text),
+    ('BFP', 'Boots and Gloves',           'Protective gear', '["Count and sizes","Soles","Tears","Dryness"]'::text),
+    -- Rescue equipment
+    ('BFP', 'Hydraulic Rescue Tool',      'Rescue equipment', '["Hydraulic pump","Cutter","Spreader","Hoses","Fluid level"]'::text),
+    ('BFP', 'Chainsaw',                   'Rescue equipment', '["Fuel mix","Chain tension","Chain brake","Start test"]'::text),
+    ('BFP', 'Rope and Rappel Set',        'Rescue equipment', '["Rope integrity","Carabiners","Harnesses","Descenders","Anchors"]'::text),
+    ('BFP', 'Stretcher',                  'Rescue equipment', '["Straps","Frame","Wheels","Cleanliness"]'::text),
+    ('BFP', 'Life Vest',                  'Rescue equipment', '["Count","Buckles","Straps","Tear check"]'::text),
+    ('BFP', 'Thermal Imaging Camera',     'Rescue equipment', '["Battery","Power-on test","Lens","Display"]'::text),
+    ('BFP', 'First-Aid Kit',              'Rescue equipment', '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text),
+    -- Communications
+    ('BFP', 'Handheld Radio',             'Communications', '["Battery","Channel scan","Antenna","Speaker"]'::text),
+    ('BFP', 'Base Radio',                 'Communications', '["Power","Channel scan","Antenna","Backup battery"]'::text),
+    ('BFP', 'Megaphone',                  'Communications', '["Battery","Volume test","Microphone","Siren"]'::text)
+  ) as v(unit_type, label, category, checklist)
+on conflict (unit_type, label) do update set category = excluded.category;
+
+-- ------------------------------------------ categories for PNP / Rescue / Hospital (055)
+-- Mirrors section 1 of migrations/055_equipment_catalogs_and_check_fix.sql.
+insert into public.equipment_catalog (unit_type, label, category, checklist)
+select v.unit_type, v.label, v.category, v.checklist::jsonb
+  from (values
+    -- PNP
+    ('PNP', 'Patrol Car',          'Vehicles',                   '["Fuel level","Radio battery","Lights and siren","First-aid kit"]'::text),
+    ('PNP', 'Motorcycle',          'Vehicles',                   '["Fuel level","Tyres","Lights","Radio battery"]'::text),
+    ('PNP', 'Radios',              'Communications',             '["Battery","Channel scan","Antenna","Speaker"]'::text),
+    ('PNP', 'Barriers and Cones',  'Traffic and crowd control',  '["Count","Reflective condition","Stands","Bag"]'::text),
+    ('PNP', 'Crowd-Control Kit',   'Traffic and crowd control',  '["Vests","Megaphone","Baton","Whistle"]'::text),
+    -- Rescue Unit
+    ('Rescue', 'Rescue Boat',         'Vehicles',          '["Engine start","Fuel level","Life vests","Paddles","Hull"]'::text),
+    ('Rescue', 'Extrication Tools',   'Rescue equipment',  '["Hydraulic pump","Cutter","Spreader","Ram","Hoses"]'::text),
+    ('Rescue', 'Rope and Rappel Set', 'Rescue equipment',  '["Rope integrity","Carabiners","Harnesses","Descenders","Anchors"]'::text),
+    ('Rescue', 'Stretcher',           'Rescue equipment',  '["Straps","Frame","Wheels","Cleanliness"]'::text),
+    ('Rescue', 'First-Aid Kit',       'Rescue equipment',  '["Bandages","Antiseptics","Medicines list","Triage tags"]'::text),
+    -- Hospital
+    ('Hospital', 'Ambulance',     'Vehicles',  '["Fuel level","Tyres","Stretcher","Oxygen tank","Defibrillator"]'::text),
+    ('Hospital', 'ER Beds',       'Medical',   '["Available count","Bedding","Monitors","Oxygen outlets"]'::text),
+    ('Hospital', 'ICU Beds',      'Medical',   '["Available count","Ventilators","Monitors","Power"]'::text),
+    ('Hospital', 'Oxygen',        'Medical',   '["Cylinder count","Pressure","Backup supply","Flow meters"]'::text),
+    ('Hospital', 'Blood Supply',  'Medical',   '["A+","A-","B+","B-","AB+","AB-","O+","O-","Storage temp"]'::text)
+  ) as v(unit_type, label, category, checklist)
+on conflict (unit_type, label) do update set category = excluded.category;
+
+-- --------------------------------------------------------------- dispatch_units
+-- SAMPLE units — one per type. Replace these with the real MDRRMO partner
+-- units, contact numbers and coordinates before going live.
+--
+-- The unique name index is created FIRST so the INSERT's ON CONFLICT (name)
+-- clause has an arbiter to match against. (A previous version ran the INSERT
+-- before the index existed and used ON CONFLICT (id), which never matched
+-- because id is auto-generated — so re-runs failed with a duplicate-key
+-- violation on dispatch_units_name_key.)
+do $$
+begin
+  if not exists (
+    select 1 from pg_indexes
+     where schemaname = 'public' and tablename = 'dispatch_units'
+       and indexname = 'dispatch_units_name_key'
+  ) then
+    create unique index dispatch_units_name_key on public.dispatch_units (name);
+  end if;
+end $$;
+
+insert into public.dispatch_units (name, unit_type, contact_number, address, lat, lng, status, active)
+select v.name, v.unit_type, v.contact_number, v.address, v.lat, v.lng, 'available', true
+  from (values
+    ('Lingayen BFP',         'BFP',      '(075) 632-2333',  'Poblacion, Lingayen',                 16.0220, 120.2306),
+    ('Lingayen PNP',         'PNP',      '0998-598-5391',   'Capitol Compound, Lingayen',          16.0226, 120.2288),
+    ('Lingayen Rescue Unit', 'Rescue',   '(075) 632-2222',  'MDRRMO Office, Lingayen',             16.0220, 120.2306),
+    ('Lingayen District Hospital', 'Hospital', '(075) 632-2121', 'Maramba Boulevard, Lingayen', 16.0240, 120.2310)
+  ) as v(name, unit_type, contact_number, address, lat, lng)
+on conflict (name) do nothing;
+
+-- ------------------------------------------------------------ hospital_capacity
+-- SAMPLE: each hospital starts with a reasonable capacity. Verify with the
+-- hospital nursing office before relying on these figures.
+insert into public.hospital_capacity (unit_id, er_beds, icu_beds, available, accepting, updated_at)
+select u.id, 12, 4, 5, true, now()
+  from public.dispatch_units u
+ where u.unit_type = 'Hospital'
+   and not exists (select 1 from public.hospital_capacity h where h.unit_id = u.id)
+on conflict (unit_id) do nothing;
+
+-- ------------------------------------------------------------ hotlines.category backfill
+-- Make sure every existing hotline has a category. The migration 038 already
+-- runs this once, but seed 001_sample_data.sql may have added rows after the
+-- migration applied; do it again here.
+update public.emergency_hotlines set category = 'BFP'              where category = 'Other' and lower(agency_name) like '%bfp%';
+update public.emergency_hotlines set category = 'PNP'              where category = 'Other' and lower(agency_name) like '%pnp%';
+update public.emergency_hotlines set category = 'Rescue Unit'      where category = 'Other' and (lower(agency_name) like '%rescue%' or lower(agency_name) like '%mdrrmo%');
+update public.emergency_hotlines set category = 'Hospital'         where category = 'Other' and lower(agency_name) like '%hospital%';
+update public.emergency_hotlines set category = 'Barangay Captain' where category = 'Other' and (lower(agency_name) like '%captain%' or lower(agency_name) like '%barangay%');
+update public.emergency_hotlines set category = 'MDRRMO'           where category = 'Other' and (lower(agency_name) like '%mdrrmo%' or lower(agency_name) like '%ldrrmc%');
+
+-- ------------------------------------------------------------- barangay captain
+-- SAMPLE captain names and numbers. ALL PLACEHOLDERS — verify with the
+-- municipal DILG office before publishing.
+update public.barangays set captain_name = 'Kgg. Juan Dela Cruz',  captain_phone = '0917-000-0001' where name = 'Poblacion'              and coalesce(captain_name, '') = '';
+update public.barangays set captain_name = 'Kgg. Maria Santos',    captain_phone = '0917-000-0002' where name = 'Aliwekwek'             and coalesce(captain_name, '') = '';
+update public.barangays set captain_name = 'Kgg. Pedro Reyes',     captain_phone = '0917-000-0003' where name = 'Baay'                  and coalesce(captain_name, '') = '';
+update public.barangays set captain_name = 'Kgg. Ana Lim',         captain_phone = '0917-000-0004' where name = 'Bantayan'              and coalesce(captain_name, '') = '';
+update public.barangays set captain_name = 'Kgg. Jose Garcia',     captain_phone = '0917-000-0005' where name = 'Dorongan'              and coalesce(captain_name, '') = '';
+
+-- ------------------------------------------------------------- one equipment row per unit (sample)
+-- SAMPLE: one starter piece of equipment per unit so the dispatch picker
+-- has something to show. The real data will be entered by each unit admin
+-- through the readiness board.
+insert into public.dispatch_equipment (owner_unit_id, owner_barangay_id, catalog_id, custom_label, identifier, status, condition, last_checked_at, notes)
+select u.id, null, c.id, '', v.identifier, 'available', 'ready', now(), 'Sample seed row — verify'
+  from (values
+    ('Lingayen BFP',              'LFP-FT-01',         'Fire Truck'),
+    ('Lingayen PNP',              'LGP-PC-01',         'Patrol Car'),
+    ('Lingayen Rescue Unit',      'LRS-RB-01',         'Rescue Boat'),
+    ('Lingayen District Hospital','LDH-AMB-01',        'Ambulance')
+  ) as v(unit_name, identifier, label)
+  join public.dispatch_units u on u.name = v.unit_name
+  join public.equipment_catalog c on c.unit_type = u.unit_type and c.label = v.label
+ where not exists (
+   select 1 from public.dispatch_equipment de
+    where de.owner_unit_id = u.id and coalesce(de.identifier, '') = v.identifier
+ );
+
+-- one starter boat per barangay captain's barangay (sample, for the Response Team)
+insert into public.dispatch_equipment (owner_unit_id, owner_barangay_id, catalog_id, custom_label, identifier, status, condition, last_checked_at, notes)
+select null, b.id, c.id, '', 'BRGY-' || upper(left(regexp_replace(b.name, '[^A-Za-z]', '', 'g'), 3)) || '-BOAT', 'available', 'ready', now(), 'Sample seed row — verify'
+  from public.barangays b
+  join public.equipment_catalog c on c.unit_type = 'Barangay' and c.label = 'Boat'
+ where not exists (
+   select 1 from public.dispatch_equipment de
+    where de.owner_barangay_id = b.id and de.catalog_id = c.id
+ );
+
+commit;
