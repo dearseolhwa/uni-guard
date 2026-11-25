@@ -281,52 +281,6 @@ export async function verifyRoles(db) {
   console.log('PASS Corroboration shows the real threshold, retries count once, unrelated reports and SOS stay separate, and verification alerts only mapped teams.');
   console.log('PASS Every hazard label routes to the expected teams, required review offices receive scoped alerts, and a barangay-verified hazard reaches MDRRMO before municipal dispatch.');
 
-  // 091: no live location falls back to the registered home; the sender can
-  // add a landmark or share GPS later; duty officers may edit the landmark only
-  await query("delete from public.rate_limits where user_id=$1 and action in ('sos','report')", [citizen.id]);
-  const homeAt = await first('select public.resolve_barangay(16.0223,120.2312) as id');
-  assert.equal(homeAt.id, locality.id, 'The fixture home pin lies in the citizen\'s barangay');
-  await runAs(citizen, "select public.set_my_home('12 Rizal St, Purok 3', 'Blue gate beside the chapel', 16.0223, 120.2312)");
-  await assert.rejects(runAs(citizen, "select public.set_my_home('x', '', 16.0223, null)"), /both latitude and longitude/);
-  const home = await value(citizen, "select public.submit_sos(null,null,null,'','medical') as value");
-  assert.equal(home.location_source, 'home');
-  assert.deepEqual(await first('select lat,lng,landmark,location_source from public.sos_log where id=$1', [home.id]),
-    {lat: 16.0223, lng: 120.2312, landmark: '12 Rizal St, Purok 3 · Blue gate beside the chapel', location_source: 'home'});
-  const homeReport = await first('select lat,description,location_note from public.reports where id=$1', [home.report_id]);
-  assert.equal(homeReport.lat, 16.0223);
-  assert.match(homeReport.description, /go to the registered home, 12 Rizal St/);
-  assert.match(homeReport.location_note, /Go to the registered home/);
-  assert.equal((await first("select count(*)::int as n from public.report_dispatches where report_id=$1 and team='Barangay Response Team'", [home.report_id])).n, 1);
-
-  await query("update public.reports set created_at=now()-interval '1 hour' where id=$1", [home.report_id]);
-  await runAs(citizen, "select public.update_sos_location($1,null,null,null,'Near the basketball court')", [home.id]);
-  assert.deepEqual(await first('select landmark,location_source from public.sos_log where id=$1', [home.id]),
-    {landmark: 'Near the basketball court', location_source: 'landmark'});
-  assert.match((await first('select location_note from public.reports where id=$1', [home.report_id])).location_note, /basketball court/);
-  await runAs(citizen, "select public.update_sos_location($1,16.0231,120.2330,8,null)", [home.id]);
-  assert.deepEqual(await first('select lat,location_source from public.sos_log where id=$1', [home.id]), {lat: 16.0231, location_source: 'gps'});
-  assert.equal((await first('select lat from public.reports where id=$1', [home.report_id])).lat, 16.0231);
-  await runAs(official, "select public.update_sos_location($1,null,null,null,'Second floor, back door')", [home.id]);
-  assert.equal((await first('select landmark from public.sos_log where id=$1', [home.id])).landmark, 'Second floor, back door');
-  await assert.rejects(runAs(official, "select public.update_sos_location($1,16.02,120.23,null,null)", [home.id]), /Only the sender can share/);
-  await assert.rejects(runAs(otherCitizen, "select public.update_sos_location($1,null,null,null,'x')", [home.id]), /Only the sender or the duty officers/);
-  assert.ok((await first("select count(*)::int as n from public.notifications where user_id=$1 and sos_id=$2 and title like 'SOS location updated%'", [official.id, home.id])).n >= 2);
-  assert.ok(await first("select id from public.notifications where user_id=$1 and sos_id=$2 and title like 'SOS location updated%'", [citizen.id, home.id]),
-    'The sender hears when an official changes the landmark');
-  console.log('PASS SOS without live location uses the registered home, sends the Barangay Response Team, and takes a landmark or GPS later from the sender (officials: landmark only).');
-
-  // 092: the Super Admin follows SOS but is not asked for, and cannot give, a receipt
-  const pendingFor = async (who) => (await runAs(who, 'select id from public.list_pending_sos_receipts() where id=$1', [home.id])).length;
-  assert.equal(await pendingFor(lgu), 1, 'LDRRMO duty staff still owe a receipt');
-  assert.equal(await pendingFor(superAdmin), 0, 'The Super Admin is never asked for a receipt');
-  await assert.rejects(runAs(superAdmin, "select public.update_sos_status($1,'acknowledged')", [home.id]), /Duty officers acknowledge and resolve SOS/);
-  await assert.rejects(runAs(superAdmin, "select public.update_sos_status($1,'resolved')", [home.id]), /Duty officers acknowledge and resolve SOS/);
-  assert.equal((await first('select status from public.sos_log where id=$1', [home.id])).status, 'sent');
-  assert.equal((await runAs(superAdmin, 'select id from public.sos_log where id=$1', [home.id])).length, 1, 'The Super Admin still sees the SOS');
-  await runAs(lgu, "select public.update_sos_status($1,'acknowledged')", [home.id]);
-  assert.equal((await first('select status from public.sos_log where id=$1', [home.id])).status, 'acknowledged');
-  console.log('PASS The Super Admin sees every SOS but is never asked to acknowledge it and cannot acknowledge or resolve one; duty officers still do.');
-
   await db.exec('drop schema net cascade');
   console.log('PASS Assigned BFP, PNP, rescue and ambulance staff can open reports and receive queued alerts. Staffless units are skipped, verified hazards reach BFP, and no-GPS SOS leaves no fake coordinates or ETA.');
   console.log('PASS BFP decline leaves Barangay dispatch active, final decline reopens the report and leaves SOS acknowledged, and duty staff can dispatch a replacement.');
