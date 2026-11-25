@@ -528,7 +528,7 @@ const UG_ADMIN = (function () {
     const count = (n, word) => '<span class="rl-count">' + n + ' ' + word + (n === 1 ? '' : 's') + '</span>';
     const btn = (act, label, icon, extra, cls) => '<button type="button" class="rl-ghost du-b' + (cls ? ' ' + cls : '') + '" data-act="' + act + '"' + extra + '>' + (icon ? I(icon, 13) : '') + esc(label) + '</button>';
     const table = (columns, records, render, empty, rowAttrs = () => '') => {
-      const head = columns.map(([label, cls]) => '<th scope="col" role="columnheader" class="' + (cls === 'c' || cls === 'r' ? cls : '') + '">' + esc(label) + '</th>').join('');
+      const head = columns.map(([label, cls]) => '<th scope="col" role="columnheader" class="' + (cls === 'c' || cls === 'r' || cls === 'du-txt' ? cls : '') + '">' + esc(label) + '</th>').join('');
       const rows = records.map((record) => '<tr role="row"' + rowAttrs(record) + '>' +
         render(record).map((value, index) => {
           const [label, cls] = columns[index];
@@ -602,8 +602,18 @@ const UG_ADMIN = (function () {
       '<section class="rl-card">' +
         cardHead('truck', 'Response units', count(shown.length, 'unit')) +
         '<div class="du-tool">' +
-          '<div class="du-types" role="tablist" aria-label="Unit type">' + TYPES.map((t) =>
-            '<button role="tab" aria-selected="' + (typeF === t) + '" class="' + (typeF === t ? 'is-on' : '') + '" data-act="du-type" data-v="' + t + '">' + esc(t === 'All' ? 'All units' : t === 'Rescue' ? 'LGU Rescue' : t) + '<i>' + typeCount(t) + '</i></button>').join('') + '</div>' +
+          /* unit type as one dropdown (the notification filter's style):
+             .ug-wmore + [data-more-panel] reuse toggle-more and tap-outside */
+          (() => {
+            const name = (t) => t === 'All' ? 'All units' : t === 'Rescue' ? 'LGU Rescue' : t;
+            return '<div class="ug-nfilt ug-wmore du-type-dd">' +
+              '<button class="ug-nfilt-btn" data-act="toggle-more" aria-haspopup="listbox" aria-label="Unit type: ' + esc(name(typeF)) + '">' +
+                I('truck', 14) + '<span>Type</span><b>' + esc(name(typeF)) + '</b><i>' + typeCount(typeF) + '</i>' + I('chevdn', 14) + '</button>' +
+              '<div class="ug-nfilt-menu" role="listbox" data-more-panel hidden>' + TYPES.map((t) =>
+                '<button role="option" aria-selected="' + (typeF === t) + '" class="' + (typeF === t ? 'is-on' : '') + '" data-act="du-type" data-v="' + t + '">' +
+                  '<span>' + esc(name(t)) + '</span><i>' + typeCount(t) + '</i>' + (typeF === t ? I('check', 14) : '') + '</button>').join('') +
+              '</div></div>';
+          })() +
           '<span class="rl-search rl-search--sm">' + I('search', 14) +
             '<input class="rl-in" data-field="unitSearch" value="' + esc(st.unitSearch || '') + '" placeholder="Search name, type or address" aria-label="' + esc(T('action.search')) + '">' +
             (st.unitSearch ? '<button data-act="unit-clear-search" aria-label="' + esc(T('action.clear')) + '">' + I('x', 11) + '</button>' : '') + '</span>' +

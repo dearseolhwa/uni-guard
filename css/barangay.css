@@ -481,6 +481,11 @@ html[data-portal="barangay"] .ug-note2 { background: #fff !important; }
 
   /* the bar */
   .bg-pbar { display: block; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; padding: 24px 8px calc(8px + env(safe-area-inset-bottom)); pointer-events: none; }
+  /* the page must not show around or under the floating bar: everything
+     from just above the bar to the bottom edge is filled with the page
+     colour (a short fade at the top keeps the raised Home button natural) */
+  .bg-pbar { --pbar-fill: #EEF4FB; background: linear-gradient(to bottom, rgba(238,244,251,0) 0, var(--pbar-fill) 22px, var(--pbar-fill) 100%); }
+  .ug-cmd .bg-pbar { --pbar-fill: #F3F5F8; background: linear-gradient(to bottom, rgba(243,245,248,0) 0, var(--pbar-fill) 22px, var(--pbar-fill) 100%); }
   .bg-pbar-in { pointer-events: auto; display: flex; align-items: stretch; padding: 0 4px; border-radius: 26px; background: #fff;
     border: 1px solid rgba(126,160,197,.4); box-shadow: 0 8px 28px -10px rgba(1,16,37,.28); }
   .ug-cmd .bg-pbar-in { border-color: #E5E5E5; }
@@ -2687,3 +2692,26 @@ html[data-portal="barangay"] .ug-note2 { background: #fff !important; }
   cursor: pointer; font: inherit; text-align: left; color: inherit; transition: background .15s; }
 .bg-dist-go:hover { background: rgba(var(--bg-ice-rgb), .35); }
 .bg-dist-go:focus-visible { outline: 2px solid var(--bg-navy); outline-offset: 2px; }
+
+/* Notifications page in the SOS Log's feed style (js/screens.js dNotifs) */
+.nt-card.sf-card { padding: 4px 0 8px !important; }
+.nt-sf .sf-av { background: #F3F4F6; color: #6B7280; }
+.nt-sf.is-sent .sf-av { background: #FBEDED; color: #991B1B; }
+.nt-sf .sf-av svg { width: 20px; height: 20px; }
+.nt-sf .sf-txt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.nt-sf-go { flex: none; display: flex; color: #C4C4C4; }
+.nt-sf:hover .nt-sf-go { color: #6B7280; }
+.nt-sf:focus-visible { outline: 2px solid #991B1B; outline-offset: -2px; }
+@media (max-width: 767px) { .nt-sf .sf-av { width: 44px; height: 44px; } .nt-sf-go { display: none; } }
+
+/* Declare Emergency: emergency red in every theme. css/soft-accents.css
+   (loaded last) turns every solid staff button into a soft tint, so these
+   selectors are more specific to keep this one red. */
+.ug-bg .bg-head-r .bg-btn.bg-btn--emergency, .bg-head-r .bg-btn.bg-btn--emergency {
+  background: #DC2626 !important; border: 1px solid #B91C1C !important; color: #fff !important;
+  box-shadow: 0 0 0 3px rgba(220,38,38,.14), 0 8px 18px -8px rgba(185,28,28,.6) !important; font-weight: 700;
+}
+.ug-bg .bg-head-r .bg-btn.bg-btn--emergency svg, .bg-head-r .bg-btn.bg-btn--emergency svg { color: #fff !important; }
+.ug-bg .bg-head-r .bg-btn.bg-btn--emergency:is(:hover, :focus-visible) { background: #B91C1C !important; border-color: #991B1B !important; color: #fff !important; }
+.ug-bg .bg-head-r .bg-btn.bg-btn--emergency:active { transform: scale(.98); }
+.ug-bg .bg-head-r .bg-btn.bg-btn--emergency:focus-visible { outline: 2px solid #DC2626; outline-offset: 3px; }

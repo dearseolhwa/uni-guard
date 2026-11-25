@@ -17,13 +17,21 @@ const UG_BRGY = (() => {
 
   /* the barangay official's sections, the same routes the console sidebar
      gives this role (js/screens.js DNAV) */
+  /* ordered by urgency: respond to people in danger first, then what the
+     public needs to know, then the records (NAV_GROUP draws the headings) */
   const NAV = [
-    ['dashboard', 'Home', 'Home'], ['incidents', 'Incidents', 'Incidents'], ['advisories', 'Advisories', 'Advisories'],
-    ['relief', 'Relief', 'Relief'], ['centers', 'Shelters', 'Shelters'], ['roadwork', 'Road Work', 'Roads'],
-    ['response-team', 'Response Team', 'Team'], ['sos', 'SOS Log', 'SOS'], ['hotlines', 'Hotlines', 'Hotlines'],
+    ['dashboard', 'Home', 'Home'],
+    ['sos', 'SOS Log', 'SOS'], ['incidents', 'Incidents', 'Incidents'], ['response-team', 'Response Team', 'Team'],
+    ['advisories', 'Advisories', 'Advisories'], ['centers', 'Shelters', 'Shelters'], ['relief', 'Relief', 'Relief'],
+    ['roadwork', 'Road Work', 'Roads'], ['hotlines', 'Hotlines', 'Hotlines'],
     ['analytics', 'Analytics', 'Analytics'], ['reporting', 'Reports', 'Reports']
   ];
-  const MENU = [['notifications', 'Notifications', 'bell'], ['settings', 'Settings', 'settings']];
+  /* the sidebar's headings: which group each section belongs to */
+  const NAV_GROUP = { sos: 'Respond', incidents: 'Respond', 'response-team': 'Respond', 'dispatch-units': 'Respond',
+    advisories: 'Inform the public', centers: 'Inform the public', relief: 'Inform the public', roadwork: 'Inform the public', hotlines: 'Inform the public',
+    analytics: 'Insights', reporting: 'Insights' };
+  /* Notifications are behind the bell in the header, not in the menu */
+  const MENU = [['settings', 'Settings', 'settings']];
   /* the sidebar's icon for each section (js/rail.js) */
   const NAV_ICON = { dashboard: 'home', incidents: 'alert', advisories: 'megaphone', relief: 'relief', centers: 'shelter',
     roadwork: 'road2', 'response-team': 'shield', 'dispatch-units': 'truck', sos: 'sos', hotlines: 'phone',
@@ -35,13 +43,14 @@ const UG_BRGY = (() => {
   /* LDRRMO staff: the sections the console sidebar gives lgu_ldrrmc
      (js/screens.js DNAV); the rest sit in the menu */
   const NAV_LGU = [
-    ['dashboard', 'Home', 'Home'], ['incidents', 'Incidents', 'Incidents'], ['advisories', 'Advisories', 'Advisories'],
-    ['relief', 'Relief', 'Relief'], ['centers', 'Shelters', 'Shelters'], ['roadwork', 'Road Work', 'Roads'],
-    ['dispatch-units', 'Dispatch Units', 'Units'], ['sos', 'SOS Log', 'SOS'], ['hotlines', 'Hotlines', 'Hotlines'],
+    ['dashboard', 'Home', 'Home'],
+    ['sos', 'SOS Log', 'SOS'], ['incidents', 'Incidents', 'Incidents'], ['dispatch-units', 'Dispatch Units', 'Units'],
+    ['advisories', 'Advisories', 'Advisories'], ['centers', 'Shelters', 'Shelters'], ['relief', 'Relief', 'Relief'],
+    ['roadwork', 'Road Work', 'Roads'], ['hotlines', 'Hotlines', 'Hotlines'],
     ['analytics', 'Analytics', 'Analytics']
   ];
   const MENU_LGU = [['guides', 'Preparedness guides', 'guide'], ['faqs', 'FAQs', 'faq'], ['others-review', '"Others" review', 'help'],
-    ['reporting', 'Situation reports', 'doc'], ['notifications', 'Notifications', 'bell'], ['settings', 'Settings', 'settings']];
+    ['reporting', 'Situation reports', 'doc'], ['settings', 'Settings', 'settings']];
   /* Super Admin only (the database enforces the same, migration 043) */
   const MENU_SUPER = [['users', 'User Management', 'users'], ['audit', 'Audit Log', 'clock'], ['admin-home', 'Admin console', 'shield']];
 
@@ -116,10 +125,11 @@ const UG_BRGY = (() => {
     const counts = navCounts(s, V);
     const items = V.nav.map((n) => ({ attrs: A('nav', attr({ route: n[0] })), icon: I(NAV_ICON[n[0]] || 'info', 20), label: n[1],
       on: route === n[0], count: counts[n[0]] || 0, alert: n[0] === 'sos' }));
+    /* one plain list in order of urgency: no group titles or dividers */
+    const grouped = [{ items: items }];
     const groups = V.sup
-      ? [{ title: 'Super Admin', items: [{ attrs: A('nav', attr({ route: 'admin-home' })), icon: I('shield', 20), label: 'Main screen' }] },
-         { title: 'Operations', items: items }]
-      : [{ items: items }];
+      ? [{ title: 'Super Admin', items: [{ attrs: A('nav', attr({ route: 'admin-home' })), icon: I('shield', 20), label: 'Main screen' }] }].concat(grouped)
+      : grouped;
     return UG_RAIL.html({
       theme: V.sup ? 'admin' : V.lgu ? 'command' : 'barangay', id: 'ug-console-nav', label: 'Sections',
       brand: V.sup ? { attrs: A('nav', attr({ route: 'admin-home' })), label: 'Go to the Super Admin main screen', sub: 'Super Admin' }
@@ -257,7 +267,7 @@ const UG_BRGY = (() => {
           '<button class="bg-btn bg-btn--an"' + A('nav', attr({ route: 'analytics' })) + '>' + I('layers', 14) + '<span class="bg-an-t">' + (V.lgu ? 'Analytics' : 'Barangay Analytics') + '</span>' +
             '<small class="bg-an-s">Trends, response times and hotspots</small>' + '<i class="bg-an-c">' + I('chevron', 16) + '</i></button>' +
           /* declaring an emergency is the LGU's (RPC declare_emergency, migration 009) */
-          (V.lgu ? '<button class="bg-btn bg-btn--solid"' + A('declare') + '>' + I('alert', 14) + 'Declare Emergency</button>'
+          (V.lgu ? '<button class="bg-btn bg-btn--solid bg-btn--emergency"' + A('declare') + '>' + I('alert', 14) + 'Declare Emergency</button>'
             : '<button class="bg-btn bg-btn--solid bg-btn--queue"' + A('nav', attr({ route: 'incidents' })) + '>' + I('alert', 14) + 'Incident Queue</button>') +
         '</div></div>' +
 
@@ -287,7 +297,7 @@ const UG_BRGY = (() => {
 
       '<div class="bg-mid">' +
         card('bg-mapcard',
-          cardHead(I('pin', 16) + '<span>Live Operations Map</span>', 'Active incident perimeters and deployed units' + (V.lgu ? '' : ' in ' + where),
+          cardHead(I('pin', 16) + '<span>Live Operations Map</span>', 'Active incidents, SOS response zones and deployed units' + (V.lgu ? '' : ' in ' + where),
             '<div class="bg-ch-r"><button class="bg-rt' + (live ? ' is-on' : '') + '"' + A('refresh-data') + ' title="' + (live ? 'Live updates are on. Tap to reload now.' : 'Showing saved data. Tap to reload from the server.') + '"><i></i>' + (live ? 'Realtime' : 'Reload') + '</button>' +
               '<button class="bg-btn bg-btn--sm' + (st.mapPanelOpen ? ' is-on' : '') + '" data-act="map-layers-panel" aria-expanded="' + !!st.mapPanelOpen + '">' + I('layers', 14) + 'Layers</button></div>') +
           '<div class="ug-map" data-map="live" data-toggles="chip">' + U.mapSVG({ animated: true }) + '</div>') +
@@ -360,7 +370,7 @@ const UG_BRGY = (() => {
         ['reporting', 'Reports & Documents', 'doc']]],
       ['Resources', [['map', 'Hazard Map', 'map'], ['guides', 'Preparedness Guides', 'guide'], ['faqs', 'FAQs', 'faq']]],
       ['Administration', [['others-review', 'Others Review', 'help', 'lgu']]],
-      ['This device', [['notifications', 'Notifications', 'bell'], ['offline', 'Offline Sync', 'download'], ['settings', 'Settings', 'settings']]]
+      ['This device', [['offline', 'Offline Sync', 'download'], ['settings', 'Settings', 'settings']]]
     ]).map((g) => [g[0], g[1].filter(keep)]).filter((g) => g[1].length);
   }
   function phoneNav(st, V) {

@@ -780,14 +780,30 @@
   overscroll-behavior: contain;
 }
 
-/* Fix pack 01 · F12: the report-form pin is larger and pulses so it is easy
-   to find and drag */
-.ug-report-pin{position:relative}
-.ug-report-pin .ug-marker{position:relative;z-index:1;cursor:grab;box-shadow:0 0 0 2px #fff,0 6px 14px -4px rgba(0,0,0,.6)}
-.ug-report-pin .ug-pin-ring{position:absolute;inset:-9px;border-radius:50%;border:2px solid var(--ug-signal, #34D6F0);
-  animation:ugPinPulse 1.6s ease-out infinite;pointer-events:none}
-@keyframes ugPinPulse{from{transform:scale(.6);opacity:.9}to{transform:scale(1.5);opacity:0}}
-@media (prefers-reduced-motion: reduce){.ug-report-pin .ug-pin-ring{animation:none;opacity:.45}}
+/* the report-form pin (js/map.js setReportPin): a crimson map pin whose tip
+   is the exact spot, a ground dot with a pulsing ring, and a lift while dragged */
+.ug-report-pin { background: none !important; border: 0 !important; }
+.ug-rp { position: relative; display: block; width: 44px; height: 62px; cursor: grab; }
+.ug-rp-pin { position: absolute; left: 0; top: 0; z-index: 2; overflow: visible;
+  filter: drop-shadow(0 4px 5px rgba(127,29,29,.35)) drop-shadow(0 1px 1px rgba(15,23,42,.3));
+  transition: transform .18s cubic-bezier(.2,.8,.2,1), filter .18s; transform-origin: 22px 53px; }
+.ug-rp-dot { position: absolute; left: 50%; top: 55px; z-index: 1; width: 10px; height: 5px; margin: -2.5px 0 0 -5px;
+  border-radius: 50%; background: rgba(127,29,29,.55); transition: transform .18s, opacity .18s; }
+.ug-rp-ring { position: absolute; left: 50%; top: 55px; z-index: 0; width: 26px; height: 12px; margin: -6px 0 0 -13px;
+  border-radius: 50%; border: 2px solid rgba(185,28,28,.7); background: rgba(185,28,28,.14);
+  animation: ug-rp-ping 1.8s ease-out infinite; pointer-events: none; }
+@keyframes ug-rp-ping { 0% { transform: scale(.4); opacity: 1; } 100% { transform: scale(2.4); opacity: 0; } }
+.ug-report-pin:hover .ug-rp-pin { transform: translateY(-2px); }
+/* dragging: the pin rises, its shadow spreads, and a crosshair marks where it will land */
+.ug-report-pin.is-dragging .ug-rp { cursor: grabbing; }
+.ug-report-pin.is-dragging .ug-rp-pin { transform: translateY(-12px) scale(1.06);
+  filter: drop-shadow(0 14px 10px rgba(15,23,42,.28)) drop-shadow(0 2px 2px rgba(15,23,42,.2)); }
+.ug-report-pin.is-dragging .ug-rp-ring { animation: none; opacity: 1; transform: scale(1); border-style: dashed; background: rgba(185,28,28,.08); }
+.ug-report-pin.is-dragging .ug-rp-dot { transform: scale(1.3); background: #7F1D1D; }
+@media (prefers-reduced-motion: reduce) {
+  .ug-rp-ring { animation: none; opacity: .5; }
+  .ug-rp-pin, .ug-rp-dot { transition: none; }
+}
 
 /* Dashboard map + recent incidents grid stretch fix */
 .ug-dgrid-main > .ug-card { display: flex; flex-direction: column; }
@@ -880,16 +896,24 @@ span.ug-chip, div.ug-chip { cursor: default; }
 .ug-car.is-live .ug-car-ping { animation: ug-car-ping 1.6s ease-out infinite; }
 @keyframes ug-car-blink { 50% { filter: brightness(1.35); box-shadow: 0 0 0 3px #fff, 0 0 0 7px color-mix(in srgb, var(--car, #1D4ED8) 35%, transparent), 0 4px 12px rgba(15,23,42,.35); } }
 @keyframes ug-car-ping { 0% { transform: scale(.9); opacity: .55; } 100% { transform: scale(2.2); opacity: 0; } }
+/* still assigned, but no GPS for a while: grey, dashed ring, no blinking,
+   so nobody mistakes an old position for where the team is now */
+.ug-car.is-stale b { background: #A3A3A3; box-shadow: 0 0 0 3px #fff, 0 0 0 5px rgba(115,115,115,.45), 0 2px 6px rgba(15,23,42,.25); opacity: .85; }
+.ug-car.is-stale .ug-car-ping { display: none; }
 
-.ug-sosp { position: relative; display: block; width: 40px; height: 48px; }
-/* a tilted teardrop with the SOS label kept upright inside it */
-.ug-sosp b { position: absolute; left: 2px; top: 0; z-index: 1; width: 36px; height: 36px; display: grid; place-items: center;
-  border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: #DC2626; box-shadow: 0 0 0 3px #fff, 0 6px 14px rgba(127,29,29,.45);
-  color: #fff; font-size: 0; }
-.ug-sosp b::before { content: 'SOS'; transform: rotate(45deg); font: 800 10px/1 var(--ug-font); letter-spacing: .02em; }
-.ug-sosp-ping { position: absolute; left: 50%; bottom: 0; width: 18px; height: 8px; margin-left: -9px; border-radius: 50%; background: rgba(220,38,38,.5);
-  animation: ug-sos-ping 1.4s ease-out infinite; }
-@keyframes ug-sos-ping { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(3.2); opacity: 0; } }
+.ug-sosp { position: relative; display: block; width: 40px; height: 54px; }
+.ug-sosp-pin { position: absolute; left: 0; top: 0; z-index: 2; overflow: visible;
+  filter: drop-shadow(0 3px 4px rgba(127,29,29,.35)) drop-shadow(0 1px 1px rgba(15,23,42,.25));
+  transform-origin: 20px 48px; animation: ug-sos-bob 2.4s ease-in-out infinite; }
+.ug-sosp-pin text { font-family: var(--ug-font, system-ui, sans-serif); }
+/* the exact spot: a small dark dot under the tip, with a red ring pulsing out */
+.ug-sosp-dot { position: absolute; left: 50%; top: 50px; z-index: 1; width: 8px; height: 4px; margin: -2px 0 0 -4px;
+  border-radius: 50%; background: rgba(127,29,29,.55); }
+.ug-sosp-ping { position: absolute; left: 50%; top: 50px; z-index: 0; width: 22px; height: 10px; margin: -5px 0 0 -11px;
+  border-radius: 50%; border: 2px solid rgba(220,38,38,.75); background: rgba(220,38,38,.18);
+  animation: ug-sos-ping 1.6s ease-out infinite; }
+@keyframes ug-sos-ping { 0% { transform: scale(.4); opacity: 1; } 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes ug-sos-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 
 /* the maps and their key */
 .sos-trackmap { height: clamp(240px, 40vh, 360px); margin-top: 6px; border-radius: 16px; overflow: hidden; }
@@ -900,7 +924,7 @@ span.ug-chip, div.ug-chip { cursor: default; }
 .sos-mapkey i.is-ahead { box-shadow: none; }
 .sos-mapkey i.is-ahead { background: radial-gradient(circle, #404040 0 1.6px, transparent 2px) 0 50% / 6px 5px repeat-x; opacity: .7; }
 @media (prefers-reduced-motion: reduce) {
-  .ug-car.is-live b, .ug-car.is-live .ug-car-ping, .ug-sosp-ping { animation: none; }
+  .ug-car.is-live b, .ug-car.is-live .ug-car-ping, .ug-sosp-ping, .ug-sosp-pin { animation: none; }
 }
 
 /* base.css gives every canvas "max-width: 100%". Leaflet's panes have no
@@ -936,9 +960,22 @@ span.ug-chip, div.ug-chip { cursor: default; }
 .rw-homeask b { font-size: 14px; font-weight: 800; }
 .rw-homeask small { font-size: 12.5px; color: #9A3412; }
 .rw-homeask:hover { background: #FFEDD5; }
+/* the close button sits on the card's right edge; the card leaves room for it */
+.rw-homeask-wrap { position: relative; }
+.rw-homeask-wrap .rw-homeask { padding-right: 64px; }
+.rw-homeask-wrap .rw-homeask > svg:last-child { display: none; }
+.rw-homeask-x { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); width: 36px; height: 36px; border: 0; border-radius: 999px;
+  display: grid; place-items: center; background: transparent; color: #9A3412; cursor: pointer; transition: background .15s; }
+.rw-homeask-x:hover { background: #FED7AA; }
+.rw-homeask-x:focus-visible { outline: 2px solid #C2410C; outline-offset: 2px; }
 .rw-homepin { height: 240px; border-radius: 16px; overflow: hidden; }
 .ua-homepin { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: -4px 0 14px; }
 .ua-homepin-on { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #15803D; }
 
 /* the Super Admin follows SOS (092): an unanswered one waits for a duty officer */
 .ug-sosx .sxc-by.is-wait { color: #B45309; font-weight: 600; }
+
+/* js/map.js redraw: the ring around an SOS that help is heading to */
+.ug-sos-zone { animation: ug-sos-zone 2.4s ease-in-out infinite; }
+@keyframes ug-sos-zone { 50% { fill-opacity: .16; stroke-opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .ug-sos-zone { animation: none; } }

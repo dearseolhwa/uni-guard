@@ -234,12 +234,12 @@ const UG_SOS = (function () {
     const now = Date.now();
     const waitMin = (x) => x.created_at ? Math.max(0, Math.floor((now - Date.parse(x.created_at)) / 60000)) : 0;
     const dur = (m) => m < 1 ? 'just now' : m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
-    /* newest first; the header still names the longest wait */
+    /* newest first; the header names the oldest one still waiting */
     /* waiting: an SOS this officer still owes a receipt for; for the Super
        Admin, who follows but does not answer, an SOS nobody has answered */
     const answers = answersSos(st);
     const owes = (x) => answers ? !!x.needs_receipt : x.status === 'sent';
-    const sorted = open.slice().sort((p, q) => Number(owes(q)) - Number(owes(p)) || waitMin(q) - waitMin(p));
+    const sorted = open.slice().sort((p, q) => waitMin(p) - waitMin(q));   /* newest first */
     const waiting = sorted.filter(owes);
     const longestWait = waiting.reduce((m, x) => Math.max(m, waitMin(x)), 0);
     const KIND_ICON = { medical: 'plus', fire: 'flame', crime: 'shield', rescue: 'flood', other: 'alert' };
@@ -256,13 +256,18 @@ const UG_SOS = (function () {
       return '<article class="sx-card sxc' + (isNew ? ' is-new' : ' is-ack') + (late ? ' is-late' : '') + '">' +
         '<button class="sxc-main"' + A('open-sos-detail', attr({ id: x.id })) + ' aria-label="Open SOS from ' + esc(x.profile_name || 'Resident') + '">' +
           '<span class="sxc-top"><span class="sxc-k">' + I(KIND_ICON[x.kind] || 'alert', 13) + esc(kindLabel(x.kind)) + '</span>' +
-            '<span class="sxc-st"><i></i>' + (x.status === 'sent' ? (late ? 'No response' : 'New') : x.status === 'resolved' ? 'Resolved' : 'Acknowledged') + '</span>' +
+            /* a status chip only for an SOS nobody has answered; once someone
+               has, the bottom row says who, so a chip would repeat it */
+            (x.status === 'sent' ? '<span class="sxc-st"><i></i>' + (late ? 'No response' : 'New') + '</span>' : '') +
             '<span class="sxc-time">' + dur(m) + (isNew ? '' : ' ago') + '</span></span>' +
           '<b class="sxc-name">' + esc(x.profile_name || 'Resident') + '</b>' +
-          '<span class="sxc-meta"><span>' + esc(where) + '</span>' + (!x.report_id ? '<span class="sxc-warn">No team sent</span>' : '') + '</span>' +
+          '<span class="sxc-meta"><span>' + esc(where) + '</span>' +
+            (isNew && x.status !== 'sent' ? '<span>Seen by ' + esc(x.acknowledged_by_name || x.acknowledged_by_office || 'another officer') + '</span>' : '') +
+            (!x.report_id ? '<span class="sxc-warn">No team sent</span>' : '') + '</span>' +
         '</button>' +
         '<div class="sxc-foot">' +
-          (isNew && answers ? '<button class="sxc-go"' + A('sos-ack', attr({ id: x.id })) + '>' + I('check', 14) + 'Acknowledge</button>'
+          (isNew && answers ? '<button class="sxc-go"' + A('sos-ack', attr({ id: x.id })) + '>' + I('check', 14) +
+              (x.status === 'sent' ? 'Acknowledge' : 'Mark as seen') + '</button>'
             : isNew ? '<span class="sxc-by is-wait">' + I('clock', 12) + 'Waiting for a duty officer</span>'
             : '<span class="sxc-by">' + I('check', 12) + (x.acknowledged_by_name ? 'By ' + esc(x.acknowledged_by_name) : 'Help is on it') + '</span>') +
           (tel ? '<a class="sxc-ic" href="tel:' + esc(tel) + '" aria-label="Call" title="Call ' + esc(x.profile_phone) + '">' + I('phone', 15) + '</a>' : '') +
@@ -290,8 +295,10 @@ const UG_SOS = (function () {
       '<div class="sx-panel">' +
         '<div class="sx-head">' +
           '<span class="sx-siren" aria-hidden="true">' + I('alert', 16) + '</span>' +
-          '<div class="sx-title"><b>' + open.length + ' SOS</b>' +
-            '<span>' + (waiting.length ? waiting.length + (answers ? ' waiting for your acknowledgment' : ' waiting for a duty officer') + ' · longest ' + oldest : 'All acknowledged · responders on it') + '</span></div>' +
+          /* one count in the title, one fact under it */
+          '<div class="sx-title"><b>' + open.length + ' open SOS</b>' +
+            '<span>' + (!waiting.length ? 'All acknowledged · responders on it'
+              : (waiting.length === open.length ? 'All need ' + (answers ? 'you' : 'a duty officer') : waiting.length + ' need ' + (answers ? 'you' : 'a duty officer')) + ' · oldest ' + oldest) + '</span></div>' +
           '<button class="sx-x"' + A('sos-dock') + ' aria-expanded="true" aria-label="Minimise" title="Minimise (opens again on a new SOS)">' + I('chevdn', 16) + '</button>' +
         '</div>' +
         (needSound ? '<button class="sx-sound"' + A('alarm-unlock') + ' title="The browser keeps the alarm silent until you tap once on this screen">' + I('bell', 13) + 'Alarm is silent · tap to turn on sound</button>' : '') +
@@ -378,7 +385,8 @@ const UG_SOS = (function () {
               (!s.report_id && st0 !== 'resolved' ? ' <span class="sf-warn">No team sent.</span>' : '') + '</p>' +
               '<span class="sf-time">' + esc(s.time || '') + ' · ' + esc(what) + '</span>' +
               (s.needs_receipt && answersSos(st) ? '<div class="sf-acts">' +
-                  '<button class="sf-go"' + A('sos-ack', attr({ id: s.id })) + '>Acknowledge</button>' +
+                  /* already answered by someone else: you are only recording that you saw it */
+                  '<button class="sf-go"' + A('sos-ack', attr({ id: s.id })) + '>' + (st0 === 'sent' ? 'Acknowledge' : 'Mark as seen') + '</button>' +
                   (tel ? '<a class="sf-call" href="tel:' + esc(tel) + '">Call</a>' : '') + '</div>' : '') +
             '</div>' +
             (st0 === 'sent' ? '<i class="sf-dot" aria-label="New"></i>' : tel ? '<a class="sf-tel" href="tel:' + esc(tel) + '" onclick="event.stopPropagation()" aria-label="Call">' + I('phone', 15) + '</a>' : '') +

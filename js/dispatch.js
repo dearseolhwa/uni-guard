@@ -610,13 +610,15 @@ const UG_DISPATCH = (function () {
 
   /* ----------------------------------------------------- the desktop frame layout */
   const DNAV = [
+    /* the live job first (incoming dispatches, help requests, hospital
+       intake), then the unit's own records, then insight and settings */
     ['dispatch',  T('nav.dispatch'), 'truck'],
+    ['requests',  T('nav.requests'),      'inbox'],
+    ['hospital',  T('nav.hospital'),              'shelter', 'Hospital'],
     ['equipment', T('nav.equipment'), 'shield'],
     ['roster',    T('nav.roster'),       'users'],
-    ['hospital',  T('nav.hospital'),              'shelter', 'Hospital'],
-    ['requests',  T('nav.requests'),      'inbox'],
-    ['analytics', T('nav.unit-analytics'),        'layers'],
     ['contacts',  T('nav.contacts'),             'phone'],
+    ['analytics', T('nav.unit-analytics'),        'layers'],
     ['notifications', T('nav.notifications'),    'bell'],
     ['dp-settings', 'Settings',                   'settings'],
   ];
@@ -1786,6 +1788,8 @@ const UG_DISPATCH = (function () {
           groups: [{ items: visible.map((n) => ({ attrs: ' data-act="dispatch-nav" data-route="' + n[0] + '"', icon: I(n[2], 20), label: n[1],
             on: route === n[0], count: n[0] === 'notifications' ? unread : 0 })) }],
           tools: [{ attrs: ' data-act="dispatch-refresh"', icon: I('wave', 20), label: T('action.refresh') }],
+          /* no header menu on the dispatch console, so the sidebar keeps Sign out */
+          account: true,
           user: { initial: UG_RAIL.initial(session.name, 'D'), name: session.name || 'Dispatch team',
             sub: unit ? unitTypeLabel(unit.unit_type) : (session.title || 'Dispatch team') }
         }) +

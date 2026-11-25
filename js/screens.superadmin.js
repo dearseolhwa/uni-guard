@@ -84,11 +84,13 @@ const UG_SUPERADMIN = (function () {
   };
 
   const SIDE_MENU = [
+    /* the live console first, then what needs attention, the insight pages,
+       and Settings last */
     { route: 'dashboard', label: 'Operations', icon: 'grid' },
-    { route: 'settings', label: 'Settings', icon: 'settings' },
     { route: 'notifications', label: 'Notifications', icon: 'bell' },
+    { route: 'analytics', label: 'Analytics', icon: 'chart' },
     { route: 'reporting', label: 'Reports & Documents', icon: 'file' },
-    { route: 'analytics', label: 'Analytics', icon: 'chart' }
+    { route: 'settings', label: 'Settings', icon: 'settings' }
   ];
   const VIEWS = [['overview', 'Overview'], ['accounts', 'Accounts'], ['activity', 'Activity']];
 

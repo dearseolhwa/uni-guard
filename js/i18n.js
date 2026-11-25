@@ -659,7 +659,7 @@ const UG_I18N = (function () {
 
       /* ---- map ---- */
       'map.live': 'Live Operations Map',
-      'map.liveSub': 'Active incident perimeters and deployed units',
+      'map.liveSub': 'Active incidents, SOS response zones and deployed units',
       'map.realtime': 'Realtime',
       'map.layers': 'Layers',
       'map.hazards': 'Hazards',
@@ -754,7 +754,7 @@ const UG_I18N = (function () {
 
       /* ---- hotlines + change requests ---- */
       'hotlines.title': 'Emergency Hotlines',
-      'hotlines.subtitle': 'Tap to call any listed agency. LGU and Barangay Officials must request changes; the Super Admin reviews each request.',
+      'hotlines.subtitle': 'Tap to call any listed agency. LGU staff edit the directory directly; barangay officials request changes for the Super Admin to review.',
       'hotlines.callHint': 'Citizens can call any hotline. LGU / BO must request changes; Super Admin can directly add/edit/delete.',
       'hotlines.requestChange': 'Request Change',
       'hotlines.addHotline': 'Add Hotline',
@@ -1702,7 +1702,7 @@ const UG_I18N = (function () {
 
       /* ---- map ---- */
       'map.live': 'Live Operations Map',
-      'map.liveSub': 'Mga perimeter ng aktibong insidente at naka-deploy na unit',
+      'map.liveSub': 'Mga aktibong insidente, SOS response zone at naka-deploy na unit',
       'map.realtime': 'Realtime',
       'map.layers': 'Mga Layer',
       'map.hazards': 'Mga Panganib',
@@ -1797,7 +1797,7 @@ const UG_I18N = (function () {
 
       /* ---- hotlines + change requests ---- */
       'hotlines.title': 'Mga Emergency Hotline',
-      'hotlines.subtitle': 'Pindutin para tawagan ang anumang ahensya. Ang LGU at Opisyal ng Barangay ay dapat humiling ng pagbabago; susuriin ng Super Admin ang bawat kahilingan.',
+      'hotlines.subtitle': 'Pindutin para tawagan ang anumang ahensya. Direktang ine-edit ng LGU ang listahan; ang mga opisyal ng barangay ay humihiling ng pagbabago na susuriin ng Super Admin.',
       'hotlines.callHint': 'Maaaring tumawag sa anumang hotline ang mga mamamayan. Dapat humiling ng pagbabago ang LGU / BO; direktang makakapag-add/edit/delete ang Super Admin.',
       'hotlines.requestChange': 'Humiling ng Pagbabago',
       'hotlines.addHotline': 'Magdagdag ng Hotline',

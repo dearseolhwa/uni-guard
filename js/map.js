@@ -138,18 +138,26 @@ const MapView = (function () {
     '<path d="M19 17h2v-4.5l-2.4-4.2A2 2 0 0 0 16.9 7H7.1a2 2 0 0 0-1.7 1.3L3 12.5V17h2"/><circle cx="7.5" cy="17" r="2"/><circle cx="16.5" cy="17" r="2"/><path d="M9.5 17h5M3 12.5h18"/></svg>';
   function carIcon(item) {
     const c = teamColor(item.team);
-    const live = item.moving !== false;
+    const live = item.moving === true;
     return window.L.divIcon({
       className: 'ug-car-wrap',
-      html: '<span class="ug-car' + (live ? ' is-live' : '') + '" style="--car:' + c + '"><i class="ug-car-ping"></i><b>' + CAR_SVG + '</b></span>',
+      html: '<span class="ug-car' + (live ? ' is-live' : '') + (item.stale ? ' is-stale' : '') + '" style="--car:' + c + '"><i class="ug-car-ping"></i><b>' + CAR_SVG + '</b></span>',
       iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -18]
     });
   }
+  /* a crisp SVG teardrop: red body with a white rim, a white badge holding
+     the SOS label (high contrast at any zoom), and a pulse on the ground at
+     the exact spot the tip points to */
+  const SOS_SVG = '<svg class="ug-sosp-pin" viewBox="0 0 40 50" width="40" height="50" aria-hidden="true">' +
+    '<defs><linearGradient id="ugSosG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EF4444"/><stop offset="1" stop-color="#B91C1C"/></linearGradient></defs>' +
+    '<path d="M20 47.5C18.6 47.5 4 32.2 4 19a16 16 0 0 1 32 0c0 13.2-14.6 28.5-16 28.5z" fill="url(#ugSosG)" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>' +
+    '<circle cx="20" cy="19" r="11" fill="#fff"/>' +
+    '<text x="20" y="22.4" text-anchor="middle" font-size="9.5" font-weight="800" letter-spacing=".3" fill="#B91C1C">SOS</text></svg>';
   function sosIcon() {
     return window.L.divIcon({
       className: 'ug-sosp-wrap',
-      html: '<span class="ug-sosp"><i class="ug-sosp-ping"></i><b>SOS</b></span>',
-      iconSize: [40, 48], iconAnchor: [20, 46], popupAnchor: [0, -44]
+      html: '<span class="ug-sosp" role="img" aria-label="SOS location"><i class="ug-sosp-ping"></i><i class="ug-sosp-dot"></i>' + SOS_SVG + '</span>',
+      iconSize: [40, 54], iconAnchor: [20, 50], popupAnchor: [0, -48]
     });
   }
 
@@ -318,7 +326,7 @@ const MapView = (function () {
     ctx = {
       map: map,
       layer: L.layerGroup().addTo(map),          /* cluster bubbles + spider markers (markers live here) */
-      circleLayer: L.layerGroup().addTo(map),    /* hazard perimeters, follows the hazards toggle */
+      circleLayer: L.layerGroup().addTo(map),    /* SOS response zones, follow the hazards toggle */
       trackLayer: L.layerGroup().addTo(map),     /* responding teams: road ahead (faint) and trail driven (solid) */
       container: container,
       fallback: false,
@@ -407,6 +415,35 @@ const MapView = (function () {
   /* ---------------------------------------------------------- item collection
      Flattens the visible categories into drawable items and counts every
      record skipped by the coordinate gate. */
+  /* what still belongs on a live map. Old records stay in the lists and the
+     logs; the map shows what is happening now:
+       · hazards: not resolved, rejected or expired, and filed in the last
+         72 hours (the same 3 days after which an unconfirmed report expires)
+         unless a team is still assigned and active on it
+       · relief: today's and upcoming distributions, and ones with no date yet
+     A response tracking map always shows its own incident. */
+  const HAZARD_MAP_MS = 72 * 60 * 60 * 1000;
+  const TEAM_ACTIVE = ['sent', 'acknowledged', 'en_route', 'on_scene', 'under_control', 'on_hold', 'transporting', 'arrived_hospital'];
+  function isCurrent(cat, item) {
+    if (ctx.tracking) return true;
+    const now = Date.now();
+    if (cat === 'hazards') {
+      if (['resolved', 'rejected'].includes(item.status) || item.expired) return false;
+      const t = Date.parse(item.created_at || '');
+      if (!t || now - t <= HAZARD_MAP_MS) return true;
+      const D = (window.UG && UG.DATA && UG.DATA.dispatches) || {};
+      return (D[item.uuid] || []).some((x) => TEAM_ACTIVE.includes(x.dispatch_status));
+    }
+    if (cat === 'relief') {
+      if (item.active === false) return false;
+      const t = Date.parse(item.distribution_at || '');
+      if (!t) return true;   /* date to be announced */
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      return t >= today.getTime();
+    }
+    return true;
+  }
+
   function collectItems() {
     const d = ctx.data, unbounded = ctx.unbounded;
     const items = [];
@@ -415,6 +452,7 @@ const MapView = (function () {
 
     (d.incidents || []).forEach((i) => {
       if (ctx.visible.hazards === false) return;
+      if (!isCurrent('hazards', i)) return;
       const st = coordState(i.lat, i.lng, unbounded);
       if (st !== 'ok') { skipped[st] = (skipped[st] || 0) + 1; return; }
       if (i._hidePin) return;   /* the SOS pin marks this incident instead */
@@ -428,7 +466,7 @@ const MapView = (function () {
     });
     (d.relief || []).forEach((r) => {
       if (ctx.visible.relief === false) return;
-      if (!r.active && r.active !== undefined) return;
+      if (!isCurrent('relief', r)) return;
       const st = coordState(r.lat, r.lng, unbounded);
       if (st !== 'ok') { skipped[st] = (skipped[st] || 0) + 1; return; }
       push('relief', [r.lat, r.lng], r);
@@ -485,10 +523,11 @@ const MapView = (function () {
     return { icon: staffIcon('<span class="ug-sm-ring" style="border-color:' + (STAFF_ROAD[item.status] || STAFF_ROAD.under_repair) + '"></span>', 22, 22), z: 200 };
   }
 
-  /* phones: the staff consoles use the resident portal's pins too (one
-     symbol per kind, colour by level), which read better on a small screen
-     than the console's EVAC / REL tags and dots */
-  const pinMarkers = () => residentMap() || (typeof window !== 'undefined' && window.innerWidth <= 767);
+  /* every map, staff consoles included and on every screen size, uses the
+     resident portal's pins: one symbol per kind, colour by level, the tip on
+     the spot. They read far better than the old EVAC / REL tags and dots
+     (staffEntry is kept only as a fallback). */
+  const pinMarkers = () => true;
   function markerEntry(cat, item) {
     if (!pinMarkers()) return staffEntry(cat, item);
     if (cat === 'hazards') {
@@ -544,13 +583,30 @@ const MapView = (function () {
       }));
       marker.options.title = item.name;
     } else if (cat === 'units') {
+      /* what the team is doing, and what the viewer should do about it */
       const left = item.dest ? UG_UTIL.distanceM(item.lat, item.lng, item.dest[0], item.dest[1]) : null;
+      const onScene = ['on_scene', 'under_control', 'fire_out'].includes(item.status);
+      let tag = item.statusLabel || 'Responding', advice;
+      if (item.stale) {
+        tag = (item.statusLabel || 'Responding') + ' · last known spot';
+        advice = item.citizen
+          ? 'This is where the team was last seen. It may have moved. Open your report for the latest update, or call the hotline if you still need help.'
+          : 'The team has stopped sending its location. Confirm its status before relying on this position. It leaves the map after 2 hours without an update.';
+      } else if (item.moving) {
+        advice = (left != null ? UG_UTIL.fmtDistance(left) + ' from the incident. ' : '') + (item.citizen ? 'Help is on the way. Stay where you are if it is safe.' : 'On the way.');
+      } else if (onScene) {
+        advice = item.citizen ? 'The team is at the scene.' : 'At the scene.';
+      } else {
+        advice = 'Response assignment for ' + (item.code || 'this report') + '.';
+      }
       marker.bindPopup(pinPopup({
-        title: item.team + (item.name ? ' · ' + item.name : ''), tag: item.statusLabel || 'Responding', color: teamColor(item.team),
-        advice: item.moving && left != null ? UG_UTIL.fmtDistance(left) + ' from the incident.' : 'Response assignment for ' + (item.code || 'this report') + '.',
-        facts: [['time', item.at ? 'Location updated ' + ago(item.at) : ''], ['time', item.eta ? 'ETA ' + item.eta : '']]
+        title: item.team + (item.name ? ' · ' + item.name : ''), tag: tag, color: item.stale ? '#737373' : teamColor(item.team),
+        advice: advice,
+        facts: [['time', item.at ? 'Location updated ' + ago(item.at) : 'No location yet'], ['time', item.eta ? 'ETA ' + item.eta : '']],
+        act: item.report ? { act: 'open-incident', id: item.report } : null,
+        actLabel: item.citizen ? 'View my report' : 'Open report'
       }));
-      marker.options.title = item.team + ' (responding)';
+      marker.options.title = item.team + (item.stale ? ' (last known location)' : ' (responding)');
     } else if (cat === 'sos') {
       marker.bindPopup(pinPopup({
         title: item.name ? 'SOS from ' + item.name : 'SOS location', tag: item.kind ? 'SOS · ' + item.kind : 'SOS', color: '#DC2626',
@@ -704,17 +760,33 @@ const MapView = (function () {
     ctx.layer.clearLayers();
     ctx.circleLayer.clearLayers();
 
-    /* hazard perimeters stay as honest circles around the real point — they
-       never cluster (they are areas, not points) */
+    /* response zones: no more ring around every hazard (their pins already
+       mark them, and dozens of large overlapping circles hid the map). A ring
+       is drawn only around an SOS someone is answering right now: a duty
+       officer acknowledged it, or a team is assigned and moving. It goes away
+       when the SOS or its report is closed or expired, when no one is
+       responding any more, or 3 hours after the SOS was sent. */
     if (ctx.visible.hazards !== false) {
+      const D = (window.UG && UG.DATA && UG.DATA.dispatches) || {};
+      const sosLog = (window.UG && UG.DATA && UG.DATA.sosLog) || [];
+      const ZONE_MS = 3 * 60 * 60 * 1000;
+      const MOVING = ['sent', 'acknowledged', 'en_route', 'on_scene', 'under_control', 'on_hold', 'transporting'];
       (ctx.data.incidents || []).forEach((i) => {
         if (typeof i.lat !== 'number' || typeof i.lng !== 'number') return;
         if (coordState(i.lat, i.lng, ctx.unbounded) !== 'ok') return;
-        if (i.status === 'resolved') return;
-        const entry = UG_THEME.sev(i.sev);
-        L.circle([i.lat, i.lng], {
-          radius: i.sev === 'emergency' ? 480 : i.sev === 'warning' ? 340 : 220,
-          color: entry.color, weight: 1, opacity: 0.65, fillColor: entry.color, fillOpacity: 0.13
+        if (['resolved', 'rejected'].includes(i.status) || i.expired) return;
+        const sos = sosLog.find((x) => x.report_id === i.uuid);
+        if (!i.is_sos && !sos) return;
+        if (sos && (sos.expired || sos.status === 'resolved')) return;
+        const sent = Date.parse((sos && sos.created_at) || i.created_at || '');
+        if (!sent || Date.now() - sent > ZONE_MS) return;
+        const answered = (sos && sos.status === 'acknowledged') ||
+          (D[i.uuid] || []).some((d) => MOVING.includes(d.dispatch_status));
+        if (!answered) return;
+        const at = (sos && UG_GEO.isNum(sos.lat) && UG_GEO.isNum(sos.lng)) ? [sos.lat, sos.lng] : [i.lat, i.lng];
+        L.circle(at, {
+          radius: 150, color: '#DC2626', weight: 1.5, opacity: 0.8, dashArray: '5 5',
+          fillColor: '#DC2626', fillOpacity: 0.08, className: 'ug-sos-zone', interactive: false
         }).addTo(ctx.circleLayer);
       });
     }
@@ -979,24 +1051,35 @@ const MapView = (function () {
     const bounds = serviceBounds();
     const inside = hasPoint(initial) && bounds.contains([initial.lat, initial.lng]);
     const center = inside ? [initial.lat, initial.lng] : UG_GEO.CENTER;
-    const size = 30;
+    /* a crimson map pin whose tip is the exact spot: a white hazard symbol in
+       the head, a dark dot and a pulsing ring on the ground under the tip.
+       It lifts while it is being dragged so the spot under it stays visible. */
     const icon = L.divIcon({
       className: 'ug-report-pin',
-      html: '<span class="ug-pin-ring" aria-hidden="true"></span>' +
-        '<div class="ug-marker shape-diamond" style="width:' + size + 'px;height:' + size + 'px;background:#34D6F0;color:#062B36">PIN</div>',
-      iconSize: [size, size],
-      iconAnchor: [size / 2, size / 2]
+      html: '<span class="ug-rp" role="img" aria-label="Hazard location">' +
+        '<i class="ug-rp-ring" aria-hidden="true"></i><i class="ug-rp-dot" aria-hidden="true"></i>' +
+        '<svg class="ug-rp-pin" viewBox="0 0 44 56" width="44" height="56" aria-hidden="true">' +
+          '<defs><linearGradient id="ugRpG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C62828"/><stop offset="1" stop-color="#7F1D1D"/></linearGradient></defs>' +
+          '<path d="M22 53C20.5 53 5 36.4 5 21.5a17 17 0 0 1 34 0C39 36.4 23.5 53 22 53z" fill="url(#ugRpG)" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>' +
+          '<circle cx="22" cy="21.5" r="11" fill="#fff" fill-opacity=".16"/>' +
+          '<g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" transform="translate(13 12.5) scale(.75)">' +
+            '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></g>' +
+        '</svg></span>',
+      iconSize: [44, 62],
+      iconAnchor: [22, 55]   /* the tip of the pin */
     });
     const marker = L.marker(center, {
       icon: icon,
       draggable: true,
       autoPan: true,
-      title: 'Drag me',
-      alt: 'Drag me'
+      title: 'Drag to move the pin',
+      alt: 'Hazard location. Drag to move.'
     }).addTo(ctx.map);
     let last = marker.getLatLng();
-    marker.on('dragstart', () => { last = marker.getLatLng(); });
+    const lift = (on) => { const el = marker.getElement(); if (el) el.classList.toggle('is-dragging', on); };
+    marker.on('dragstart', () => { last = marker.getLatLng(); lift(true); });
     marker.on('dragend', () => {
+      lift(false);
       const ll = marker.getLatLng();
       if (!bounds.contains(ll)) {
         marker.setLatLng(last);

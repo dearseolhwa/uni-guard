@@ -35,14 +35,15 @@ const UG_WEB = (() => {
   /* the resident shell, after the React build (uniguard/src/components:
      DashboardSidebar, DashboardHeader). Sidebar sections; the rest of the
      pages sit behind the grid menu in the header. css/resident.css */
+  /* what a resident needs first in an emergency: where the danger is, what
+     officials say, where to go, who to call, then relief */
   const RNAV = [
     ['home', 'Home', 'home'],
-    ['relief', 'Relief', 'relief'],
-    ['advisories', 'Advisories', 'megaphone'],
     ['map', 'Hazard Map', 'map'],
+    ['advisories', 'Advisories', 'megaphone'],
     ['centers', 'Shelters', 'shelter'],
     ['hotlines', 'Hotlines', 'phone'],
-    ['notifications', 'Notifications', 'bell'],
+    ['relief', 'Relief', 'relief'],
   ];
   const RMENU = [
     ['reports', 'My Reports', 'doc'],
@@ -64,18 +65,44 @@ const UG_WEB = (() => {
       : route === 'report-detail' ? 'reports' : route;
   }
 
-  /* the shared sidebar (js/rail.js), in the resident crimson */
+  const FOLD_KEY = 'uniguard_resident_sidebar_minimized';
+  function folded() { try { return localStorage.getItem(FOLD_KEY) === 'true'; } catch (e) { return false; } }
+
+  /* layered waves along the bottom of the sidebar */
+  const WAVES = '<div class="rw-waves" aria-hidden="true"><svg viewBox="0 0 360 140" preserveAspectRatio="none">' +
+    '<defs>' + [['#7F1D1D', '.45', '#5F0E1E', '.6'], ['#881337', '.5', '#4C0519', '.65'], ['#991B1B', '.55', '#450A0A', '.7'],
+      ['#831843', '.6', '#3B0715', '.8'], ['#4C0519', '.75', '#240209', '.9']].map((g, n) =>
+      '<linearGradient id="rwWave' + n + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + g[0] + '" stop-opacity="' + g[1] +
+      '"/><stop offset="1" stop-color="' + g[2] + '" stop-opacity="' + g[3] + '"/></linearGradient>').join('') + '</defs>' +
+    ['M0 38C70 20 140 54 220 30C275 14 320 28 360 22L360 140L0 140Z', 'M0 58C85 40 160 70 245 48C295 34 335 46 360 40L360 140L0 140Z',
+     'M0 76C65 60 135 88 210 66C265 50 310 62 360 56L360 140L0 140Z', 'M0 96C90 82 175 106 260 84C305 72 335 80 360 76L360 140L0 140Z',
+     'M0 114C75 102 150 122 230 106C285 94 325 102 360 98L360 140L0 140Z'].map((d, n) =>
+      '<path d="' + d + '" fill="url(#rwWave' + n + ')"/>').join('') + '</svg></div>';
+  /* the "Add your home address" reminder, once closed, stays closed for
+     this account on this device (js/app.js rw-home-dismiss) */
+  function homeAskHidden(st) {
+    try { return localStorage.getItem('uniguard_homeask_hidden_' + ((st.session && (st.session.id || st.session.email)) || '')) === '1'; } catch (e) { return false; }
+  }
+
   function rwSide(st) {
     const s = st.session;
     const active = rwActive(st.route);
     const unread = (U.DATA.notifications || []).filter((n) => n.unread).length;
-    return UG_RAIL.html({
-      theme: 'resident', id: 'ug-resident-nav', label: 'Resident sections',
-      brand: { attrs: A('nav', attr({ route: 'home' })), label: 'Go to the home screen', sub: s.barangay ? 'Brgy. ' + s.barangay : 'Resident' },
-      groups: [{ items: RNAV.map((n) => ({ attrs: A('nav', attr({ route: n[0] })), icon: I(n[2], 20), label: n[1], on: active === n[0],
-        count: n[0] === 'notifications' ? unread : 0 })) }],
-      user: { initial: UG_RAIL.initial(s.name, 'U'), name: s.name || 'Resident', sub: 'Resident' + (s.barangay ? ' · ' + s.barangay : '') }
-    });
+    return '<aside class="ug-rw-side" id="ug-resident-nav">' +
+      '<div class="rw-brand">' +
+        '<button class="rw-brand-btn"' + A('nav', attr({ route: 'home' })) + ' aria-label="Go to the home screen">' + U.brandMark(52) +
+          '<span class="rw-word">Uni<em>Guard</em></span>' +
+          (s.barangay ? '<span class="rw-tag">Brgy. ' + esc(s.barangay) + '</span>' : '') + '</button>' +
+        '<div class="rw-fold"><button class="rw-fold-btn"' + A('rw-fold') + ' aria-label="Minimize sidebar" title="Minimize sidebar">' +
+          '<span style="display:flex;transform:rotate(180deg)">' + I('chevron', 14) + '</span></button></div>' +
+      '</div>' +
+      '<nav class="rw-nav">' + RNAV.map((n) =>
+        '<button class="rw-nav-i' + (active === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + ' title="' + esc(n[1]) + '">' +
+          I(n[2], 16) + '<span class="rw-lab">' + esc(n[1]) + '</span>' +
+          (n[0] === 'notifications' && unread ? '<span class="rw-count">' + (unread > 9 ? '9+' : unread) + '</span>' : '') +
+        '</button>').join('') + '</nav>' +
+      WAVES +
+    '</aside>';
   }
 
   function rwHead(st) {
@@ -85,6 +112,7 @@ const UG_WEB = (() => {
     const tip = (label) => ' data-tip="' + esc(label) + '"';
     return '<header class="ug-rw-head">' +
       '<div class="rw-head-l">' +
+        '<button class="rw-ibtn rw-menu-btn"' + A('rw-drawer') + ' aria-label="Open the menu" aria-controls="ug-resident-nav">' + I('menu', 18) + '</button>' +
         '<span class="rw-pmark">' + U.brandMark(28) + '</span>' +
         '<h2>' + esc(RTITLE[st.route] || 'Home') + '</h2>' +
       '</div>' +
@@ -147,6 +175,8 @@ const UG_WEB = (() => {
 
   /* advisory severity as the resident portal words it */
   const RSEV = { emergency: 'critical', warning: 'high', advisory: 'moderate', prepared: 'preparedness' };
+  /* home advisory rows: the level in words */
+  const HSEV = { emergency: 'Emergency', warning: 'Warning', advisory: 'Advisory', prepared: 'Preparedness' };
   const RSEV_LABEL = { critical: 'CRITICAL', high: 'HIGH', moderate: 'MODERATE', preparedness: 'PREPAREDNESS' };
 
   /* the resident home, after uniguard/src/components/ResidentHomeDraftView.tsx:
@@ -190,9 +220,12 @@ const UG_WEB = (() => {
       '<div class="rw-intro"><p>Live situation for <b>Barangay ' + esc(myBrgy) + ', ' + esc(UG_GEO.PLACE.label) + '</b>.</p>' +
         '<button class="rw-cta"' + go('report') + '><span>+</span>Report a Hazard</button></div>' +
       /* no home address yet: the SOS fallback needs it (migration 091) */
-      (st.session && !st.session.home_address
-        ? '<button class="rw-homeask"' + A('rw-home-setup') + '>' + I('home', 18) + '<span><b>Add your home address</b>' +
-            '<small>If you send an SOS with location off, responders go there.</small></span>' + I('chevron', 16) + '</button>'
+      /* the resident can close it; it stays closed on this device, and
+         Settings › Home address is always there to add one later */
+      (st.session && !st.session.home_address && !homeAskHidden(st)
+        ? '<div class="rw-homeask-wrap"><button class="rw-homeask"' + A('rw-home-setup') + '>' + I('home', 18) + '<span><b>Add your home address</b>' +
+            '<small>If you send an SOS with location off, responders go there.</small></span>' + I('chevron', 16) + '</button>' +
+            '<button class="rw-homeask-x"' + A('rw-home-dismiss') + ' aria-label="Hide this reminder" title="Hide this reminder">' + I('x', 16) + '</button></div>'
         : '') +
 
       '<div class="rw-stats">' +
@@ -235,19 +268,41 @@ const UG_WEB = (() => {
 
       card('Advisories and Alerts',
         '<button class="rw-btn rw-btn--dark"' + go('advisories') + '>View All</button>',
-        '<div class="rw-rows">' + advisories.slice(0, 3).map((a) =>
+        /* phones keep the original rows (.rh-m); wider screens get the
+           minimal list below (.rh-d) */
+        '<div class="rw-rows rh-m">' + advisories.slice(0, 3).map((a) =>
           '<button class="rw-row"' + A('open-advisory', attr({ id: a.id })) + '><div class="rw-main">' +
               '<div class="rw-t"><span class="rw-dotc rw-dot--' + sev(a) + '"></span><h4>' + esc(a.title) + '</h4></div>' +
               '<div class="rw-meta rw-in"><span>' + I('pin', 14) + esc(a.area) + ' ' + (a.severity === 'prepared' ? 'Preparedness' : 'Emergency') + ' • ' + esc(a.time) + '</span></div></div>' +
-            '</button>').join('') + '</div>') +
+            '</button>').join('') + '</div>' +
+        '<div class="rh-list rh-d">' + (advisories.length ? advisories.slice(0, 3).map((a) => {
+          /* the home's own language: a small crimson dot for the level, the
+             title, then quiet grey facts */
+          return '<button class="rh-row"' + A('open-advisory', attr({ id: a.id })) + '>' +
+              '<span class="rh-main"><span class="rh-t"><span class="rw-dotc rw-dot--' + sev(a) + '"></span><b>' + esc(a.title) + '</b></span>' +
+                '<span class="rh-meta"><span>' + HSEV[a.severity || 'advisory'] + '</span><span>' + I('pin', 13) + esc(a.area) + '</span><span>' + I('clock', 13) + esc(a.time) + '</span></span></span>' +
+              '<span class="rh-chev">' + I('chevron', 16) + '</span></button>';
+        }).join('') : '<p class="rw-empty rw-empty--row" style="margin:0;font-size:14px">No advisories right now.</p>') + '</div>') +
 
       card('Nearest Open Shelters', '<button class="rw-btn rw-btn--dark"' + go('centers') + '>All Shelters</button>',
-        '<div class="rw-rows">' + (openCenters.length ? openCenters.slice(0, 3).map((c) =>
+        (openCenters.length ? '<div class="rw-rows rh-m">' + openCenters.slice(0, 3).map((c) =>
           '<button class="rw-row"' + A('open-center-detail', attr({ id: c.uuid || c.id })) + '><div class="rw-main">' +
               '<div class="rw-t"><h4>' + esc(c.name) + '</h4></div>' +
               '<div class="rw-meta rw-in"><span>' + I('pin', 14) + 'Brgy. ' + esc(c.brgy) + '</span>' +
                 '<span class="rw-mono" style="color:#404040">' + I('users', 14) + c.occ + ' / ' + c.cap + ' evacuees</span></div></div>' +
-            '</button>').join('')
+            '</button>').join('') + '</div>' : '') +
+        /* each shelter: its name, barangay, and how full it is as a bar */
+        '<div class="rh-list' + (openCenters.length ? ' rh-d' : '') + '">' + (openCenters.length ? openCenters.slice(0, 3).map((c) => {
+          const cap = Number(c.cap) || 0, occ = Number(c.occ) || 0;
+          const pct = cap ? Math.min(100, Math.round(occ / cap * 100)) : 0;
+          const left = Math.max(0, cap - occ);
+          return '<button class="rh-row"' + A('open-center-detail', attr({ id: c.uuid || c.id })) + '>' +
+              '<span class="rh-main"><span class="rh-t"><b>' + esc(c.name) + '</b></span>' +
+                '<span class="rh-meta"><span>' + I('pin', 13) + 'Brgy. ' + esc(c.brgy) + '</span><span>' + I('users', 13) + occ + ' / ' + cap + ' evacuees</span></span>' +
+                '<span class="rh-cap"><i style="width:' + pct + '%"></i></span></span>' +
+              '<span class="rh-side"><b>' + left.toLocaleString() + '</b><small>space' + (left === 1 ? '' : 's') + ' left</small></span>' +
+              '<span class="rh-chev">' + I('chevron', 16) + '</span></button>';
+        }).join('')
           : '<p class="rw-empty rw-empty--row" style="margin:0;font-size:14px">No shelter is open right now.</p>') + '</div>') +
 
       card('Emergency Hotlines', '<button class="rw-btn rw-btn--dark"' + go('hotlines') + '>View All</button>',
@@ -559,7 +614,8 @@ const UG_WEB = (() => {
     return '<div class="ug-col" style="gap:20px">' +
       '<section class="rw-card"><div class="rw-card-h rw-nhead"><div><h3>Notifications</h3><span class="rw-hint">' + (unread ? unread + ' unread' : 'All caught up') + '</span></div>' +
         (unread ? '<button class="rw-markall"' + A('read-all') + '>' + I('check', 14) + 'Mark all as read</button>' : '') + '</div>' +
-        '<div class="rw-nfilter">' + F.chips + '</div>' +
+        /* the same "Show All · 70" dropdown as the bell's panel */
+        '<div class="rw-nfilter">' + UG_SCREENS.notifFilterMenu(F) + '</div>' +
         '<ul class="rw-nlist">' + (list.length ? list.map((n) =>
           '<li class="' + (n.unread ? 'is-unread' : '') + '"><button' + openAttr(n) + '>' +
             '<i class="rw-ndot"></i>' +
@@ -663,10 +719,11 @@ const UG_WEB = (() => {
   }
 
   function frameCitizenWeb(st) {
-    return '<div class="ug ug-frame ug-w ug-rw' + (st.fixed ? ' ug-fixed' : '') + '"' +
+    return '<div class="ug ug-frame ug-w ug-rw' + (folded() ? ' is-folded' : '') + (st.fixed ? ' ug-fixed' : '') + '"' +
       (st.fixed ? ' style="width:' + st.w + 'px;height:' + st.h + 'px"' : '') + '>' +
       '<div class="ug-rw-shell">' +
         rwSide(st) +
+        '<div class="rw-scrim"' + A('rw-drawer') + ' aria-hidden="true"></div>' +
         '<div class="ug-rw-main">' +
           rwHead(st) +
           /* the real connectivity banner is #ug-conn (index.html); this in-frame

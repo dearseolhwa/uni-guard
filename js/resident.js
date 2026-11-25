@@ -326,41 +326,43 @@ const UG_RW = (() => {
     });
   }
 
+  /* one relief schedule card, the same on phones and desktop (css: .rlf-*):
+     a date tile with the status, what it is, a short When / Where / Contact
+     list, who can claim, what to bring, and Navigate / Call at the bottom */
   function hubCard(r) {
     const state = schedState(r.distribution_at);
     const elig = r.eligibility || [], docs = r.required_docs || [];
     const hasPos = UG_GEO.classify(r.lat, r.lng) === 'ok';
     const at = r.distribution_at ? new Date(r.distribution_at) : null;
-    const ok = at && !isNaN(at);
+    const ok = !!(at && !isNaN(at));
+    const now = state === 'Distributing Now';
     const where = [r.location_name, r.address].filter(Boolean).join(', ');
-    /* one schedule: a date tile, what and where, when and who to call, who can
-       claim and what to bring as short chips, then Navigate / Call */
-    return '<article class="rw-hub rw-hub2">' +
-      '<div class="rw-hub2-top">' +
-        '<div class="rw-hub2-date' + (state === 'Distributing Now' ? ' is-now' : '') + '"><small>' + (ok ? esc(at.toLocaleDateString([], { month: 'short' })) : 'TBA') + '</small><b>' + (ok ? at.getDate() : '–') + '</b>' +
-          (ok ? '<em>' + esc(at.toLocaleDateString([], { weekday: 'short' })) + '</em>' : '') + '</div>' +
-        '<div class="rw-hub2-t"><div class="rw-hub2-tags"><span class="rw-hub-b">' + (r.barangay ? 'Brgy. ' + esc(r.barangay) : 'Municipality-wide') + '</span>' +
-            '<span class="rw-hub2-s' + (state === 'Distributing Now' ? ' is-now' : '') + '"><i></i>' + esc(state) + '</span></div>' +
+    const contact = [r.contact_person, r.contact_phone].filter(Boolean).join(' · ');
+    const status = now ? ['is-now', 'Happening today'] : !ok ? ['is-tba', 'Date to follow'] : state === 'Completed' ? ['is-done', 'Completed'] : ['is-next', 'Scheduled'];
+    const row = (icon, label, value, muted) =>
+      '<div><dt>' + I(icon, 14) + label + '</dt><dd' + (muted ? ' class="is-muted"' : '') + '>' + esc(value) + '</dd></div>';
+    return '<article class="rlf-card ' + status[0] + '">' +
+      '<header class="rlf-h">' +
+        '<div class="rlf-date" aria-hidden="true">' + (ok
+          ? '<small>' + esc(at.toLocaleDateString([], { month: 'short' })) + '</small><b>' + at.getDate() + '</b><em>' + esc(at.toLocaleDateString([], { weekday: 'short' })) + '</em>'
+          : '<small>Date</small><b class="rlf-tba">TBA</b>') + '</div>' +
+        '<div class="rlf-ht">' +
+          '<div class="rlf-meta"><span class="rlf-st"><i></i>' + status[1] + '</span><span class="rlf-brgy">' + (r.barangay ? 'Brgy. ' + esc(r.barangay) : 'Municipality-wide') + '</span></div>' +
           '<h4>' + esc(r.title || 'Relief distribution') + '</h4>' +
-          (where ? '<p class="rw-hub2-w">' + I('pin', 14) + '<span>' + esc(where) + '</span></p>' : '') + '</div>' +
-      '</div>' +
-      '<div class="rw-hub2-facts">' +
-        '<div><span>' + I('clock', 14) + 'When</span><b>' + esc(UG_RELIEF.fmtDate(r.distribution_at) || 'To be announced') + '</b></div>' +
-        (r.contact_person || r.contact_phone ? '<div><span>' + I('phone', 14) + 'Contact</span><b>' + esc([r.contact_person, r.contact_phone].filter(Boolean).join(' · ')) + '</b></div>' : '') +
-      '</div>' +
-      /* phone: when/contact as two icon lines */
-      '<div class="rw-hub2-m">' +
-        '<p>' + I('clock', 15) + '<span>' + esc(UG_RELIEF.fmtDate(r.distribution_at) || 'To be announced') + '</span></p>' +
-        (r.contact_person || r.contact_phone ? '<p>' + I('phone', 15) + '<span>' + esc([r.contact_person, r.contact_phone].filter(Boolean).join(' · ')) + '</span></p>' : '') +
-      '</div>' +
-      (elig.length ? '<div class="rw-hub2-requirements"><p class="rw-kicker">Who can claim</p><div class="rw-chips">' + elig.map((e) => '<span>' + I('check', 12) + esc(e) + '</span>').join('') + '</div></div>' : '') +
-      (docs.length ? '<div class="rw-hub2-requirements"><p class="rw-kicker">Bring these</p>' + reliefDocuments(docs, 'schedule-' + r.id) + '</div>' : '') +
-      (r.note ? '<p class="rw-hub2-note">' + I('info', 14) + '<span>' + esc(r.note) + '</span></p>' : '') +
-      '<div class="rw-hub-acts">' +
-        (hasPos ? '<a class="rw-sbtn rw-sbtn--red" style="flex:1" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.lat, r.lng) + '">' + I('route', 14) + 'Navigate with Waze</a>'
-          : '<span class="rw-help" style="flex:1">No map location on file for this distribution.</span>') +
-        (r.contact_phone ? '<a class="rw-callbtn" href="' + telOf(r.contact_phone) + '">' + I('phone', 14) + '<span>Call</span></a>' : '') +
-      '</div>' +
+        '</div>' +
+      '</header>' +
+      '<dl class="rlf-info">' +
+        row('clock', 'When', UG_RELIEF.fmtDate(r.distribution_at) || 'To be announced', !ok) +
+        row('pin', 'Where', where || 'Venue to be announced', !where) +
+        (contact ? row('phone', 'Contact', contact) : '') +
+      '</dl>' +
+      (elig.length ? '<div class="rlf-sec"><p class="rlf-k">Who can claim</p><ul class="rlf-chips">' + elig.map((e) => '<li>' + I('check', 12) + esc(e) + '</li>').join('') + '</ul></div>' : '') +
+      (docs.length ? '<div class="rlf-sec"><p class="rlf-k">Bring these <span>' + docs.length + '</span></p>' + reliefDocuments(docs, 'schedule-' + r.id) + '</div>' : '') +
+      (r.note ? '<p class="rlf-note">' + I('info', 14) + '<span>' + esc(r.note) + '</span></p>' : '') +
+      ((hasPos || r.contact_phone) ? '<footer class="rlf-acts">' +
+        (hasPos ? '<a class="rlf-btn rlf-btn--main" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.lat, r.lng) + '">' + I('route', 16) + 'Navigate with Waze</a>' : '') +
+        (r.contact_phone ? '<a class="rlf-btn' + (hasPos ? ' rlf-btn--ico' : '') + '" href="' + telOf(r.contact_phone) + '" aria-label="Call ' + esc(r.contact_person || r.contact_phone) + '">' + I('phone', 16) + (hasPos ? '' : '<span>Call ' + esc(r.contact_phone) + '</span>') + '</a>' : '') +
+      '</footer>' : '') +
     '</article>';
   }
   /* today's and upcoming schedules for the resident's barangay, soonest
@@ -377,24 +379,19 @@ const UG_RW = (() => {
   function relief(st) {
     const hubs = hubsFor(st);
     const where = st.session && st.session.barangay ? 'Brgy. ' + esc(st.session.barangay) : 'your barangay';
-    const count = hubs.length + ' upcoming for ' + where;
-    /* one list of schedules; each card already says who can claim and what to bring */
-    return '<div class="ug-col rw-relief" style="gap:24px">' +
+    const count = hubs.length ? hubs.length + ' upcoming for ' + where : 'Nothing scheduled yet for ' + where;
+    /* the same structure on every screen size: a heading row, the schedules
+       (two columns on wide screens), then help for claiming on someone's behalf */
+    return '<div class="ug-col rlf" style="gap:20px">' +
       UG_RELIEF.savedScheduleNote() +
-      '<section class="rw-card rw-relief-main">' +
-        '<div class="rw-card-h"><div class="rw-iconhead"><span class="rw-ico">' + I('relief', 20) + '</span><div><h3>Relief schedules</h3>' +
-            '<p class="rw-hint" style="margin:2px 0 0">' + count + '</p></div></div>' +
-          (hubs.length ? '<div class="rw-acts"><button class="rw-btn rw-btn--line" style="padding:8px 16px"' + A('rw-relief-all') + '>' + I('layers', 14) + 'View all</button></div>' : '') +
-        '</div>' +
-        '<div class="rw-relief-mh"><div><h3>Relief schedules</h3><p>' + count + '</p></div>' +
-          (hubs.length ? '<button class="rw-relief-all"' + A('rw-relief-all') + '>View all</button>' : '') + '</div>' +
-        '<div class="rw-card-b">' + (hubs.length
-          ? '<div class="rw-grid ' + (hubs.length > 1 ? 'rw-grid--2' : '') + '">' + hubs.map(hubCard).join('') + '</div>'
-          : '<div class="rw-zero"><span class="rw-zero-ico">' + I('relief', 28) + '</span><h3>No relief distribution scheduled</h3>' +
-              '<p>New schedules show here and in your notifications.</p></div>') + '</div>' +
-      '</section>' +
-
-      '<details class="rw-details" data-relief-disclosure="representative"><summary>' + I('info', 20) + '<span>Claiming for someone else?</span>' + I('chevdn', 16) + '</summary>' +
+      '<div class="rlf-top"><span class="rlf-top-i">' + I('relief', 20) + '</span>' +
+        '<div><h3>Relief schedules</h3><p>' + count + '</p></div>' +
+        (hubs.length > 2 ? '<button class="rlf-all"' + A('rw-relief-all') + '>' + I('layers', 14) + 'View all</button>' : '') + '</div>' +
+      (hubs.length
+        ? '<div class="rlf-grid">' + hubs.map(hubCard).join('') + '</div>'
+        : '<div class="rlf-zero"><span>' + I('relief', 26) + '</span><h3>No relief distribution scheduled</h3><p>New schedules show here and in your notifications.</p></div>') +
+      '<details class="rlf-rep" data-relief-disclosure="representative"><summary><span class="rlf-rep-i">' + I('users', 18) + '</span>' +
+          '<span><b>Claiming for someone else?</b><small>What a representative needs to bring</small></span>' + I('chevdn', 16) + '</summary>' +
         '<div><p>Bring a signed authorization letter and your valid ID. Ask the relief desk if representatives can claim.</p>' +
           reliefDocuments(['Signed authorization letter from the beneficiary', 'Your valid ID'], 'representative') + '</div></details>' +
     '</div>';
@@ -405,7 +402,7 @@ const UG_RW = (() => {
       title: 'Available Relief Distribution Schedules',
       body: '<div class="ug-rw rw-modal-body"><p class="rw-hint" style="margin:0 0 14px">Upcoming for your barangay and the municipality</p>' +
         UG_RELIEF.savedScheduleNote() +
-        (hubs.length ? '<div class="rw-grid rw-grid--2">' + hubs.map(hubCard).join('') + '</div>' : '<p class="rw-hint">No upcoming distributions.</p>') +
+        (hubs.length ? '<div class="rlf-grid">' + hubs.map(hubCard).join('') + '</div>' : '<p class="rw-hint">No upcoming distributions.</p>') +
         '</div>',
       footer: '<button class="ug-btn" data-modal-close>Close</button>'
     });
@@ -697,23 +694,28 @@ const UG_RW = (() => {
     const saved = !!s.home_address;
     return '<section class="rw-panel rw-panel--flush">' + panelHead('Home address', 'If you send an SOS with location off, responders go here.',
         '<span class="rw-st ' + (saved ? 'rw-st--ok' : 'rw-st--warn') + '"><i></i>' + (saved ? 'Saved' : 'Not set') + '</span>') +
-      '<div class="rw-pb ug-col" style="gap:14px">' +
-        '<div class="rw-field"><label class="rw-label" for="home-addr">Home address</label>' +
-          '<input id="home-addr" class="rw-in" data-field="rw.homeAddr" maxlength="200" value="' + esc(addr) + '" placeholder="House no., street, purok"></div>' +
-        '<div class="rw-field"><label class="rw-label rw-label--opt" for="home-mark">Nearby landmark <span>(optional)</span></label>' +
-          '<input id="home-mark" class="rw-in" data-field="rw.homeMark" maxlength="200" value="' + esc(mark) + '" placeholder="For example: blue gate beside the chapel"></div>' +
-        '<div class="rw-field"><span class="rw-label rw-label--opt">Home pin on the map <span>(optional)</span></span>' +
-          (pin
-            ? '<div class="ug-map rw-homepin" data-map="home-pin" data-lat="' + pin.lat + '" data-lng="' + pin.lng + '">' + U.mapSVG({}) + '</div>' +
-              '<p class="rw-fine">' + I('info', 14) + '<span>Drag the pin onto your house. <b data-home-coords>' + esc(UG_GEO.fmt(pin.lat, pin.lng)) + '</b></span></p>'
-            : '<p class="rw-p" style="margin:0">No pin yet. With a pin, the response team sees your house on the map.</p>') +
+      '<div class="rw-pb rs-form">' +
+        '<div class="rs-fields">' +
+          '<div class="rw-field"><label class="rw-label" for="home-addr">Home address</label>' +
+            '<input id="home-addr" class="rw-in" data-field="rw.homeAddr" maxlength="200" autocomplete="street-address" value="' + esc(addr) + '" placeholder="House no., street, purok"></div>' +
+          '<div class="rw-field"><label class="rs-lab" for="home-mark"><span>Nearby landmark</span>' + optional + '</label>' +
+            '<input id="home-mark" class="rw-in" data-field="rw.homeMark" maxlength="200" value="' + esc(mark) + '" placeholder="For example: blue gate beside the chapel"></div>' +
+        '</div>' +
+        '<div class="rs-pin' + (pin ? ' has-pin' : '') + '">' +
+          '<div class="rs-pin-h"><span class="rs-pin-ico">' + I('pin', 18) + '</span>' +
+            '<div><span class="rs-lab"><b>Home pin on the map</b>' + optional + '</span>' +
+            '<p>' + (pin ? 'Drag the pin onto your house. <b data-home-coords>' + esc(UG_GEO.fmt(pin.lat, pin.lng)) + '</b>'
+              : 'No pin yet. With a pin, the response team sees your house on the map.') + '</p></div></div>' +
+          (pin ? '<div class="ug-map rw-homepin" data-map="home-pin" data-lat="' + pin.lat + '" data-lng="' + pin.lng + '">' + U.mapSVG({}) + '</div>' : '') +
           '<div class="rw-row-acts">' +
             '<button class="rw-pbtn rw-pbtn--line rw-pbtn--auto"' + A('home-locate') + (st.homeLocating ? ' disabled' : '') + '>' + I('target', 16) +
-              (st.homeLocating ? 'Finding your location…' : 'I\'m at home: use my location') + '</button>' +
+              (st.homeLocating ? 'Finding your location…' : (pin ? 'Move it to my location' : 'I\'m at home: use my location')) + '</button>' +
             (pin ? '<button class="rw-pbtn rw-pbtn--line rw-pbtn--auto"' + A('home-pin-clear') + '>' + I('x', 16) + 'Remove pin</button>' : '') +
           '</div></div>' +
-        '<div><button class="rw-pbtn rw-pbtn--red rw-pbtn--auto"' + A('home-save') + '>' + I('check', 16) + 'Save home address</button></div>' +
-      '</div></section>';
+      '</div>' +
+      '<div class="rs-foot"><p>' + I('info', 14) + '<span>Used only when you send an SOS with location off.</span></p>' +
+        '<button class="rw-pbtn rw-pbtn--red rw-pbtn--auto"' + A('home-save') + '>' + I('check', 16) + 'Save home address</button></div>' +
+    '</section>';
   }
 
   function settings(st) {
@@ -771,14 +773,19 @@ const UG_RW = (() => {
               '<i class="rw-mono">' + l[1] + '</i><span><b>' + l[2] + '</b><small>' + l[3] + '</small></span>' + (cur === l[0] ? I('check', 16) : '') + '</button>').join('') + '</div>' +
           '<p class="rw-fine">' + I('info', 14) + 'Official advisories appear in the language the LDRRMO wrote them in.</p></div></section>';
     }
-    /* Layout (Nov 2026): big soft tabs with a hint, then the section's cards
-       side by side on wide screens */
+    /* Layout: a menu of sections on the left (a row of tabs on narrower
+       screens), the chosen section's cards stacked on the right */
+    /* phones show one short word under each icon */
+    const SHORT = { home: 'Home', notifications: 'Alerts', offline: 'Offline', language: 'Language' };
     const HINT = { home: 'Where help goes in an SOS', notifications: 'Warnings and the alarm', offline: 'Use without signal', language: 'English or Filipino' };
     return '<div class="ug-col rs" style="gap:20px">' +
-      '<div class="rg-phases rs-tabs" role="tablist">' + tabs.map((t) =>
-        '<button class="' + (tab === t[0] ? 'is-on' : '') + '" role="tab" aria-selected="' + (tab === t[0]) + '"' + A('settings-tab', attr({ v: t[0] })) + '>' +
-          '<b>' + I(t[2], 15) + t[1] + '</b><small>' + HINT[t[0]] + '</small></button>').join('') + '</div>' +
-      '<div class="rs-grid">' + body + '</div>' +
+      '<div class="rs-layout">' +
+        '<nav class="rs-tabs" role="tablist" aria-label="Settings sections">' + tabs.map((t) =>
+          '<button class="' + (tab === t[0] ? 'is-on' : '') + '" role="tab" aria-selected="' + (tab === t[0]) + '"' + A('settings-tab', attr({ v: t[0] })) + '>' +
+            '<i class="rs-ti" aria-hidden="true">' + I(t[2], 18) + '</i><b>' + t[1] + '</b><small>' + HINT[t[0]] + '</small>' +
+            '<em class="rs-short" aria-hidden="true">' + SHORT[t[0]] + '</em></button>').join('') + '</nav>' +
+        '<div class="rs-grid">' + body + '</div>' +
+      '</div>' +
     '</div>';
   }
 
@@ -881,15 +888,14 @@ const UG_RW = (() => {
   }
   function phoneMenu(st) {
     const s = st.session || {};
-    const unread = (U.DATA.notifications || []).filter((n) => n.unread).length;
-    /* grouped: what is yours, then the app; each row has a soft chevron */
+    /* grouped: what is yours, then the app; each row has a soft chevron.
+       Notifications live behind the bell in the header, not here. */
     const groups = [
-      ['Your activity', [['notifications', 'Notifications', 'bell'], ['reports', 'My Reports', 'doc']]],
+      ['Your activity', [['reports', 'My Reports', 'doc']]],
       ['App', [['offline', 'Offline Sync', 'download'], ['settings', 'Settings', 'settings']]]
     ];
     const row = (it) => '<button class="' + (st.route === it[0] || (it[0] === 'reports' && st.route === 'report-detail') ? 'is-on' : '') + '"' + A('nav', attr({ route: it[0] })) + '>' +
-      I(it[2], 20) + '<span>' + it[1] + '</span>' +
-      (it[0] === 'notifications' && unread ? '<em>' + unread + '</em>' : '') + '<i class="rw-pm-chev">' + I('chevron', 16) + '</i></button>';
+      I(it[2], 20) + '<span>' + it[1] + '</span>' + '<i class="rw-pm-chev">' + I('chevron', 16) + '</i></button>';
     return '<div class="rw-pm-scrim"' + A('rw-pmenu') + '></div>' +
       '<aside class="rw-pm" aria-label="Menu">' +
         '<div class="rw-pm-h"><span class="rw-pm-av">' + esc((s.name || 'R').trim().charAt(0).toUpperCase()) + '</span>' +

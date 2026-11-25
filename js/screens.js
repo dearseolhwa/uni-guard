@@ -1415,7 +1415,7 @@ const UG_SCREENS = (() => {
     const tabs = [['all', 'All'], ['unread', 'Unread']].concat(Object.keys(NKIND).filter((k) => count[k]).map((k) => [k, NKIND[k][0]]));
     if (!tabs.some((t) => t[0] === f)) f = 'all';
     return {
-      f: f,
+      f: f, tabs: tabs, count: count,
       shown: rows.filter((n) => f === 'all' || (f === 'unread' ? n.unread : notifKind(n) === f)),
       chips: '<div class="ug-nchips" role="tablist" aria-label="Filter notifications">' + tabs.map((t) =>
         '<button role="tab" aria-selected="' + (f === t[0]) + '" class="' + (f === t[0] ? 'is-on' : '') + '"' + A('notif-filter', attr({ v: t[0] })) + '>' +
@@ -1426,11 +1426,27 @@ const UG_SCREENS = (() => {
     const k = notifKind(n);
     return '<button class="ug-nitem' + (n.unread ? ' is-unread' : '') + ' is-' + k + '"' +
         A('open-notification', attr({ id: n.id || '', advisory: n.advisory_id || '', report: n.report_id || '', 'road-work': n.road_work_id || '', sos: n.sos_id || '', relief: n.relief_id || '' })) + '>' +
-      '<span class="ug-nitem-i">' + I(NKIND[k][1], 16) + '</span>' +
-      '<span class="ug-nitem-m"><b>' + esc(n.title || '') + '</b>' + (n.body ? '<small>' + esc(n.body) + '</small>' : '') + '<em>' + esc(n.time || '') + '</em></span>' +
-      (n.unread ? '<i class="ug-nitem-dot" aria-label="Unread"></i>' : '') +
+      /* every row the same: icon (a dot on it when unread), the title with
+         the time on its right, then the message cut to one or two lines */
+      '<span class="ug-nitem-i">' + I(NKIND[k][1], 15) + (n.unread ? '<i class="ug-nitem-dot" aria-label="Unread"></i>' : '') + '</span>' +
+      '<span class="ug-nitem-m"><span class="ug-nitem-top"><b>' + esc(n.title || '') + '</b><em>' + esc(n.time || '') + '</em></span>' +
+        (n.body ? '<small>' + esc(n.body) + '</small>' : '') + '</span>' +
     '</button>';
   }
+  /* the panel's filter: one compact button ("All · 70") that drops down the
+     list of kinds instead of two rows of chips. .ug-wmore + [data-more-panel]
+     reuse toggle-more and the tap-outside close (js/app.js). */
+  function notifFilterMenu(F) {
+    const label = (F.tabs.find((t) => t[0] === F.f) || ['all', 'All'])[1];
+    return '<div class="ug-nfilt ug-wmore">' +
+      '<button class="ug-nfilt-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Filter notifications: ' + esc(label) + '">' +
+        I('sort', 14) + '<span>Show</span><b>' + esc(label) + '</b>' + (F.count[F.f] ? '<i>' + F.count[F.f] + '</i>' : '') + I('chevdn', 14) + '</button>' +
+      '<div class="ug-nfilt-menu" role="listbox" data-more-panel hidden>' + F.tabs.map((t) =>
+        '<button role="option" aria-selected="' + (F.f === t[0]) + '" class="' + (F.f === t[0] ? 'is-on' : '') + '"' + A('notif-filter', attr({ v: t[0] })) + '>' +
+          '<span>' + esc(t[1]) + '</span><i>' + (F.count[t[0]] || 0) + '</i>' + (F.f === t[0] ? I('check', 14) : '') + '</button>').join('') +
+      '</div></div>';
+  }
+
   /* it fades in when it opens, not again on every redraw (live data) */
   let notifPanelShown = false;
   function notifPanel(st) {
@@ -1441,10 +1457,10 @@ const UG_SCREENS = (() => {
     const unread = rows.filter((n) => n.unread).length;
     const F = notifFilter(rows, st.notifFilter || 'all');
     return '<div class="ug-npanel' + (enter ? ' is-enter' : '') + '" role="dialog" aria-label="Notifications">' +
-      '<div class="ug-npanel-h"><div><b>Notifications</b><small>' + (unread ? unread + ' unread' : 'All caught up') + '</small></div>' +
-        (unread ? '<button class="ug-npanel-a"' + A('read-all') + '>' + I('check', 14) + 'Mark all read</button>' : '') +
+      '<div class="ug-npanel-h"><b>Notifications</b>' + (unread ? '<span class="ug-npanel-n">' + (unread > 99 ? '99+' : unread) + ' new</span>' : '<span class="ug-npanel-ok">All caught up</span>') +
         '<button class="ug-npanel-x"' + A('notif-panel') + ' aria-label="Close notifications">' + I('x', 16) + '</button></div>' +
-      F.chips +
+      '<div class="ug-npanel-bar">' + notifFilterMenu(F) +
+        (unread ? '<button class="ug-npanel-a"' + A('read-all') + '>' + I('check', 14) + 'Mark all read</button>' : '') + '</div>' +
       '<div class="ug-npanel-list">' + (F.shown.length ? F.shown.slice(0, 40).map(notifItem).join('')
         : '<p class="ug-npanel-none">' + I('bell', 22) + '<span>' + (rows.length ? 'Nothing here' : 'No notifications yet') + '</span></p>') + '</div>' +
       '<button class="ug-npanel-all"' + A('nav', attr({ route: 'notifications' })) + '>See all notifications' + I('chevron', 14) + '</button>' +
@@ -1527,17 +1543,19 @@ const UG_SCREENS = (() => {
     const row = (n) => {
       const k = kind(n);
       const linked = !!(n.advisory_id || n.report_id || n.road_work_id || n.sos_id || n.relief_id);
-      return '<button class="nt-row' + (n.unread ? ' is-unread' : '') + ' is-' + k + '"' +
-          A('nt-preview', attr({ kind: k, id: n.id || '', advisory: n.advisory_id || '', report: n.report_id || '', 'road-work': n.road_work_id || '', sos: n.sos_id || '', relief: n.relief_id || '' })) +
-          ' title="Preview">' +
-        '<span class="nt-ico">' + I(KIND[k][1], 16) + '</span>' +
-        '<span class="nt-main"><b>' + esc(n.title || '') + '</b><small>' + esc(n.body || '') + '</small></span>' +
-        '<span class="nt-meta"><em>' + esc(n.time || '') + '</em>' + (n.unread ? '<i class="nt-dot" aria-label="Unread"></i>' : '') + '</span>' +
-        '<span class="nt-go">' + I('chevron', 14) + '</span>' +
-      '</button>';
+      /* styled like the SOS Log feed (.sf-*): a round icon for the kind, the
+         title in bold with the message after it, the time (crimson while
+         unread), and a dot on the right until it is read */
+      return '<div class="sf-row nt-sf' + (n.unread ? ' is-sent' : ' is-read') + ' is-' + k + '" role="button" tabindex="0"' +
+          A('nt-preview', attr({ kind: k, id: n.id || '', advisory: n.advisory_id || '', report: n.report_id || '', 'road-work': n.road_work_id || '', sos: n.sos_id || '', relief: n.relief_id || '' })) + '>' +
+        '<span class="sf-av">' + I(KIND[k][1], 20) + '</span>' +
+        '<div class="sf-main"><p class="sf-txt"><b>' + esc(n.title || '') + '</b>' + (n.body ? ' ' + esc(n.body) : '') + '</p>' +
+          '<span class="sf-time">' + esc(n.time || '') + ' · ' + KIND[k][0] + (n.unread ? ' · Unread' : '') + '</span></div>' +
+        (n.unread ? '<i class="sf-dot" aria-label="Unread"></i>' : '<span class="nt-sf-go">' + I('chevron', 15) + '</span>') +
+      '</div>';
     };
     let list = '', last = '';
-    shown.forEach((n) => { const g = group(n); if (g !== last) { list += '<div class="nt-day">' + g + '</div>'; last = g; } list += row(n); });
+    shown.forEach((n) => { const g = group(n); if (g !== last) { list += '<h4 class="sf-h">' + g + '</h4>'; last = g; } list += row(n); });
 
     return '<div class="ug-col nt" style="gap:20px">' +
       pageHead('Notifications', 'Alerts for your account: SOS, reports, dispatches and advisories, newest first.',
@@ -1558,7 +1576,7 @@ const UG_SCREENS = (() => {
           '<button role="tab" aria-selected="' + (f === t[0]) + '" class="' + (f === t[0] ? 'is-on' : '') + '" data-act="nt-filter" data-v="' + t[0] + '">' + t[1] + '<i>' + (count[t[0]] || 0) + '</i></button>').join('') + '</div>' +
         '<span class="sos-search">' + I('search', 14) + '<input data-field="rw.ntSearch" value="' + esc(st.ntSearch || '') + '" placeholder="Search notifications" aria-label="Search notifications">' +
           (st.ntSearch ? '<button data-act="nt-search-clear" aria-label="Clear search">' + I('x', 11) + '</button>' : '') + '</span></div>' +
-      '<section class="rl-card nt-card">' + (shown.length ? list
+      '<section class="rl-card nt-card sf-card">' + (shown.length ? list
         : '<div class="rl-empty"><span>' + I('bell', 20) + '</span><b>' + (rows.length ? 'Nothing here' : 'No notifications yet') + '</b><p>' +
             (rows.length ? 'Try another filter or clear the search.' : 'SOS alerts, report changes, dispatches and advisories appear here.') + '</p></div>') + '</section>' +
       '<p class="nt-foot">' + I('bell', 12) + 'Alerts arrive even when the app is closed once push is enabled on this device.</p>' +
@@ -1601,18 +1619,20 @@ const UG_SCREENS = (() => {
   /* DESKTOP (barangay / LGU console)                                    */
   /* ================================================================== */
   const DNAV = [
+    /* by urgency, the same order as the console sidebar (js/barangay.js):
+       respond, then inform the public, then reference and records */
     ['dashboard', 'nav.home', 'home', null],
+    ['sos', 'nav.sos', 'sos', null, ['lgu_ldrrmc', 'barangay_official']],
     ['incidents', 'nav.incidents', 'alert', '6'],
-    ['advisories', 'nav.advisories', 'megaphone', '5'],
-    ['relief', 'nav.relief', 'relief', null],
-    ['centers', 'nav.centers', 'shelter', null],
-    ['roadwork', 'nav.roadwork', 'road2', null],
     ['response-team', 'nav.response-team', 'shield', null, ['barangay_official']],
     ['dispatch-units', 'nav.dispatch-units', 'truck', null, ['lgu_ldrrmc']],
+    ['advisories', 'nav.advisories', 'megaphone', '5'],
+    ['centers', 'nav.centers', 'shelter', null],
+    ['relief', 'nav.relief', 'relief', null],
+    ['roadwork', 'nav.roadwork', 'road2', null],
+    ['hotlines', 'nav.hotlines', 'phone', null],
     ['guides', 'nav.guides', 'guide', null, ['lgu_ldrrmc']],
     ['faqs', 'nav.faqs', 'faq', null, ['lgu_ldrrmc']],
-    ['sos', 'nav.sos', 'sos', null, ['lgu_ldrrmc', 'barangay_official']],
-    ['hotlines', 'nav.hotlines', 'phone', null],
     ['analytics', 'nav.analytics', 'layers', null],
     /* Module G: situation report, incident summary, damage and needs */
     ['reporting', 'nav.reporting', 'doc', null, ['lgu_ldrrmc', 'barangay_official']],
@@ -1768,7 +1788,7 @@ const UG_SCREENS = (() => {
       '<div class="ug-dgrid4">' + U.DATA.kpis.map(U.stat).join('') + '</div>' +
       '<div class="ug-dgrid-main">' +
         '<div class="ug-card"><div class="ug-card-h" style="padding:14px 16px">' +
-          '<div><h3>Live Operations Map</h3><span class="ug-dimmer" style="font-size:11px">Active incident perimeters and deployed units</span></div>' +
+          '<div><h3>Live Operations Map</h3><span class="ug-dimmer" style="font-size:11px">Active incidents, SOS response zones and deployed units</span></div>' +
           '<div class="ug-rowf ug-gap8" style="gap:6px">' +
             '<span class="ug-chip is-on">' + I('radar', 13) + 'Realtime</span>' +
             '<button class="ug-chip' + (st.mapPanelOpen ? ' is-on' : '') + '" data-act="map-layers-panel" aria-expanded="' + !!st.mapPanelOpen + '">' + I('layers', 13) + 'Layers</button></div></div>' +
@@ -2116,8 +2136,8 @@ const UG_SCREENS = (() => {
       (escalatedCount > 0 && escalatedCount > (function () { try { return parseInt(localStorage.getItem('ug_esc_note_x') || '0', 10) || 0; } catch (e) { return 0; } })() ? '<details class="ug-esc-note" data-keep-open="inc-esc"' + ((window.UG_SC_OPEN || {})['inc-esc'] ? ' open' : '') + '>' +
         '<summary><span class="en-ico">' + I('alert', 13) + '</span>' +
           '<span class="en-t"><b>' + escalatedCount + '</b> report' + (escalatedCount === 1 ? '' : 's') + ' escalated to LGU</span>' +
-          '<span class="en-why">What does this mean?' + I('chevdn', 12) + '</span>' +
-          (f !== 'escalated' ? '<button class="en-go"' + A('sev-filter', attr({ v: 'escalated' })) + ' title="Show only the escalated reports in the list below">View escalated reports</button>' : '') +
+          '<span class="en-acts"><span class="en-why">What does this mean?' + I('chevdn', 12) + '</span>' +
+          (f !== 'escalated' ? '<button class="en-go"' + A('sev-filter', attr({ v: 'escalated' })) + ' title="Show only the escalated reports in the list below">View escalated reports</button>' : '') + '</span>' +
           '<button class="en-x"' + A('esc-note-x', attr({ n: escalatedCount })) + ' aria-label="Dismiss this reminder" title="Dismiss (shows again if more reports escalate)">' + I('x', 13) + '</button>' +
         '</summary>' +
         '<p><b>Escalated</b> means a report needs additional LGU intervention. It is not a severity and not a status like Reported, Verified, Response Dispatched or Resolved. A report is escalated when (a) it has stayed unverified for more than 30 minutes (stale), or (b) it is a life-safety hazard (fire, power line, accident, landslide) that skips the barangay queue and goes straight to the LGU.</p>' +
@@ -2699,7 +2719,8 @@ const UG_SCREENS = (() => {
      Management and Super Admin Approval) ----
        · Super Admin: Add / Edit / Delete directly (with confirmation dialogs),
          plus a "Pending Change Requests" queue at the top.
-       · LGU / Barangay Official: Call + "Request Change" button. No direct
+       · LGU staff: Add / Edit / Delete directly too (migration 093).
+       · Barangay Official: Call + "Request Change" button. No direct
          Edit / Delete. Submitting a request opens a form modal that captures
          the action (add / edit / delete), the current data, the proposed
          data, and a reason. The request goes to the Super Admin for review.
@@ -2708,7 +2729,10 @@ const UG_SCREENS = (() => {
     const isSuper = !!(st.session && st.session.role === 'lgu_ldrrmc' && st.session.superAdmin);
     const isLgu = !!(st.session && st.session.role === 'lgu_ldrrmc');
     const isOfficial = !!(st.session && st.session.role === 'barangay_official');
-    const canRequest = isLgu && !isSuper || isOfficial;
+    /* LGU staff (the Super Admin included) manage the directory directly
+       (migration 093); barangay officials still request changes */
+    const canManage = isLgu;
+    const canRequest = isOfficial;
     const pending = (UG.DATA.changeRequests || []).filter((r) => r.target_table === 'emergency_hotlines' && r.status === 'pending');
 
     /* pending requests queue — Super Admin only sees this section */
@@ -2756,7 +2780,7 @@ const UG_SCREENS = (() => {
     const iconBtn = (act, id, icon, label, cls) => '<button class="hl-ico' + (cls ? ' ' + cls : '') + '" data-act="' + act + '" data-id="' + esc(id) + '" title="' + esc(label) + '" aria-label="' + esc(label) + '">' + I(icon, 14) + '</button>';
     const hotlineActions = (h) =>
       '<div class="hl-foot"><a class="hl-call" href="' + esc(tel(h.number)) + '">' + I('phone', 14) + esc(T('action.call')) + '</a>' +
-        (isSuper
+        (canManage
           ? iconBtn('open-hotline-detail', h.id, 'doc', T('hotlines.viewDetails')) + iconBtn('edit-hotline', h.id, 'settings', T('action.edit')) + iconBtn('delete-hotline', h.id, 'x', T('action.delete'), 'is-del')
           : canRequest ? '<button class="hl-req" data-act="request-hotline-edit" data-id="' + esc(h.id) + '">' + I('doc', 13) + esc(T('hotlines.requestChange')) + '</button>' : '') +
       '</div>';
@@ -2768,7 +2792,7 @@ const UG_SCREENS = (() => {
         hotlineActions(h) +
       '</article>';
 
-    const addForm = isSuper && st.hlAddOpen
+    const addForm = canManage && st.hlAddOpen
       ? '<section class="hl-add"><div class="hl-add-h"><div><h3>' + esc(T('hotlines.addHotline')) + '</h3><p>Shows on every resident\'s Hotlines page once saved.</p></div>' +
           '<button class="hl-ico" data-act="hl-add-toggle" aria-label="Close">' + I('x', 14) + '</button></div>' +
           '<div class="hl-add-g">' +
@@ -2782,12 +2806,13 @@ const UG_SCREENS = (() => {
     const headActions =
       (isSuper && !pending.length ? '<span class="hl-ok">' + I('check', 13) + esc(T('hotlines.noPending')) + '</span>' : '') +
       '<button class="hl-ghost hl-xpdf"' + A('export-hotlines') + ' aria-label="' + esc(T('action.exportPdf')) + '">' + I('download', 14) + esc(T('action.exportPdf')) + '</button>' +
-      (isSuper ? '<button class="hl-ghost hl-primary' + (st.hlAddOpen ? ' is-on' : '') + '" data-act="hl-add-toggle" aria-label="' + esc(T('hotlines.addHotline')) + '">' + I('plus', 14) + esc(T('hotlines.addHotline')) + '</button>' : '') +
+      (canManage ? '<button class="hl-ghost hl-primary' + (st.hlAddOpen ? ' is-on' : '') + '" data-act="hl-add-toggle" aria-label="' + esc(T('hotlines.addHotline')) + '">' + I('plus', 14) + esc(T('hotlines.addHotline')) + '</button>' : '') +
       (canRequest ? '<button class="hl-ghost hl-primary" data-act="request-hotline-add" aria-label="' + esc(T('hotlines.requestNew')) + '">' + I('plus', 14) + esc(T('hotlines.requestNew')) + '</button>' : '');
 
     return '<div class="ug-col hl" style="gap:20px">' +
       pageHead(T('hotlines.title'), T('hotlines.subtitle'), headActions) +
-      (isSuper ? UG.note('hl-super', 1, 'info', 'You manage the official list', 'Add, edit or delete hotlines directly. Every change is recorded in the Activity Log, and requests from LGU and barangay officials appear here for review.') : '') +
+      (isSuper ? UG.note('hl-super', 1, 'info', 'You manage the official list', 'Add, edit or delete hotlines directly. Every change is recorded in the Activity Log, and requests from barangay officials appear here for review.')
+        : canManage ? UG.note('hl-lgu', 1, 'info', 'You manage the official list', 'Add, edit or delete hotlines directly. Every change is recorded in the Activity Log and shows on every resident\'s Hotlines page.') : '') +
       (canRequest ? UG.note('hl-request', 1, 'info', 'Changes go to the Super Admin', 'Use <b>Request change</b> on a card or <b>Request a new hotline</b> above. You are notified when it is decided.') : '') +
       (isSuper && pending.length ? pendingSection : '') +
       myPendingSection +
@@ -3354,5 +3379,5 @@ const UG_SCREENS = (() => {
   const DESK = (r) => ({ notifications:'notifications', offline:'offline', advisories:'advisories', centers:'centers', hotlines:'hotlines', dashboard:'dashboard', home:'dashboard', incidents:'incidents', analytics:'analytics' })[r] || r;
 
   return { login, frame, frameMobile, frameDesktop, mobileBody, desktopBody, MOB, DESK, sess, analyticsModel, RATE_HINTS, STAR_WORDS, notifRow,
-    notifPanel, notifRows, notifFilter, notifItem };
+    notifPanel, notifRows, notifFilter, notifItem, notifFilterMenu };
 })();

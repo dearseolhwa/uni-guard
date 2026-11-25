@@ -268,7 +268,39 @@ const UG_SETTINGS = (function () {
   }
   function saveSettings() { saveUserPrefs(getUserPrefs()); saveSystemConfig(getSystemConfig()); }
 
-  /* --------------------------------------------------- template persistence */
+  /* --------------------------------------------------- template persistence
+     The shared copy is the message_templates table (migration 041): every
+     LDRRMO staff member and the Super Admin (role lgu_ldrrmc) can add, edit
+     and delete there, and barangay officials read it for the composer. This
+     device keeps a copy so the composer still has templates offline. */
+  const FIELDS = ['id', 'category', 'label', 'title_en', 'body_en', 'title_fil', 'body_fil', 'placeholders'];
+  const db = () => (typeof Repo !== 'undefined' && Repo.client && Repo.client()) || null;
+  const pick = (row) => FIELDS.reduce((o, k) => { o[k] = k === 'placeholders' ? (row[k] || []) : (row[k] == null ? '' : row[k]); return o; }, {});
+  /* who may change templates: LDRRMO staff, which includes the Super Admin */
+  let tplSession = null;   /* the signed-in account, noted when Settings renders */
+  function canEditTemplates() {
+    return !!(tplSession && tplSession.role === 'lgu_ldrrmc');
+  }
+  let tplSynced = false, tplSyncing = false;
+  const saveTemplates = (list) => cacheTemplates(list);   /* kept for callers of the old API */
+  function cacheTemplates(list) {
+    UG.DATA.messageTemplates = list;
+    try { localStorage.setItem(TPL_KEY, JSON.stringify(list)); } catch (e) {}
+  }
+  /* fetch the shared templates once per session (and again after a change) */
+  async function syncTemplates(force) {
+    const c = db();
+    if (!c || tplSyncing || (tplSynced && !force)) return;
+    tplSyncing = true;
+    try {
+      const res = await c.from('message_templates').select(FIELDS.join(',')).order('category').order('label');
+      if (!res.error && Array.isArray(res.data)) {
+        tplSynced = true;
+        cacheTemplates(res.data.map(pick));
+        RERENDER();
+      }
+    } catch (e) { } finally { tplSyncing = false; }
+  }
   function loadTemplates() {
     if (!UG.DATA.messageTemplates) {
       try {
@@ -276,11 +308,27 @@ const UG_SETTINGS = (function () {
         UG.DATA.messageTemplates = raw ? JSON.parse(raw) : JSON.parse(JSON.stringify(DEFAULT_TEMPLATES));
       } catch (e) { UG.DATA.messageTemplates = JSON.parse(JSON.stringify(DEFAULT_TEMPLATES)); }
     }
+    if (!tplSynced) syncTemplates();
     return UG.DATA.messageTemplates;
   }
-  function saveTemplates(list) {
-    UG.DATA.messageTemplates = list;
-    try { localStorage.setItem(TPL_KEY, JSON.stringify(list)); } catch (e) {}
+  /* write one template to the shared table; resolves to an error message or '' */
+  async function upsertTemplate(row, isNew) {
+    const c = db();
+    if (!c) return '';   /* offline / no project: kept on this device only */
+    const uid = (await c.auth.getUser().catch(() => ({ data: {} }))).data?.user?.id || null;
+    const res = await c.from('message_templates').upsert(Object.assign({}, row, { updated_at: new Date().toISOString() },
+      (uid && isNew) ? { created_by: uid } : {}), { onConflict: 'id' }).select('id');
+    if (res.error) return res.error.message || 'Could not save the template.';
+    if (!res.data || !res.data.length) return 'Only LDRRMO staff and the Super Admin can change templates.';
+    return '';
+  }
+  async function removeTemplate(id) {
+    const c = db();
+    if (!c) return '';
+    const res = await c.from('message_templates').delete().eq('id', id).select('id');
+    if (res.error) return res.error.message || 'Could not delete the template.';
+    if (!res.data || !res.data.length) return 'Only LDRRMO staff and the Super Admin can delete templates.';
+    return '';
   }
   function ensureTemplates() { loadTemplates(); }
   /* exposed for the advisory composer (Module F) so it can list + apply one */
@@ -342,6 +390,7 @@ const UG_SETTINGS = (function () {
   }
 
   function dSettings(st) {
+    tplSession = st.session || null;
     const role = (st.session && st.session.role) || 'citizen';
     const superAdmin = !!(st.session && st.session.superAdmin);
     const visibleTabs = tabsForRole(role, superAdmin);
@@ -588,6 +637,7 @@ const UG_SETTINGS = (function () {
 
   /* ------------------------------------------------------ templates tab (core) */
   function tabTemplates(st) {
+    if (st && st.session) tplSession = st.session;
     ensureTemplates();
     const all = loadTemplates();
     const cat = st.tplCategoryFilter || 'all';
@@ -676,6 +726,7 @@ const UG_SETTINGS = (function () {
   /* opened from tpl-add / tpl-edit. A single form holds both languages side by
      side so the translator can see them together. */
   function openEditor(id) {
+    if (!canEditTemplates()) { UGTOST('Only LDRRMO staff and the Super Admin can change templates.', 'info'); return; }
     const all = loadTemplates();
     const t = id ? all.find((x) => x.id === id) : null;
     const isNew = !t;
@@ -721,19 +772,26 @@ const UG_SETTINGS = (function () {
           const placeholders = phRaw ? phRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
           const row = { id: data.id, category: category, label: label, title_en: title_en, body_en: body_en,
             title_fil: title_fil, body_fil: body_fil, placeholders: placeholders };
-          let list = loadTemplates();
-          if (isNew) list.push(row);
-          else { const i = list.findIndex((x) => x.id === data.id); if (i !== -1) list[i] = row; }
-          saveTemplates(list);
-          UGTOST(isNew ? 'Template created' : 'Template saved', 'prepared');
-          close();
-          RERENDER();
+          const btn = wrap.querySelector('[data-save]');
+          btn.disabled = true;
+          upsertTemplate(row, isNew).then((err) => {
+            btn.disabled = false;
+            if (err) { UGTOST(err, 'warning'); return; }
+            const list = loadTemplates().slice();
+            const i = list.findIndex((x) => x.id === row.id);
+            if (i === -1) list.push(row); else list[i] = row;
+            cacheTemplates(list);
+            UGTOST((isNew ? 'Template created' : 'Template saved') + (db() ? ' for all LDRRMO staff' : ' on this device (offline)'), 'prepared');
+            close();
+            RERENDER();
+          });
         });
       }
     });
   }
 
   function deleteTemplate(id) {
+    if (!canEditTemplates()) { UGTOST('Only LDRRMO staff and the Super Admin can change templates.', 'info'); return; }
     const t = templateById(id);
     if (!t) return;
     UG_FEATURES.confirm({
@@ -742,9 +800,12 @@ const UG_SETTINGS = (function () {
       confirmLabel: 'Delete', danger: true
     }).then((ok) => {
       if (!ok) return;
-      saveTemplates(loadTemplates().filter((x) => x.id !== id));
-      UGTOST('Template deleted', 'warning');
-      RERENDER();
+      removeTemplate(id).then((err) => {
+        if (err) { UGTOST(err, 'warning'); return; }
+        cacheTemplates(loadTemplates().filter((x) => x.id !== id));
+        UGTOST('Template deleted', 'warning');
+        RERENDER();
+      });
     });
   }
 

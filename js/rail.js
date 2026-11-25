@@ -5,12 +5,12 @@
  * same everywhere; only the role's colour changes (opts.theme).
  *
  * Behaviour, the same for every role:
- *  · Closed it is a rail of icons. Moving the pointer onto it, or tabbing into
- *    it with the keyboard, opens it over the page (the page does not move).
+ *  · Closed it is a rail of icons. Resting the pointer on it, or tabbing into
+ *    it with the keyboard, opens it and pushes the page aside.
  *  · The pin button keeps it open beside the page. The choice is remembered on
  *    this device and applies to every portal.
- *  · Picking a section closes a hovered rail at once; it opens again the next
- *    time the pointer comes back onto it.
+ *  · Picking a section closes a hovered rail at once; it stays closed until
+ *    the pointer has really moved off it, then opens again when it comes back.
  *  · From 768px up. Phones keep each portal's bottom bar and menu drawer.
  *
  * The app redraws the whole screen on every change, so whether the pointer is
@@ -44,33 +44,46 @@ const UG_RAIL = (() => {
     shut = false;
   }
 
-  /* pointer tracking (one set of listeners for every portal) */
+  /* pointer tracking (one set of listeners for every portal).
+     Only real pointer movement counts: the app redraws the whole screen after
+     a click, and the browser then reports the pointer "leaving" and
+     "entering" the new rail although it never moved. Trusting those events
+     made a picked rail close and spring open again under a still mouse.
+     The rail opens only through is-hover (no CSS :hover), after a short
+     pause so sweeping across it does not push the page around. */
+  const OPEN_DELAY = 140;
+  let openTimer = 0;
   function leave() {
+    clearTimeout(openTimer); openTimer = 0;
     hover = false;
     shut = false;
     document.querySelectorAll('.ug-rail').forEach((x) => x.classList.remove('is-hover', 'is-shut'));
   }
-  document.addEventListener('mouseover', (e) => {
+  document.addEventListener('pointermove', (e) => {
+    if (e.pointerType && e.pointerType !== 'mouse') return;
     const r = e.target.closest && e.target.closest('.ug-rail');
-    /* the pointer is somewhere else: a redraw may have swallowed the mouseout */
-    if (!r) { if (hover) leave(); return; }
-    if (r.classList.contains('is-hover')) return;
-    hover = true;
-    r.classList.add('is-hover');
-  });
-  document.addEventListener('mouseout', (e) => {
-    const r = e.target.closest && e.target.closest('.ug-rail');
-    if (!r || (e.relatedTarget && r.contains(e.relatedTarget))) return;
-    leave();
-  });
+    if (!r) { if (hover || shut || openTimer) leave(); return; }
+    /* a section was just picked: stay closed until the pointer really leaves */
+    if (hover || shut || openTimer) return;
+    openTimer = setTimeout(() => {
+      openTimer = 0;
+      hover = true;
+      document.querySelectorAll('.ug-rail').forEach((x) => x.classList.add('is-hover'));
+    }, OPEN_DELAY);
+  }, { passive: true });
+  /* the pointer left the window altogether */
+  document.documentElement.addEventListener('mouseleave', () => { if (hover || shut || openTimer) leave(); });
   /* picking a section closes the hovered rail (the pin button does not) */
   document.addEventListener('click', (e) => {
     const b = e.target.closest && e.target.closest('.ug-rail button');
     if (!b || b.classList.contains('ugr-pin')) return;
     const r = b.closest('.ug-rail');
     if (r.classList.contains('is-pinned')) return;
+    clearTimeout(openTimer); openTimer = 0;
     shut = true;
+    hover = false;
     r.classList.add('is-shut');
+    r.classList.remove('is-hover');
     try { b.blur(); } catch (err) { }
   }, true);
 
@@ -109,15 +122,18 @@ const UG_RAIL = (() => {
         '</div>' +
         '<nav class="ugr-nav"' + (opts.id ? ' id="' + esc(opts.id) + '"' : '') + ' aria-label="' + esc(opts.label || 'Sections') + '">' +
           opts.groups.filter((g) => g.items.length).map((g, i) =>
-            (g.title ? '<p class="ugr-g' + (i ? '' : ' is-first') + '"><span>' + esc(g.title) + '</span></p>' : '') +
+            (g.title ? '<p class="ugr-g' + (i ? '' : ' is-first') + '"><span>' + esc(g.title) + '</span></p>'
+              : g.divider ? '<hr class="ugr-div" aria-hidden="true">' : '') +
             g.items.map((it) => item(it)).join('')).join('') +
         '</nav>' +
         '<div class="ugr-foot">' +
           (opts.tools || []).map((it) => item(it, 'ugr-tool')).join('') +
-          '<div class="ugr-me" title="' + esc((u.name || '') + (u.sub ? ' · ' + u.sub : '')) + '">' +
+          /* the profile and Sign out live in each portal's header menu; only a
+             portal without one (dispatch) asks for them here (opts.account) */
+          (opts.account ? '<div class="ugr-me" title="' + esc((u.name || '') + (u.sub ? ' · ' + u.sub : '')) + '">' +
             '<span class="ugr-av">' + esc(u.initial || '?') + '</span>' +
             '<span class="ugr-lbl"><b>' + esc(u.name || '') + '</b>' + (u.sub ? '<small>' + esc(u.sub) + '</small>' : '') + '</span></div>' +
-          item({ attrs: opts.signout || ' data-act="logout"', icon: ICON.logout, label: 'Sign out' }, 'ugr-out') +
+          item({ attrs: opts.signout || ' data-act="logout"', icon: ICON.logout, label: 'Sign out' }, 'ugr-out') : '') +
         '</div>' +
       '</div>' +
     '</aside>';

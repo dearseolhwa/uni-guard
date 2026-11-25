@@ -818,7 +818,7 @@ input.an-sel { padding-right: 14px; background-image: none; }
 .du-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 76px; height: 26px; padding: 0 10px; border-radius: 999px;
   font-size: 11px; font-weight: 500; white-space: nowrap; background: rgba(var(--bg-ice-rgb, 245,245,245),.45); border: 1px solid var(--bg-line, #E5E5E5); color: var(--bg-ink, #262626); }
 .du-num { white-space: nowrap; font-size: 12px; color: var(--bg-mid, #525252); font-variant-numeric: tabular-nums; }
-.du-txt { max-width: 340px; font-size: 12px; color: var(--bg-mid, #737373); }
+td.du-txt { max-width: 340px; font-size: 12px; color: var(--bg-mid, #737373); }
 .du-dot { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; white-space: nowrap; color: var(--bg-mid, #525252); }
 .du-dot i { width: 7px; height: 7px; border-radius: 999px; background: var(--bg-soft, #C4C4C4); flex: none; }
 .du-dot.is-on { color: var(--bg-ink, #262626); font-weight: 500; }
@@ -841,6 +841,19 @@ input.an-sel { padding-right: 14px; background-image: none; }
 .du-none > span svg { width: 14px; height: 14px; }
 .du-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
 .du-pair .rl-table { min-width: 560px; }
+/* Dispatch help requests + Relief escorts: stacked full width (side by side
+   squeezed the message column to a word per line and cut off the actions).
+   The message / note column takes the free space; the short columns never
+   wrap; a long list scrolls inside its card under a sticky header. */
+@media (min-width: 1024px) {
+  .du-pair { grid-template-columns: minmax(0, 1fr); }
+  .du-pair .rl-table { min-width: 0; width: 100%; }
+  .du-pair .rl-table th:not(.du-txt), .du-pair .rl-table td:not(.du-txt) { white-space: nowrap; width: 1%; }
+  .du-pair td.du-txt { max-width: none; min-width: 280px; width: auto; font-size: 13px; line-height: 1.5; color: var(--bg-ink, #262626); }
+  .du-pair .rl-tablewrap { max-height: 440px; overflow: auto; }
+  .du-pair .rl-table thead th { position: sticky; top: 0; z-index: 1; background: #FCFCFC; }
+  .du-pair .rl-table td { padding-top: 12px; padding-bottom: 12px; vertical-align: middle; }
+}
 .du-field { display: none; }
 
 @media (max-width: 1100px) {
@@ -1314,3 +1327,10 @@ input.an-sel { padding-right: 14px; background-image: none; }
 .rt-call svg { width: 13px; height: 13px; color: var(--bg-mid, #737373); }
 .rt-call:hover { background: var(--bg-navy, #18181B); border-color: var(--bg-navy, #18181B); color: #fff; }
 .rt-call:hover svg { color: #fff; }
+
+/* Dispatch units: the unit-type filter is a dropdown (markup and look shared
+   with the notification filter, css/notif-panel.css .ug-nfilt) */
+.du-type-dd { --np-accent: #171717; --np-tint: #F4F4F5; }
+.rl-card:has(.du-type-dd) { overflow: visible; }
+.du-type-dd .ug-nfilt-btn { height: 36px; padding: 0 12px 0 14px; font-size: 13px; }
+.du-type-dd .ug-nfilt-menu { top: 42px; min-width: 210px; z-index: 30; }

@@ -384,24 +384,51 @@
   const UNIT_STATUS = { sent: 'Sent', acknowledged: 'Acknowledged', en_route: 'En route', on_scene: 'On scene',
     under_control: 'Under control', fire_out: 'Fire out', on_hold: 'On hold', transporting: 'Transporting',
     arrived_hospital: 'Arrived at hospital' };
+  /* a team's last GPS fix: live for 10 minutes (the car blinks), then a grey
+     "last known spot" up to 2 hours, then off every map, staff included. A
+     position that old would send someone to the wrong place; the team still
+     shows in the dispatch list with its status. */
+  const UNIT_LIVE_MS = 10 * 60 * 1000;
+  const UNIT_HIDE_MS = 2 * 60 * 60 * 1000;
+  /* a resident sees a team only on a report they are part of: one they filed,
+     one they confirmed, or the report behind their own SOS. Staff see all. */
+  function involvedIn(i) {
+    if (!S.session || S.session.role !== 'citizen') return true;
+    if (i.mine) return true;
+    if ((UG.DATA.myCorroborations || []).includes(i.uuid)) return true;
+    const me = S.session.id;
+    return (UG.DATA.sosLog || []).some((x) => x.report_id === i.uuid && (!x.user_id || !me || x.user_id === me));
+  }
   function respondingUnits(only) {
     const byReport = UG.DATA.dispatches || {};
     const units = UG.DATA.unitsById || {};
     const incs = only ? [only] : (UG.DATA.incidents || []);
+    const citizen = !!(S.session && S.session.role === 'citizen');
+    const now = Date.now();
     const out = [];
     incs.forEach((i) => {
-      if (['resolved', 'rejected'].includes(i.status)) return;
+      if (['resolved', 'rejected'].includes(i.status) || i.expired) return;
+      if (!only && !involvedIn(i)) return;
       (byReport[i.uuid] || []).forEach((d) => {
         if (d.last_lat == null || d.last_lng == null) return;
         if (d.dispatch_status === 'done' || d.dispatch_status === 'declined') return;
+        const age = d.last_loc_at ? now - new Date(d.last_loc_at).getTime() : Infinity;
+        /* no GPS for over 2 hours (or never): leave it off the map */
+        if (age > UNIT_HIDE_MS) return;
+        const going = ['acknowledged', 'en_route'].includes(d.dispatch_status);
+        const fresh = age <= UNIT_LIVE_MS;
         out.push({ id: d.id, lat: d.last_lat, lng: d.last_lng, team: d.team, name: (units[d.unit_id] || {}).name || '',
-          statusLabel: UNIT_STATUS[d.dispatch_status] || d.dispatch_status, code: i.id, at: d.last_loc_at,
+          statusLabel: UNIT_STATUS[d.dispatch_status] || d.dispatch_status, status: d.dispatch_status, code: i.id, report: i.uuid || i.id,
+          at: d.last_loc_at, citizen: citizen,
+          /* live = on the way and sending GPS now: it blinks. stale = still
+             assigned but quiet for a while; lost = quiet for hours */
+          moving: going && fresh,
+          stale: !fresh,
           /* the response tracking line (js/map.js drawTracks): the trail it
              drove (migration 090) and, while on the way, the road ahead */
           trail: (UG.DATA.tracks || {})[d.id] || [],
-          moving: ['acknowledged', 'en_route'].includes(d.dispatch_status),
           dest: UG_GEO.isNum(i.lat) && UG_GEO.isNum(i.lng) ? [i.lat, i.lng] : null,
-          eta: d.eta && ['sent', 'acknowledged', 'en_route'].includes(d.dispatch_status)
+          eta: fresh && d.eta && ['sent', 'acknowledged', 'en_route'].includes(d.dispatch_status)
             ? new Date(d.eta).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '' });
       });
     });
@@ -438,8 +465,12 @@
      ordinary report). Staff see the sender's name; it is the resident's own. */
   function sosPinsFor(incident) {
     if (!incident) return [];
+    /* a closed or expired SOS no longer marks the map; the report's own pin
+       shows in its place */
+    if (['resolved', 'rejected'].includes(incident.status) || incident.expired) return [];
     const KIND = { medical: 'Medical', fire: 'Fire', crime: 'Crime / violence', rescue: 'Rescue', other: 'Other' };
     const row = (UG.DATA.sosLog || []).find((x) => x.report_id === incident.uuid);
+    if (row && (row.expired || row.status === 'resolved')) return [];
     if (row && UG_GEO.isNum(row.lat) && UG_GEO.isNum(row.lng)) {
       return [{ id: row.id, lat: row.lat, lng: row.lng, name: S.role === 'citizen' ? 'you' : (row.profile_name || ''), kind: KIND[row.kind] || '', at: row.created_at }];
     }
@@ -767,6 +798,19 @@
     }
   }
 
+  /* once per sign-in: after the data has loaded, say how many notifications
+     are waiting, so they are not missed behind the bell */
+  function announceUnread(session) {
+    let tries = 0;
+    const check = () => {
+      if (!S.session || S.session.id !== session.id) return;
+      if (!Repo.state.hasSynced && ++tries < 30) { setTimeout(check, 500); return; }
+      const n = (UG.DATA.notifications || []).filter((x) => x.unread).length;
+      if (n) toast('You have ' + n + ' unread notification' + (n === 1 ? '' : 's') + ' · tap the bell to see them', 'info');
+    };
+    setTimeout(check, 1500);
+  }
+
   async function bootstrapData() {
     const owner = S.session;
     if (!Repo.state.hasSynced) {
@@ -1030,6 +1074,7 @@
     toast(message || ('Signed in as ' + (session.title || UG_WEB.ROLE_INFO[session.role].label) + ' · ' + session.scope), 'prepared');
     render();
     bootstrapData();
+    announceUnread(session);
     refreshQueuedList().catch(() => {});
     UG_PWA.refreshQueueCount();
     autoPush(false);
@@ -1046,6 +1091,8 @@
     return roles.indexOf(S.session.role) !== -1;
   }
   const isSuperAdmin = () => !!(S.session && S.session.role === 'lgu_ldrrmc' && S.session.superAdmin);
+  /* LGU staff (the Super Admin included) manage the hotline directory directly (migration 093) */
+  const canManageHotlines = () => !!(S.session && S.session.role === 'lgu_ldrrmc');
 
   /* ------------------------------------------------------- barangay combo */
   /* Helpers for the custom Barangay picker. The DOM is recreated on every
@@ -2490,6 +2537,16 @@
     /* the shared sidebar (js/rail.js): the pin keeps it open beside the page,
        remembered on this device for every portal */
     'rail-pin': () => UG_RAIL.setPinned(!UG_RAIL.pinned()),
+    /* resident shell (css/resident.css): fold the sidebar to icons, which is
+       remembered on this device, and the drawer menu on narrower screens */
+    'rw-fold': () => {
+      const fr = q('.ug-rw');
+      if (!fr) return;
+      const on = !fr.classList.contains('is-folded');
+      fr.classList.toggle('is-folded', on);
+      try { localStorage.setItem('uniguard_resident_sidebar_minimized', String(on)); } catch (e) { }
+    },
+    'rw-drawer': () => { const fr = q('.ug-rw'); if (fr) fr.classList.toggle('is-drawer'); },
     'rw-pmenu': () => { const fr = q('.ug-rw'); if (fr) fr.classList.toggle('is-pmenu'); },
     /* staff phone menu (barangay / LDRRMO): kept in state so a live refresh
        does not snap it shut; data-v="0" always closes */
@@ -3027,7 +3084,7 @@
     'add-hotline': async () => {
       /* Master prompt · Emergency Hotlines Management. Only the Super Admin
          can directly add an official hotline. LGU / BO use request-hotline-add. */
-      if (!isSuperAdmin()) { toast('Only the Super Admin can add official hotlines. Use "Request a new hotline" instead.', 'warning'); return; }
+      if (!canManageHotlines()) { toast('Only LGU staff can add official hotlines. Use "Request a new hotline" instead.', 'warning'); return; }
       const agency = ((q('[data-field="hotlineAgency"]') || {}).value || '').trim();
       const number = ((q('[data-field="hotlineNumber"]') || {}).value || '').trim();
       const scope = ((q('[data-field="hotlineScope"]') || {}).value || '').trim() || UG_GEO.PLACE.areaAll;
@@ -3041,7 +3098,7 @@
     },
 
     'edit-hotline': async (d) => {
-      if (!isSuperAdmin()) { toast('Only the Super Admin can directly edit official hotlines.', 'warning'); return; }
+      if (!canManageHotlines()) { toast('Only LGU staff can edit official hotlines. Use "Request Change" instead.', 'warning'); return; }
       const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
       if (!h) return;
       UG_FEATURES.modal({
@@ -3076,7 +3133,7 @@
       /* Super Admin only. The confirmation dialog already existed; we keep it
          and add a second confirmation prompt for the reason, so the audit log
          captures why an official hotline was removed. */
-      if (!isSuperAdmin()) { toast('Only the Super Admin can delete official hotlines.', 'warning'); return; }
+      if (!canManageHotlines()) { toast('Only LGU staff can delete official hotlines. Use "Request Change" instead.', 'warning'); return; }
       const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
       if (!h) return;
       const ok = await UG_FEATURES.confirm({
@@ -3094,8 +3151,8 @@
     'open-hotline-detail': (d) => {
       const h = (UG.DATA.hotlines || []).find((x) => x.uuid === d.id || x.id === d.id);
       if (!h) return;
-      const isSuper = isSuperAdmin();
-      const canRequest = !!S.session && (S.session.role === 'lgu_ldrrmc' && !isSuper || S.session.role === 'barangay_official');
+      const isSuper = canManageHotlines();   /* LGU staff and the Super Admin edit directly (093) */
+      const canRequest = !!S.session && S.session.role === 'barangay_official';
       const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + UG_UTIL.esc(k) + '</span><span style="text-align:right;max-width:60%">' + UG_UTIL.esc(v == null || v === '' ? '—' : v) + '</span></div>';
       UG_FEATURES.modal({
         title: h.agency || 'Hotline',
@@ -3129,8 +3186,7 @@
     /* LGU/BO: open the request-a-new-hotline form */
     'request-hotline-add': () => {
       if (!S.session) return;
-      const isSuper = isSuperAdmin();
-      if (isSuper) { toast('You can add hotlines directly — use the Add Hotline form below.', 'info'); return; }
+      if (canManageHotlines()) { S.hlAddOpen = true; render(); return; }
       hotlineRequestModal('add', null);
     },
 
@@ -3538,7 +3594,16 @@
     'nt-filter': (d) => { S.ntFilter = d.v; render(); },
     'nt-search-clear': () => { S.ntSearch = ''; render(); },
     /* the bell's notification panel (js/screens.js notifPanel) */
-    'notif-panel': () => { S.notifPanel = !S.notifPanel; render(); },
+    /* phones skip the small panel and open the full Notifications page;
+       wider screens toggle the panel under the bell */
+    'notif-panel': () => {
+      if (window.matchMedia('(max-width: 767.98px)').matches) {
+        S.notifPanel = false;
+        ALL.nav({ route: 'notifications' });
+        return;
+      }
+      S.notifPanel = !S.notifPanel; render();
+    },
     'notif-filter': (d) => { S.notifFilter = d.v || 'all'; render(); },
 
     'open-notification': async (d) => {
@@ -5192,6 +5257,12 @@
 
     'settings-tab': (d) => { S.settingsTab = d.v; render(); },
     'rw-home-setup': () => { S.settingsTab = 'home'; go('settings'); render(); },
+    /* close the home address reminder on the dashboard (remembered per account on this device) */
+    'rw-home-dismiss': () => {
+      try { localStorage.setItem('uniguard_homeask_hidden_' + ((S.session && (S.session.id || S.session.email)) || ''), '1'); } catch (e) { }
+      render();
+      toast('Reminder hidden. You can add your home address anytime in Settings.');
+    },
     /* Settings › Home address (migration 091): where responders go when an
        SOS has no live location. The pin is optional and can be dragged. */
     'home-locate': async () => {
@@ -6441,6 +6512,14 @@
         syncSosAlarm();
         render();
       }
+    }
+    /* a new notification for this account shows as an in-app message the
+       moment it arrives (the bell count alone was easy to miss). SOS,
+       dispatch and emergency alerts already raise their own alarm cards. */
+    if (d.table === 'notifications' && d.type === 'INSERT' && d.row && S.session && d.row.user_id === S.session.id) {
+      const n = d.row;
+      const loud = /^(sos|dispatch)/.test(String(n.type || '')) || n.tone === 'emergency';
+      if (!loud && n.title) toast(n.title + (n.body ? ' · ' + String(n.body).slice(0, 90) + (String(n.body).length > 90 ? '…' : '') : ''), n.tone === 'warning' ? 'warning' : 'info');
     }
     /* an emergency advisory (or emergency declaration) raises the alert
        card and its alarm the moment it is published, every portal but the

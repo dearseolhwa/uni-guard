@@ -2,8 +2,9 @@
  *
  * Same size, spacing, states and motion for the resident, barangay, LDRRMO,
  * Super Admin and dispatch portals. Each portal only sets its colours
- * (.ug-rail--<theme>). Closed it is a 76px rail of icons; on hover or keyboard
- * focus it opens to 260px over the page; pinned it stays open beside it.
+ * (.ug-rail--<theme>). Closed it is a 76px rail of icons; on hover, keyboard
+ * focus or when pinned it opens to 260px and pushes the page aside, so it
+ * never covers the content.
  * Phones (below 768px) keep each portal's own bottom bar instead.
  */
 
@@ -24,6 +25,13 @@
   font-family: var(--ug-font);
 }
 .ug-rail.is-pinned { width: calc(var(--rl-open) + var(--rl-gap)); }
+/* open on hover / focus too: the rail itself widens, so the page beside it
+   moves over instead of being covered */
+@media (min-width: 768px) {
+  .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible) {
+    width: calc(var(--rl-open) + var(--rl-gap));
+  }
+}
 
 .ug-rail .ugr-panel {
   position: absolute; top: var(--rl-gap); bottom: var(--rl-gap); left: var(--rl-gap);
@@ -35,14 +43,11 @@
 
 /* ------------------------------------------------------------ open state
    pinned, or hovered / keyboard-focused (unless a section was just picked) */
-:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-panel {
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-panel {
   width: var(--rl-open);
 }
-:is(.ug-rail:not(.is-pinned):not(.is-shut):hover, .ug-rail:not(.is-pinned):not(.is-shut).is-hover, .ug-rail:not(.is-pinned):not(.is-shut):has(:focus-visible)) .ugr-panel {
-  box-shadow: 18px 0 44px -16px var(--rl-glow);
-}
 .ug-rail .ugr-lbl { opacity: 0; transition: opacity .12s; white-space: nowrap; min-width: 0; }
-:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-lbl {
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-lbl {
   opacity: 1; transition: opacity .18s .08s;
 }
 
@@ -66,7 +71,7 @@
   border: 1px solid var(--rl-line); background: var(--rl-hover); color: var(--rl-dim);
   opacity: 0; pointer-events: none; transition: opacity .15s, background .15s, color .15s, transform .15s;
 }
-:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-pin {
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-pin {
   opacity: 1; pointer-events: auto; transition-delay: .08s;
 }
 .ug-rail .ugr-pin:hover { background: var(--rl-soft); color: var(--rl-fg); }
@@ -85,8 +90,8 @@
 .ug-rail .ugr-g.is-first { margin-top: 0; }
 .ug-rail .ugr-g::before { content: ''; position: absolute; left: 12px; width: 20px; height: 1px; background: var(--rl-line); transition: opacity .12s; }
 .ug-rail .ugr-g span { opacity: 0; white-space: nowrap; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--rl-faint); transition: opacity .12s; }
-:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-g::before { opacity: 0; }
-:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-g span { opacity: 1; transition-delay: .08s; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-g::before { opacity: 0; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-g span { opacity: 1; transition-delay: .08s; }
 
 /* one row: icon, label, count */
 .ug-rail .ugr-i {
@@ -111,15 +116,16 @@
 .ug-rail .ugr-count.is-alert { background: #F87171; }
 .ug-rail .ugr-i.is-on .ugr-count { background: var(--rl-accent); box-shadow: 0 0 0 2px #fff; }
 .ug-rail .ugr-i.is-on .ugr-count.is-alert { background: #DC2626; }
-:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-count {
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-count {
   position: static; width: auto; height: 20px; min-width: 22px; padding: 0 7px; flex: none;
   display: grid; place-items: center; font-size: 11px; font-weight: 800; line-height: 1;
   background: var(--rl-soft); color: var(--rl-fg); box-shadow: none;
 }
-:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-count.is-alert { background: #DC2626; color: #fff; }
-:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut):hover, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-i.is-on .ugr-count:not(.is-alert) { background: var(--rl-accent); color: #fff; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-count.is-alert { background: #DC2626; color: #fff; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-i.is-on .ugr-count:not(.is-alert) { background: var(--rl-accent); color: #fff; }
 
 /* ------------------------------------------------------------------ foot */
+.ug-rail .ugr-foot:empty { display: none; }
 .ug-rail .ugr-foot { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 12px 16px 16px; border-top: 1px solid var(--rl-line); }
 .ug-rail .ugr-me { display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 4px; overflow: hidden; }
 .ug-rail .ugr-av {
@@ -132,6 +138,47 @@
 .ug-rail .ugr-me small { overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--rl-faint); }
 .ug-rail .ugr-out { background: var(--rl-hover); color: var(--rl-fg); }
 .ug-rail .ugr-out:hover { background: var(--rl-soft); }
+
+
+/* =========================================================== soft menu style
+   LGU (command), Super Admin (admin) and barangay sidebars: a tall rounded
+   panel, roomy pill rows, a round highlight on the current icon while closed
+   and a full pill when open, soft dividers under the brand and between
+   groups with quiet sentence-case group titles, round count badges. Only the
+   shape and spacing change; every role keeps its own colours (below). */
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) { --rl-closed: 78px; }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-panel { border-radius: 34px; }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-head { height: 80px; padding: 0 16px; margin: 0 14px; padding-left: 2px; padding-right: 2px;
+  border-bottom: 1px solid var(--rl-line); }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-brand { height: 48px; padding: 0 6px; border-radius: 999px; }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-word b { font-size: 19px; font-weight: 700; letter-spacing: -.02em; }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-word small { font-weight: 500; letter-spacing: .04em; }
+
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-nav { gap: 4px; padding: 14px 16px 14px; }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-i { height: 44px; padding: 0 13px; gap: 16px; border-radius: 999px;
+  font-size: 14.5px; font-weight: 500; letter-spacing: -.005em; }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-ico svg { stroke-width: 1.6; }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-i:hover { background: var(--rl-hover); }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-i.is-on { font-weight: 600; box-shadow: 0 8px 20px -12px rgba(0,0,0,.45); }
+
+/* groups: a soft full-width divider, then the title in plain words */
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-g { height: 38px; margin: 8px 0 0; padding: 12px 13px 0; align-items: center; }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-g::before { top: 0; left: 8px; right: 8px; width: auto; opacity: 1 !important; background: var(--rl-line); }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-g.is-first { margin-top: 0; }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-g.is-first::before { display: none; }
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-g span { font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--rl-faint); }
+
+/* a plain divider between groups (no title) */
+.ug-rail .ugr-div { flex: none; height: 1px; margin: 8px 8px; border: 0; background: var(--rl-line); }
+
+/* counts: a small dot on the icon when closed, a round badge when open */
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)).ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-count {
+  height: 22px; min-width: 22px; padding: 0 6px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; background: #fff; color: var(--rl-accent);
+}
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)).ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-i.is-on .ugr-count:not(.is-alert) { background: var(--rl-accent); color: #fff; }
+
+.ug-rail:is(.ug-rail--command, .ug-rail--admin, .ug-rail--barangay) .ugr-foot { margin: 0 14px; padding: 12px 2px 16px; }
 
 /* ------------------------------------------------------------ the colours
    one per role, as everywhere else in the app */
