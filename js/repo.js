@@ -458,6 +458,9 @@ const Repo = (function () {
     state.loading = false;
     lastDataSig = '';
     UG.DATA.myReportRows = [];
+    UG.DATA.reliefSchedulesSyncedAt = null;
+    UG.DATA.reliefSchedulesCached = false;
+    UG.DATA.reliefInventoryReady = false;
     if (!client() && UG_CONFIG.DEV) return;
     for (const key of ['incidents', 'advisories', 'centers', 'hotlines', 'notifications', 'sosLog', 'relief',
       'beneficiaries', 'guides', 'faqs', 'roadWork', 'roadStatus', 'inventory', 'distributionLog', 'municipalDispatchRequests',
@@ -627,10 +630,13 @@ const Repo = (function () {
       if (!centers.error) UG.DATA.centers = (centers.data || []).map(toCenter);
       if (!hotlines.error) UG.DATA.hotlines = (hotlines.data || []).map(toHotline);
       if (!notifications.error) UG.DATA.notifications = (notifications.data || []).map(toNotification);
-      /* the new feature tables. Each is best-effort: if the migration has not
-         been applied yet, the table is missing and we keep whatever was already
-         in the store (the seeded defaults from the feature module). */
-      if (relief && !relief.error && relief.data) UG.DATA.relief = relief.data.map(toRelief);
+      if (!relief.error && Array.isArray(relief.data)) {
+        UG.DATA.relief = relief.data.map(toRelief);
+        UG.DATA.reliefSchedulesSyncedAt = syncedAt;
+        UG.DATA.reliefSchedulesCached = false;
+      } else if (UG.DATA.reliefSchedulesSyncedAt) {
+        UG.DATA.reliefSchedulesCached = true;
+      }
       if (beneficiaries && !beneficiaries.error && beneficiaries.data) UG.DATA.beneficiaries = beneficiaries.data.map(toBeneficiary);
       if (guides && !guides.error && guides.data) UG.DATA.guides = guides.data.map(toGuide);
       if (faqs && !faqs.error && faqs.data) UG.DATA.faqs = faqs.data.map(toFaq);
@@ -660,6 +666,7 @@ const Repo = (function () {
       state.error = state.lastError;
       startPoll();
       state.source = 'offline';
+      if (UG.DATA.reliefSchedulesSyncedAt) UG.DATA.reliefSchedulesCached = true;
       refreshDerived();
       state.loading = false;
       emit();
@@ -1489,32 +1496,21 @@ const Repo = (function () {
     return data;
   }
     /* ---------------------------------------------------------------- dispatch */
-  async function dispatchReport(reportUuid, input) {
-    const c = client();
-    if (!c) {
-      /* offline preview: move the incident locally and keep the record */
-      const row = (UG.DATA.incidents || []).find((i) => i.uuid === reportUuid || i.id === reportUuid);
-      if (row && row.status === 'verified') row.status = 'dispatched';
-      UG.DATA.dispatches = UG.DATA.dispatches || {};
-      const list = UG.DATA.dispatches[reportUuid] = UG.DATA.dispatches[reportUuid] || [];
-      list.unshift({
-        id: 'local-' + Date.now(), report_id: reportUuid, team: input.team,
-        instructions: input.instructions, eta: input.eta,
-        dispatched_by_name: (Auth.state.session && Auth.state.session.name) || '',
-        dispatched_at: new Date().toISOString()
-      });
-      UG.DATA.counts = computeCounts();
-      recomputeKpis(); emit();
-      return { local: true };
-    }
-    const { data, error } = await c.rpc('dispatch_report', {
-      p_report_id: reportUuid, p_team: input.team,
-      p_instructions: input.instructions, p_eta: input.eta
+  function previewDispatchReport(reportUuid, input) {
+    if (!UG_CONFIG.DEV) throw new Error('Connect to UniGuard before dispatching a team.');
+    const row = (UG.DATA.incidents || []).find((i) => i.uuid === reportUuid || i.id === reportUuid);
+    if (row && row.status === 'verified') row.status = 'dispatched';
+    UG.DATA.dispatches = UG.DATA.dispatches || {};
+    const list = UG.DATA.dispatches[reportUuid] = UG.DATA.dispatches[reportUuid] || [];
+    list.unshift({
+      id: 'local-' + Date.now(), report_id: reportUuid, team: input.team,
+      instructions: input.instructions, eta: input.eta,
+      dispatched_by_name: (Auth.state.session && Auth.state.session.name) || '',
+      dispatched_at: new Date().toISOString()
     });
-    if (error) fail(error);
-    await loadAll();
-    await loadDispatches(reportUuid);
-    return data;
+    UG.DATA.counts = computeCounts();
+    recomputeKpis(); emit();
+    return { local: true };
   }
 
   async function loadDispatches(reportUuid) {
@@ -1573,10 +1569,7 @@ const Repo = (function () {
   /* -------------------------------------------------- dispatch v2 + directory */
   async function dispatchReportV2(reportUuid, input) {
     const c = client();
-    if (!c) {
-      /* offline preview: behave like the old dispatchReport path */
-      return dispatchReport(reportUuid, input);
-    }
+    if (!c) return previewDispatchReport(reportUuid, input);
     const params = {
       p_report_id: reportUuid,
       p_team: input.team,
@@ -2052,7 +2045,7 @@ const Repo = (function () {
     markRead, markAllRead, listBarangays,
     declareEmergency, subscribedDeviceCount,
     analytics, analyticsFromViews, writeReliefStock, listUsers, adminUsers, adminAccountDirectory, adminEditStaffAccount, listAudit, listResponders, assignResponder,
-    dispatchReport, dispatchReportV2, loadDispatches, loadDispatchDirectory,
+    dispatchReportV2, loadDispatches, loadDispatchDirectory,
     /* change request workflow (master prompt · Emergency Hotlines approval) */
     loadChangeRequests, submitChangeRequest, approveChangeRequest, rejectChangeRequest,
     /* new feature data access */

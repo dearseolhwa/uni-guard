@@ -884,6 +884,7 @@
   let initialIncident = alertLink('incidents', 'incident');
   let initialSos = alertLink('sos', 'sos');
   let initialAdvisory = alertLink('advisory-detail', 'advisory');
+  let initialReliefInventory = INITIAL_ROUTE === 'relief' && linkParams.get('relief') === 'inventory';
   /* the Super Admin starts on their own home screen (js/screens.superadmin.js) */
   const homeRoute = () => (S.session && S.session.role === 'lgu_ldrrmc' && S.session.superAdmin && typeof UG_SUPERADMIN !== 'undefined')
     ? UG_SUPERADMIN.ROUTE
@@ -980,7 +981,13 @@
       }
     }
     const operationalStaff = session.role === 'barangay_official' || session.role === 'lgu_ldrrmc';
-    go(operationalStaff && initialIncident ? 'incidents' : operationalStaff && initialSos ? 'sos' : homeRoute());
+    if (initialReliefInventory && session.role === 'lgu_ldrrmc' && !session.superAdmin) {
+      initialReliefInventory = false;
+      S.reliefTab = 'inventory';
+      go('relief');
+    } else {
+      go(operationalStaff && initialIncident ? 'incidents' : operationalStaff && initialSos ? 'sos' : homeRoute());
+    }
     toast(message || ('Signed in as ' + (session.title || UG_WEB.ROLE_INFO[session.role].label) + ' · ' + session.scope), 'prepared');
     render();
     bootstrapData();
@@ -3977,6 +3984,7 @@
             title: 'Equipment · ' + (d.unitName || unit.name || ''),
             body: '<div data-unit-equipment-list data-unit-id="' + UG_UTIL.esc(unit.id) + '" data-unit-type="' + UG_UTIL.esc(unit.unit_type) + '">Loading…</div>',
             footer: '<button class="ug-btn" data-modal-close>Close</button>' +
+                    '<button class="ug-btn" data-keep-modal data-act="equipment-csv" data-unit-id="' + UG_UTIL.esc(unit.id) + '">' + UG.icon('download', 14) + 'Export CSV</button>' +
                     '<button class="ug-btn ug-btn--signal" data-unit-equipment-add data-unit-id="' + UG_UTIL.esc(unit.id) + '" data-unit-type="' + UG_UTIL.esc(unit.unit_type) + '">' + UG.icon('plus', 14) + 'Add equipment</button>',
             onMount: (wrap, close) => {
               const listEl = wrap.querySelector('[data-unit-equipment-list]');
@@ -3999,6 +4007,10 @@
                     '<td>' + UG_UTIL.esc((typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.statusLabel ? UG_DISPATCH.statusLabel(r.status) : r.status)) + '</td>' +
                     '<td>' + UG_UTIL.esc((typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.conditionLabel ? UG_DISPATCH.conditionLabel(r.condition) : r.condition)) + '</td>' +
                     '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
+                      (r.status !== 'deployed'
+                        ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-keep-modal data-act="dispatch-check" data-id="' + UG_UTIL.esc(r.id) + '">Check</button>' +
+                          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-keep-modal data-act="dispatch-status" data-id="' + UG_UTIL.esc(r.id) + '">Status</button>'
+                        : '') +
                       '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-keep-modal data-act="equipment-history" data-id="' + UG_UTIL.esc(r.id) + '">Service history</button>' +
                       '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + UG_UTIL.esc(r.id) + '">Edit</button>' +
                       '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + UG_UTIL.esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>' +
@@ -4262,11 +4274,12 @@
         road_status: 'roadwork', road_work_posts: 'roadwork', advisories: 'advisories',
         faqs: 'faqs', preparedness_guides: 'guides', sos_log: 'sos', profiles: 'users',
         dispatch_units: 'dispatch-units', change_requests: 'hotlines',
-        relief_inventory: 'relief', relief_distribution_log: 'relief'
+        relief_inventory: 'relief'
       })[entity] || null;
       const route = entityToRoute(a.entity || '');
-      const openRecordBtn = (route && a.entity_id)
-        ? '<button class="ug-btn ug-btn--signal" data-act="audit-open-record" data-route="' + UG_UTIL.esc(route) + '" data-id="' + UG_UTIL.esc(a.entity_id) + '" data-entity="' + UG_UTIL.esc(a.entity || '') + '">' + UG.icon('doc', 13) + 'Open this record</button>'
+      const recordId = UG_ADMIN.auditRecordId(a);
+      const openRecordBtn = (route && recordId)
+        ? '<button class="ug-btn ug-btn--signal" data-act="audit-open-record" data-route="' + UG_UTIL.esc(route) + '" data-id="' + UG_UTIL.esc(recordId) + '" data-entity="' + UG_UTIL.esc(a.entity || '') + '">' + UG.icon('doc', 13) + 'Open this record</button>'
         : '';
       UG_FEATURES.modal({
         title: 'Activity entry',
@@ -4278,7 +4291,7 @@
           kv('Module', UG_ADMIN.entityLabel(a.entity || '')) +
           kv('Action', a.action || '') +
           kv('Entity', a.entity || '') +
-          kv('Entity id', a.entity_id || '') +
+          kv('Entity id', recordId || '') +
           (changed ? '<div style="margin-top:10px"><div class="ug-lab">Changed fields (previous → new)</div>' + changed + '</div>' : '') +
           (a.meta && !changed ? '<div style="margin-top:10px"><div class="ug-lab">Detail</div><pre class="ug-note" style="white-space:pre-wrap">' + UG_UTIL.esc(JSON.stringify(a.meta, null, 2)) + '</pre></div>' : ''),
         footer:
@@ -4288,8 +4301,17 @@
     },
 
     /* deep-link from Activity Log → affected record's own detail view */
-    'audit-open-record': (d) => {
+    'audit-open-record': async (d) => {
       const route = d.route, id = d.id, entity = d.entity;
+      if (entity === 'relief_inventory') {
+        const session = S.session;
+        if (!UG_RELIEF.invDetailModal(id)) {
+          await Repo.loadAll();
+          if (S.session !== session) return;
+          if (!UG_RELIEF.invDetailModal(id)) toast('This stock item is no longer available.', 'info');
+        }
+        return;
+      }
       /* navigate first, then open the detail modal on the next render */
       S.route = route;
       /* store a pending open-id so the screen-specific render can pick it up */
@@ -4304,7 +4326,6 @@
         road_status: 'rs-detail',
         advisories: 'open-advisory',
         dispatch_units: 'open-unit',
-        relief_inventory: 'inv-detail',
         change_requests: 'open-change-request'
       }[entity];
       if (openAct && ALL[openAct]) {

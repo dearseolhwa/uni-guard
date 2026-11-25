@@ -472,12 +472,102 @@ async function escortAndEquipmentHistory(browser, app) {
     await police.page.locator('.dpm-tiles').getByRole('button', {name:'Equipment',exact:true}).click();
     await police.page.getByRole('button', {name:'Service history',exact:true}).click();
     await police.page.getByText('Fixture service note', {exact:true}).waitFor();
+    const [history] = await Promise.all([
+      police.page.waitForEvent('download'),
+      police.page.getByRole('button', {name:'Export checks CSV'}).click()
+    ]);
+    const csv = await fs.readFile(await history.path(), 'utf8');
+    assert.match(csv, /Fixture service note/);
+    assert.match(csv, /Cable \(OK\)/);
     await police.page.getByRole('button', {name:'Close',exact:true}).filter({visible:true}).last().click();
     await police.page.evaluate(() => window.changeGear());
     await police.page.getByText('Maintenance', {exact:true}).waitFor();
     console.log('PASS Relief staff request an escort, mobile PNP confirms it with an empty dispatch list, and equipment history and realtime status render.');
   } finally {
     await Promise.all([staff.context.close(),police.context.close()]);
+  }
+}
+
+async function reliefAuditFollowup(browser, app) {
+  const resident = await fixture(browser, app, {mobile: true});
+  const official = await fixture(browser, app);
+  const production = await fixture(browser, app, {dev: false});
+  try {
+    await production.page.goto(app, {waitUntil:'domcontentloaded'});
+    assert.deepEqual(await production.page.evaluate(() => [
+      (UG.DATA.relief || []).length, (UG.DATA.beneficiaries || []).length, (UG.DATA.inventory || []).length
+    ]), [0,0,0]);
+
+    await enter(resident.page, app, 'citizen', 'relief');
+    const cached = await resident.page.evaluate(async () => {
+      const account = {...UG_APP.S.session, id:'offline-relief-resident'};
+      Auth.state.session = account;
+      UG.DATA.reliefSchedulesSyncedAt = '2026-11-25T00:00:00Z';
+      UG.DATA.relief = [
+        {id:'saved',title:'Fixture saved relief',barangay:account.barangay,active:true,escort_note:'Staff only'},
+        {id:'inactive',title:'Fixture closed relief',active:false}
+      ];
+      UG.DATA.beneficiaries = [{claimant_id:'private-beneficiary-id'}];
+      if (!(await UG_PWA.storeSnapshot(UG.DATA))) return {saved:false};
+      Auth.state.session = {...account,id:'other-resident'};
+      if (await UG_PWA.readSnapshot()) return {crossAccount:true};
+      Auth.state.session = account;
+      UG.DATA.relief = [];
+      UG.DATA.beneficiaries = [];
+      await UG_PWA.hydrateFromCache();
+      UG_APP.render();
+      return { rows: UG.DATA.relief.map(row => row.id), privateFields: UG.DATA.beneficiaries.length || UG.DATA.relief[0]?.escort_note || false };
+    });
+    assert.deepEqual(cached,{rows:['saved'],privateFields:false});
+    await resident.page.getByText('Fixture saved relief',{exact:true}).waitFor();
+    await resident.page.getByText(/Saved schedules may have changed/).waitFor();
+
+    await enter(official.page, app, 'barangay_official', 'relief');
+    await official.page.evaluate(() => { UG_I18N.setLang('fil'); UG_APP.render(); });
+    await official.page.getByRole('tab',{name:'Imbentaryo ng Suplay'}).click();
+    assert.equal(await official.page.getByRole('tab',{name:'Imbentaryo ng Suplay'}).getAttribute('aria-selected'),'true');
+    await official.page.evaluate(() => {
+      const barangay = 'fixture-home';
+      UG_APP.S.session.barangay_id = barangay;
+      UG.DATA.dispatchEquipment = [
+        {id:'home-gear',identifier:'Fixture home winch',owner_barangay_id:barangay,status:'available',condition:'ready'},
+        {id:'foreign-gear',identifier:'Fixture foreign winch',owner_barangay_id:'fixture-other',status:'available',condition:'ready'}
+      ];
+      const client = { rpc: async (name, args) => {
+        if (name !== 'set_equipment_status' || args.p_equipment_id !== 'home-gear') return {error:{message:'Unexpected RPC'}};
+        UG.DATA.dispatchEquipment[0].status = args.p_status;
+        return {data:{status:args.p_status}};
+      } };
+      Repo.client = () => client;
+      Repo.loadDispatchDirectory = async () => {};
+      UG_APP.go('response-team');
+      UG_APP.render();
+    });
+    const own = official.page.getByRole('row').filter({hasText:'Fixture home winch'});
+    await own.getByRole('button',{name:'Status',exact:true}).click();
+    await official.page.locator('[data-st-status]').selectOption('maintenance');
+    await official.page.getByRole('button',{name:'Save',exact:true}).click();
+    await own.getByText('Maintenance',{exact:true}).waitFor();
+    const [equipment] = await Promise.all([
+      official.page.waitForEvent('download'), official.page.getByRole('button',{name:'Export CSV',exact:true}).click()
+    ]);
+    const csv = await fs.readFile(await equipment.path(),'utf8');
+    assert.match(csv,/Fixture home winch.*Maintenance/);
+    assert.doesNotMatch(csv,/Fixture foreign winch/);
+
+    await enter(official.page, app, 'lgu_ldrrmc', 'audit', 'super_admin');
+    await official.page.evaluate(() => {
+      UG.DATA.inventory = [{id:'INV-STRING',name:'Fixture warehouse rice',category:'Food',stock:20,reorder:5}];
+      UG_APP.S.audit = [
+        {id:'stock-edit',entity:'relief_inventory',entity_id:null,meta:{item_id:'INV-STRING'},created_at:new Date().toISOString()}
+      ];
+      UG_APP.actions['open-audit']({id:'stock-edit'});
+    });
+    await official.page.getByRole('button',{name:'Open this record',exact:true}).click();
+    await official.page.getByRole('heading',{name:'Fixture warehouse rice',exact:true}).waitFor();
+    console.log('PASS Production demo isolation, owner-scoped relief cache, Filipino relief tabs, barangay equipment status and CSV, and stock audit drill-down.');
+  } finally {
+    await Promise.all([resident.context.close(),official.context.close(),production.context.close()]);
   }
 }
 
@@ -490,5 +580,6 @@ module.exports = async function verifyRoleAudits(browser, app) {
   await corroborationControls(browser, app);
   await reliefSupplyControls(browser, app);
   await escortAndEquipmentHistory(browser, app);
+  await reliefAuditFollowup(browser, app);
   await roleSweep(browser, app);
 };

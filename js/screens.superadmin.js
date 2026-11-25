@@ -1395,9 +1395,10 @@ const UG_SUPERADMIN = (function () {
       const target = ENTITY_ROUTE[a.entity];
       if (!target) return;
       if (target === 'accounts') { set({ view: 'accounts', menu: null }); return; }
-      if (a.entity_id && OPENS_DETAIL.indexOf(a.entity) !== -1) {
-        act('nav', { route: target });
-        act('audit-open-record', { route: target, id: a.entity_id, entity: a.entity });
+      const recordId = UG_ADMIN.auditRecordId(a);
+      if (recordId && OPENS_DETAIL.includes(a.entity)) {
+        if (a.entity !== 'relief_inventory') act('nav', { route: target });
+        act('audit-open-record', { route: target, id: recordId, entity: a.entity });
       } else {
         act('nav', { route: target });
       }

@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
 
-type Job = { id: string; kind: 'sos' | 'dispatch' | 'report_review' | 'dispatch_gap' | 'hazard_confirmed'; event_id: string; user_id: string; lease_id: string; urgent: boolean; unit_id: string | null };
+type Job = { id: string; kind: 'sos' | 'dispatch' | 'report_review' | 'dispatch_gap' | 'hazard_confirmed' | 'relief_low_stock'; event_id: string; user_id: string; lease_id: string; urgent: boolean; unit_id: string | null };
 type Outcome = { outcome: 'sent' | 'failed' | 'retry' | 'cancelled'; channel?: string; reason?: string };
 
 Deno.serve(async (request) => {
@@ -34,8 +34,20 @@ Deno.serve(async (request) => {
 
     let title: string;
     let url: string;
-    const urgent = job.urgent !== false;
-    if (job.kind === 'sos') {
+    const stockAlert = job.kind === 'relief_low_stock';
+    const urgent = !stockAlert && job.urgent !== false;
+    if (stockAlert) {
+      if (profile.role !== 'lgu_ldrrmc' || profile.is_super_admin) {
+        return { outcome: 'cancelled', reason: 'Recipient changed duty role' };
+      }
+      const { data: notice, error } = await admin.from('notifications')
+        .select('title,read_at').eq('id', job.event_id).eq('user_id', job.user_id)
+        .eq('type', 'relief_low_stock').maybeSingle();
+      if (error) return { outcome: 'retry', reason: 'Stock notification lookup failed' };
+      if (!notice || notice.read_at) return { outcome: 'cancelled', reason: 'Stock alert already handled' };
+      title = notice.title;
+      url = './index.html?relief=inventory#relief';
+    } else if (job.kind === 'sos') {
       const { data: sos, error } = await admin.from('sos_log').select('barangay_id,barangay,status')
         .eq('id', job.event_id).maybeSingle();
       if (error) return { outcome: 'retry', reason: 'SOS lookup failed' };
@@ -112,6 +124,11 @@ Deno.serve(async (request) => {
         }
       }));
       if (replies.some(reply => reply.status === 'fulfilled')) return { outcome: 'sent', channel: 'push' };
+    }
+
+    if (stockAlert) {
+      return retry ? { outcome: 'retry', reason: 'Stock push could not be delivered' }
+        : { outcome: 'cancelled', reason: 'No eligible push subscription' };
     }
 
     const to = String(profile.phone || '').trim().replace(/[()\s-]/g, '');

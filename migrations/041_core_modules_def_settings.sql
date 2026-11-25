@@ -70,8 +70,8 @@ comment on table public.relief_distribution_log is
 create index if not exists idx_relief_dist_log_brgy on public.relief_distribution_log(barangay);
 create index if not exists idx_relief_dist_log_at on public.relief_distribution_log(distributed_at desc);
 
--- RLS for the two new relief tables: LGU sees everything, barangay officials
--- see only their own barangay's rows, citizens cannot read either table.
+-- LGU staff and barangay officials read the shared municipal inventory.
+-- Officials read ledger entries for their own barangay. Citizens read neither table.
 alter table public.relief_inventory enable row level security;
 alter table public.relief_distribution_log enable row level security;
 

@@ -122,6 +122,8 @@ const unit = 'fixture-bfp', barangay = 'fixture-barangay';
 const staff = {
   bfp: { role: 'dispatch_team', dispatch_unit_id: unit },
   duty: { role: 'lgu_ldrrmc', phone: '09123456781' },
+  reliefDuty: { role: 'lgu_ldrrmc' },
+  reliefSuper: { role: 'lgu_ldrrmc', is_super_admin: true },
   local: { role: 'barangay_official', barangay_id: barangay },
   alternate: { role: 'dispatch_team', dispatch_unit_id: 'other-bfp-unit' },
   foreign: { role: 'barangay_official', barangay_id: 'other-barangay' },
@@ -137,7 +139,11 @@ const rowsToSend = [
   ['foreign-job', 'report_review', 'intake', 'foreign'],
   ['removed-job', 'dispatch', 'assignment', 'removed'],
   ['stale-job', 'report_review', 'verified', 'duty'],
-  ['acknowledged-job', 'sos', 'sos-log', 'local']
+  ['acknowledged-job', 'sos', 'sos-log', 'local'],
+  ['stock-push', 'relief_low_stock', 'stock-fresh', 'reliefDuty'],
+  ['stock-no-push', 'relief_low_stock', 'stock-unsubscribed', 'duty'],
+  ['stock-read', 'relief_low_stock', 'stock-read', 'reliefDuty'],
+  ['stock-unauthorized', 'relief_low_stock', 'stock-fresh', 'reliefSuper']
 ].map(([id, kind, event_id, user_id, unit_id = null]) => ({
   id, kind, event_id, user_id, unit_id, lease_id: 'lease-' + id, urgent: kind !== 'report_review'
 }));
@@ -179,6 +185,9 @@ globalThis.fetch = async (input, init) => {
       return Response.json([{ team: 'BFP', unit_id: unit, dispatch_status: 'sent', report_id: 'intake' }]);
     case '/rest/v1/reports':
       return Response.json([{ status: id === 'verified' ? 'verified' : 'reported', barangay_id: barangay, severity: 'emergency' }]);
+    case '/rest/v1/notifications':
+      assert.equal(url.searchParams.get('type'), 'eq.relief_low_stock');
+      return Response.json([{ title: 'Relief stock needs attention', read_at: id === 'stock-read' ? '2000-01-01' : null }]);
     case '/rest/v1/push_subscriptions':
       if (url.searchParams.get('user_id') === 'eq.duty') return Response.json([]);
       return Response.json([{ id: 'sub', endpoint: 'https://fcm.googleapis.com/fixture/1', p256dh: 'fixture', auth: 'fixture' }]);
@@ -197,17 +206,19 @@ try {
       url: './index.html?dispatch=assignment#dispatch', recipient_id: 'bfp', tag: 'dispatch-assignment' },
     { title: 'Confirmed hazard for your response team', body: 'Open UniGuard to review the alert.', severity: 'emergency',
       url: './index.html#notifications', recipient_id: 'bfp', tag: 'hazard_confirmed-verified' },
+    { title: 'Relief stock needs attention', body: 'Open UniGuard to review the alert.', severity: 'warning',
+      url: './index.html?relief=inventory#relief', recipient_id: 'reliefDuty', tag: 'relief_low_stock-stock-fresh' },
     { title: 'New hazard report needs review', body: 'Open UniGuard to review the alert.', severity: 'warning',
       url: './index.html?incident=intake#incidents', recipient_id: 'local', tag: 'report_review-intake' }
   ]);
   assert.deepEqual(smsJobs.sort(), ['gap-job', 'sos-job']);
-  for (const [id, channel] of [['bfp-job', 'push'], ['review-job', 'push'], ['confirmed-job', 'push'], ['sos-job', 'sms'], ['gap-job', 'sms']]) {
+  for (const [id, channel] of [['bfp-job', 'push'], ['review-job', 'push'], ['confirmed-job', 'push'], ['sos-job', 'sms'], ['gap-job', 'sms'], ['stock-push', 'push']]) {
     assert.deepEqual(finished.get(id), { channel, outcome: 'sent' });
   }
-  for (const id of ['foreign-job', 'alternate-job', 'removed-job', 'stale-job', 'acknowledged-job']) {
+  for (const id of ['foreign-job', 'alternate-job', 'removed-job', 'stale-job', 'acknowledged-job', 'stock-no-push', 'stock-read', 'stock-unauthorized']) {
     assert.deepEqual(finished.get(id), { channel: null, outcome: 'cancelled' });
   }
-  console.log('PASS Emergency worker sends scoped BFP and hazard push links, falls back to SMS, and skips stale and unauthorized jobs.');
+  console.log('PASS Delivery worker scopes emergency and relief push, reserves SMS for incident alerts, and skips handled or unauthorized jobs.');
 } finally {
   globalThis.fetch = oldFetch;
   webpush.sendNotification = oldSend;

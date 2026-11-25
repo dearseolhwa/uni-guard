@@ -1032,6 +1032,7 @@ const UG_DISPATCH = (function () {
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Equipment & readiness', 'Track each piece and run the shift checklist.',
         (canManage ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="equipment-add" data-owner-unit="' + esc((state.data.unit && state.data.unit.id) || '') + '">' + I('plus', 14) + 'Add equipment</button>' : '') +
+        '<button class="ug-btn ug-btn--sm" data-act="equipment-csv">' + I('download', 14) + 'Export CSV</button>' +
         '<span class="ug-chip is-on">' + rows.length + ' items</span>' +
         (overdue ? '<span class="ug-chip" style="background:rgba(255,179,64,.14);color:var(--ug-warning)">' + overdue + ' OVERDUE</span>' : '')) +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
@@ -1077,7 +1078,8 @@ const UG_DISPATCH = (function () {
     };
     return '<div class="dpe">' +
       '<div class="dpe-head"><div><h2>Equipment</h2><p>Track each piece and run the shift checklist.</p></div>' +
-        (canManage ? '<button class="dpe-add" data-act="equipment-add" data-owner-unit="' + unitId + '" aria-label="Add equipment">' + I('plus', 20) + '</button>' : '') + '</div>' +
+        '<div class="ug-rowf ug-gap8"><button class="ug-btn ug-btn--sm" data-act="equipment-csv" aria-label="Export equipment CSV">' + I('download', 16) + '</button>' +
+        (canManage ? '<button class="dpe-add" data-act="equipment-add" data-owner-unit="' + unitId + '" aria-label="Add equipment">' + I('plus', 20) + '</button>' : '') + '</div></div>' +
       '<div class="dpe-seg" role="tablist" aria-label="Filter equipment">' + [['all', 'All', rows.length], ['ready', 'Ready', ready], ['due', 'Check due', overdue]].map((x) =>
         '<button role="tab" aria-selected="' + (f === x[0]) + '" class="' + (f === x[0] ? 'is-on' : '') + (x[0] === 'due' && x[2] ? ' is-warn' : '') + '" data-act="dispatch-eqf" data-v="' + x[0] + '">' +
           '<span>' + x[1] + '</span><i>' + x[2] + '</i></button>').join('') + '</div>' +
@@ -1834,6 +1836,8 @@ const UG_DISPATCH = (function () {
       }
     },
     'equipment-history': (d) => openEquipmentHistory(d.id),
+    'equipment-csv': (d) => UG_EXPORTS.run('equipment-csv', d.unitId),
+    'equipment-history-csv': (d) => UG_EXPORTS.run('equipment-history-csv', d.id),
     'dispatch-duty': async (d) => {
       try {
         await rpc('set_personnel_duty', { p_personnel_id: d.id, p_on_duty: d.next === 'true' });
@@ -2229,20 +2233,26 @@ const UG_DISPATCH = (function () {
     app().render();
   }
 
+  async function loadEquipmentHistory(id) {
+    const c = client();
+    if (!c) throw new Error('Connect to UniGuard to view service history.');
+    return read(c.from('equipment_checks').select('checked_at,condition,level,notes,items')
+      .eq('equipment_id', id).order('checked_at', { ascending: false })
+      .order('id', { ascending: false }).limit(30));
+  }
+
   function openEquipmentHistory(id) {
     const item = findEquipment(id);
-    const c = client();
-    if (!item || !c) { app().toast('Connect to UniGuard to view service history.', 'warning'); return; }
+    if (!item || !client()) { app().toast('Connect to UniGuard to view service history.', 'warning'); return; }
     openModal({
       title: 'Service history · ' + (item.identifier || equipmentLabel(item)),
       body: '<div data-equipment-history aria-live="polite">Loading readiness checks…</div>',
-      footer: '<button class="ug-btn" data-modal-close>Close</button>',
+      footer: '<button class="ug-btn" data-modal-close>Close</button>' +
+        '<button class="ug-btn" data-keep-modal data-act="equipment-history-csv" data-id="' + esc(id) + '">' + I('download', 14) + 'Export checks CSV</button>',
       onMount: async (wrap) => {
         const content = wrap.querySelector('[data-equipment-history]');
         try {
-          const rows = await read(c.from('equipment_checks').select('checked_at,condition,level,notes,items')
-            .eq('equipment_id', id).order('checked_at', { ascending: false })
-            .order('id', { ascending: false }).limit(30));
+          const rows = await loadEquipmentHistory(id);
           content.innerHTML = rows.length ? '<ul class="ug-col" style="gap:12px;list-style:none;padding:0">' +
             rows.map((row) => '<li class="ug-note"><b>' + esc(conditionLabel(row.condition)) + '</b>' +
               '<div>' + esc(absTime(row.checked_at)) + '</div>' +
@@ -2914,6 +2924,7 @@ const UG_DISPATCH = (function () {
     openAddEquipmentModal,
     openEditEquipmentModal,
     openRemoveEquipmentModal,
+    loadEquipmentHistory,
     catalogOptionsForUnitType,
     catalogCategoriesForUnitType,
     equipmentLabel,

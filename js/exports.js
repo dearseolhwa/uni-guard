@@ -243,8 +243,6 @@ const UG_EXPORTS = (function () {
   }
 
   /* ============================================================ relief */
-  const DEVICE_ONLY = 'kept on this device only';
-
   function reliefSchedules() {
     const s = X().validateScope({ roles: ['lgu_ldrrmc', 'barangay_official'] });
     const list = UG_RELIEF.visibleSchedules(S());
@@ -273,6 +271,10 @@ const UG_EXPORTS = (function () {
     return { filename: filename, rows: rows.length, note: 'contains personal information (RA 10173)' };
   }
 
+  function reliefStockNote() {
+    return UG.DATA.reliefInventoryReady && navigator.onLine !== false ? '' : 'last available snapshot';
+  }
+
   function inventory() {
     const s = X().validateScope({ roles: ['lgu_ldrrmc', 'barangay_official'] });
     const v = UG_RELIEF.visibleInventory(S());
@@ -282,9 +284,9 @@ const UG_EXPORTS = (function () {
       { label: 'Location', type: 'text' }, { label: 'Supplier', type: 'text' }];
     const rows = v.list.map((r) => [r.id, r.name, r.category, r.unit, r.stock, r.reorder, (Number(r.stock) || 0) <= (Number(r.reorder) || 0) ? 'Yes' : 'No',
       r.barangay || 'LDRRMO Warehouse', r.location || '', r.supplier || '']);
-    const filename = X().buildFilename({ type: 'Relief Inventory', scope: roleScope(s, v.brgyFilter).file, suffix: v.cat !== 'all' ? v.cat : '', ext: 'csv' });
+    const filename = X().buildFilename({ type: 'Relief Inventory', scope: roleScope(s).file, suffix: v.cat !== 'all' ? v.cat : '', ext: 'csv' });
     X().saveCsv(filename, cols, rows);
-    return { filename: filename, rows: rows.length, note: 'inventory is ' + DEVICE_ONLY };
+    return { filename: filename, rows: rows.length, note: reliefStockNote() };
   }
 
   function distributionLog() {
@@ -296,7 +298,7 @@ const UG_EXPORTS = (function () {
     const rows = v.filtered.map((r) => [r.id, r.item_name, r.qty, r.barangay, r.family, r.distributed_by, r.distributed_at || null]);
     const filename = X().buildFilename({ type: 'Relief Distribution Log', scope: roleScope(s, v.brgyFilter).file, ext: 'csv' });
     X().saveCsv(filename, cols, rows);
-    return { filename: filename, rows: rows.length, note: 'the distribution log is ' + DEVICE_ONLY };
+    return { filename: filename, rows: rows.length, note: reliefStockNote() };
   }
 
   /* ======================================================== guides (all) */
@@ -360,6 +362,56 @@ const UG_EXPORTS = (function () {
     return { filename: filename, rows: rows.length, note: list.length >= 50 ? 'the 50 most recent dispatches' : '' };
   }
 
+  function equipmentRows(session, unitId) {
+    if (session.role === 'dispatch_team') {
+      return (UG_DISPATCH.state.data.equipment || []).filter((item) =>
+        item.owner_unit_id === session.dispatch_unit_id);
+    }
+    const list = UG.DATA.dispatchEquipment || [];
+    if (session.role === 'barangay_official') {
+      return list.filter((item) => item.owner_barangay_id && item.owner_barangay_id === session.barangay_id);
+    }
+    return unitId ? list.filter((item) => item.owner_unit_id === unitId) : list;
+  }
+
+  function equipmentCsv(unitId) {
+    const session = X().validateScope({ roles: ['lgu_ldrrmc', 'barangay_official', 'dispatch_team'] });
+    const list = equipmentRows(session, unitId).filter((item) =>
+      session.role !== 'lgu_ldrrmc' || unitId || item.owner_barangay_id);
+    if (!list.length) return empty('no equipment in this list');
+    const scope = session.role === 'dispatch_team' ? UG_DISPATCH.state.data.unit?.name
+      : unitId && session.role === 'lgu_ldrrmc' ? (UG.DATA.dispatchUnits || []).find((unit) => unit.id === unitId)?.name
+      : roleScope(session).file;
+    const cols = [{ label: 'Equipment ID', type: 'id' }, { label: 'Identifier', type: 'text' },
+      { label: 'Equipment', type: 'text' }, { label: 'Barangay ID', type: 'id' }, { label: 'Unit ID', type: 'id' },
+      { label: 'Status', type: 'text' }, { label: 'Condition', type: 'text' },
+      { label: 'Last checked', type: 'datetime' }, { label: 'Notes', type: 'text' }];
+    const rows = list.map((item) => [item.id, item.identifier, UG_DISPATCH.equipmentLabel(item), item.owner_barangay_id,
+      item.owner_unit_id, UG_DISPATCH.statusLabel(item.status), UG_DISPATCH.conditionLabel(item.condition),
+      item.last_checked_at, item.notes]);
+    const filename = X().buildFilename({ type: 'Equipment Readiness', scope, ext: 'csv' });
+    X().saveCsv(filename, cols, rows);
+    return { filename, rows: rows.length };
+  }
+
+  async function equipmentHistoryCsv(id) {
+    const session = X().validateScope({ roles: ['lgu_ldrrmc', 'barangay_official', 'dispatch_team'] });
+    const item = equipmentRows(session).find((row) => row.id === id);
+    if (!item) return empty('this equipment is unavailable');
+    const checks = await UG_DISPATCH.loadEquipmentHistory(item.id);
+    if (X().validateScope({ roles: [session.role] }) !== session) return null;
+    if (!checks.length) return empty('no readiness checks have been recorded for this item');
+    const cols = [{ label: 'Equipment ID', type: 'id' }, { label: 'Checked at', type: 'datetime' },
+      { label: 'Condition', type: 'text' }, { label: 'Check level', type: 'text' },
+      { label: 'Checklist', type: 'text' }, { label: 'Notes', type: 'text' }];
+    const rows = checks.map((row) => [item.id, row.checked_at, UG_DISPATCH.conditionLabel(row.condition), row.level,
+      (Array.isArray(row.items) ? row.items : []).filter((check) => typeof check?.item === 'string')
+        .map((check) => check.item + ' (' + (check.ok ? 'OK' : 'Needs attention') + ')').join(' · '), row.notes]);
+    const filename = X().buildFilename({ type: 'Equipment Service History', scope: item.identifier || UG_DISPATCH.equipmentLabel(item), ext: 'csv' });
+    X().saveCsv(filename, cols, rows);
+    return { filename, rows: rows.length };
+  }
+
   /* ====================================================== runner */
   const DEFS = {
     'export-hotlines': ['hotline directory PDF', hotlines],
@@ -372,14 +424,16 @@ const UG_EXPORTS = (function () {
     'inv-download': ['inventory CSV', inventory],
     'rec-download': ['distribution log CSV', distributionLog],
     'guide-download': ['preparedness guide PDF', guides],
-    'dispatch-csv': ['dispatch activity CSV', dispatchActivity]
+    'dispatch-csv': ['dispatch activity CSV', dispatchActivity],
+    'equipment-csv': ['equipment readiness CSV', equipmentCsv],
+    'equipment-history-csv': ['service history CSV', equipmentHistoryCsv]
   };
 
   function run(name, arg) {
     const def = DEFS[name];
     if (!def) { toast('This export is not available', 'warning'); return Promise.resolve(null); }
     return X().run(name.split(':')[0], async () => {
-      const res = def[1](arg);
+      const res = await def[1](arg);
       if (res && res.note && res.filename) res.filename = res.filename + ' (' + res.note + ')';
       return res;
     }, { label: def[0] });

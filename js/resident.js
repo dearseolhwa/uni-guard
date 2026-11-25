@@ -326,6 +326,7 @@ const UG_RW = (() => {
     const docs = uniq(hubs.reduce((a, h) => a.concat(h.required_docs || []), []));
     const seg = (v, label) => '<button class="' + (tab === v ? 'is-on' : '') + '"' + A('rw-set', attr({ k: 'rwCriteria', v: v })) + '>' + label + '</button>';
     return '<div class="ug-col rw-relief" style="gap:32px">' +
+      UG_RELIEF.savedScheduleNote() +
       '<section class="rw-card rw-relief-main">' +
         '<div class="rw-card-h"><div class="rw-iconhead"><span class="rw-ico">' + I('relief', 20) + '</span><div><h3>Relief Distribution Schedules</h3>' +
             '<p class="rw-hint" style="margin:2px 0 0">' + hubs.length + ' active for your barangay · where and when to claim relief</p></div></div>' +
@@ -363,10 +364,11 @@ const UG_RW = (() => {
   function reliefAllModal(st) {
     const hubs = hubsFor(st);
     UG_FEATURES.modal({
-      title: 'All Municipal Relief Distribution Schedules',
+      title: 'Available Relief Distribution Schedules',
       body: '<div class="ug-rw rw-modal-body"><p class="rw-hint" style="margin:0 0 14px">Every schedule for your barangay and the municipality</p>' +
+        UG_RELIEF.savedScheduleNote() +
         (hubs.length ? '<div class="rw-grid rw-grid--2">' + hubs.map(hubCard).join('') + '</div>' : '<p class="rw-hint">No active distributions right now.</p>') +
-        '<p class="rw-hint" style="margin:16px 0 0">Official Lingayen MSWDO &amp; DSWD Relief Registry</p></div>',
+        '</div>',
       footer: '<button class="ug-btn" data-modal-close>Close</button>'
     });
   }
@@ -376,7 +378,7 @@ const UG_RW = (() => {
     if (!schedule) return false;
     UG_FEATURES.modal({
       title: 'Relief schedule',
-      body: '<div class="ug-rw rw-modal-body">' + hubCard(schedule) + '</div>',
+      body: '<div class="ug-rw rw-modal-body">' + UG_RELIEF.savedScheduleNote() + hubCard(schedule) + '</div>',
       footer: '<button class="ug-btn" data-modal-close>Close</button>'
     });
     return true;

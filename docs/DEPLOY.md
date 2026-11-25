@@ -315,10 +315,23 @@ Verify an escort request from Relief → View and confirm it from the PNP home
 screen. Check that booked equipment stays deployed until the dispatch releases
 it, and that readiness checks appear under Service history.
 
+For the next relief update, deploy the refreshed worker before running
+[088](../migrations/088_relief_stock_push.sql), then publish web build
+`uniguard-v576`.
+
+```bash
+supabase functions deploy emergency-delivery --no-verify-jwt
+```
+
+New low-stock notices queue normal-priority web push for subscribed MDRRMO duty
+staff through the existing worker and VAPID setup. The in-app notice remains
+available for staff without a push subscription. The update leaves previously
+issued notices in the inbox.
+
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `087_relief_equipment_audit.sql`.
+`001_align_core_tables.sql` through `088_relief_stock_push.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
 and record each full filename. Migration 011 installs `pg_trgm` before creating
 its index. Apply `045_super_admin_improvements.sql`, followed by 046 and 047. Migration 043 promotes the account matching its

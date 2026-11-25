@@ -18,6 +18,7 @@
 const UG_RELIEF = (function () {
   const esc = UG_UTIL.esc, I = UG.icon, U = UG;
   const T = (k) => (typeof UG_I18N !== 'undefined' ? UG_I18N.t(k) : k);
+  const demo = UG_CONFIG.DEV && !(UG_CONFIG.SUPABASE_URL && UG_CONFIG.SUPABASE_ANON_KEY);
   const A = (act, extra) => ' data-act="' + act + '"' + (extra ? ' ' + extra : '');
   const attr = (o) => Object.keys(o).map(k => ' data-' + k + '="' + esc(o[k]) + '"').join('');
     /* only LGU staff and barangay officials may see the authorized-beneficiary list */
@@ -62,7 +63,7 @@ const UG_RELIEF = (function () {
   ];
 
   function ensureInventory() {
-    if (!UG_CONFIG.DEV || (typeof Repo !== 'undefined' && Repo.client())) return;
+    if (!demo) return;
     if (!UG.DATA.inventory) UG.DATA.inventory = JSON.parse(JSON.stringify(DEFAULT_INVENTORY));
     if (!UG.DATA.distributionLog) UG.DATA.distributionLog = JSON.parse(JSON.stringify(DEFAULT_DISTRIBUTIONS_LOG));
   }
@@ -76,7 +77,7 @@ const UG_RELIEF = (function () {
      - Shelter Supplies: temporary shelter and sleeping items (tents, tarpaulins, mats, blankets)
      - Hygiene: personal sanitation and hygiene items (kits, soap, sanitary products, water containers)
        These were previously both lumped under "Shelter", which made the inventory table confusing.
-       The migration 044_super_admin_improvements.sql reclassifies existing rows in the database to match. */
+       The migration 045_super_admin_improvements.sql reclassifies existing rows in the database to match. */
   const INV_CATEGORIES = ['Food', 'Water', 'Medical', 'Equipment', 'Shelter Supplies', 'Hygiene'];
   function inventoryCategory(value) {
     return value === 'Shelter' ? 'Shelter Supplies' : value;
@@ -88,9 +89,8 @@ const UG_RELIEF = (function () {
   };
 
   /* --------------------------------------------------------------- the data */
-  /* seeded defaults so the UI renders even without a Supabase project. Once
-     Repo.loadAll runs, the live rows overwrite these in UG.DATA.relief. */
-  if (!UG.DATA.relief) {
+  /* Sample records are available only in the standalone developer preview. */
+  if (!UG.DATA.relief && demo) {
     UG.DATA.relief = [
       {
         id: 'RD-01', barangay: 'Poblacion', title: 'Family Food Pack Distribution',
@@ -117,7 +117,7 @@ const UG_RELIEF = (function () {
       }
     ];
   }
-  if (!UG.DATA.beneficiaries) {
+  if (!UG.DATA.beneficiaries && demo) {
     UG.DATA.beneficiaries = [
       { id: 'B-01', barangay: 'Poblacion', beneficiary_name: 'Aquino, Marites', claimant_name: 'Aquino, Marites', claimant_id: 'ID-2026-001234', category: 'Affected household' },
       { id: 'B-02', barangay: 'Poblacion', beneficiary_name: 'Soriano, Reynaldo', claimant_name: 'Soriano, Reynaldo', claimant_id: 'ID-2026-001235', category: 'Senior citizen' },
@@ -140,12 +140,18 @@ const UG_RELIEF = (function () {
     return new Date(t).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 
+  function savedScheduleNote() {
+    const lastSync = U.DATA.reliefSchedulesSyncedAt;
+    return lastSync && (U.DATA.reliefSchedulesCached || navigator.onLine === false)
+      ? '<p class="ug-note">' + esc(T('relief.savedSchedules')) + ' ' + esc(UG_UTIL.absTime(lastSync)) + '</p>' : '';
+  }
+
   /* ------------------------------------------------------------- mobile UI */
   function mRelief(st) {
         const isCitizen = !st.session || st.session.role === 'citizen';
     const barangays = isCitizen ? [] : ['All'].concat(U.DATA.barangays);
     const f = st.reliefFilter || 'All';
-    const list = U.DATA.relief.filter((r) => r.active !== false).filter((r) => f === 'All' || r.barangay === f);
+    const list = (U.DATA.relief || []).filter((r) => r.active !== false).filter((r) => f === 'All' || r.barangay === f);
     return '<div class="ug-col" style="gap:14px">' +
       '<div><div class="ug-lab">Relief Assistance Information</div>' +
       '<h2 style="font-size:18px;margin-top:3px">Relief Distribution</h2>' +
@@ -154,14 +160,15 @@ const UG_RELIEF = (function () {
             (barangays.length ? '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:6px">' + barangays.map((b) =>
         '<button class="ug-chip' + (f === b ? ' is-on' : '') + '"' + A('relief-filter', attr({ v: b })) + '>' + esc(b) + '</button>').join('') + '</div>' : '') +
 
+      savedScheduleNote() +
       (list.length ? list.map((r) => reliefCard(r, isStaff(st))).join(''):
         '<div class="ug-card"><div class="ug-empty"><span class="e-ico">' + I('info', 20) + '</span>' +
-        '<div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">No Active Distribution for ' + esc(f) + '</div>' +
-        '<div class="ug-dim" style="font-size:11px">Check another barangay or contact your barangay desk.</div></div></div>') +
+        '<div style="font-size:13px;font-weight:600;color:var(--ug-ink-2)">' + esc(f === 'All' ? T('relief.noActive') : T('relief.noDistributionFor') + ' ' + f) + '</div>' +
+        '<div class="ug-dim" style="font-size:11px">' + esc(T('relief.checkAnotherBarangay')) + '</div></div></div>') +
 
       '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-rowf ug-gap10" style="gap:10px;align-items:flex-start">' +
         '<span style="color:var(--ug-signal);display:flex">' + I('info', 17) + '</span>' +
-        '<div class="ug-note">If you are claiming on behalf of a named beneficiary, bring a valid ID and an authorization letter. The distribution desk checks representatives against the LGU authorized list.</div>' +
+        '<div class="ug-note">' + esc(T('relief.representativeClaimHint')) + '</div>' +
     '</div></div></div>';
   }
 
@@ -202,7 +209,11 @@ const UG_RELIEF = (function () {
 
   /* ------------------------------------------------------------- mobile verify */
   function mReliefVerify(st) {
-    const r = (UG.DATA.relief || []).find((x) => x.id === st.openId) || U.DATA.relief[0];
+    const r = (UG.DATA.relief || []).find((x) => x.id === st.openId);
+    if (!isStaff(st) || !r) {
+      return '<p class="ug-note">' + esc(T('relief.noActive')) + '</p>' +
+        '<button class="ug-btn"' + A('nav', attr({ route: 'relief' })) + '>Back to Relief</button>';
+    }
     const list = (UG.DATA.beneficiaries || []).filter((b) => b.barangay === r.barangay);
     return '<div class="ug-col" style="gap:14px">' +
       '<button class="ug-btn ug-btn--ghost ug-btn--sm" style="align-self:flex-start"' + A('nav', attr({ route: 'relief' })) + '>' +
@@ -279,7 +290,6 @@ const UG_RELIEF = (function () {
   }
   function visibleInventory(st) {
     ensureInventory();
-    const mine = scopedBrgy(st);
     const all = UG.DATA.inventory || [];
     const cat = st.invCatFilter || 'all';
     const q = (st.invSearch || '').trim().toLowerCase();
@@ -289,7 +299,7 @@ const UG_RELIEF = (function () {
         (i.id || '').toLowerCase().indexOf(q) >= 0 ||
         (i.location || '').toLowerCase().indexOf(q) >= 0 ||
         (i.supplier || '').toLowerCase().indexOf(q) >= 0);
-    return { all: all, list: list, cat: cat, q: q, mine: mine };
+    return { all, list, cat, q };
   }
   function visibleRecords(st) {
     ensureInventory();
@@ -311,9 +321,9 @@ const UG_RELIEF = (function () {
      A low-stock banner surfaces above the tabs whenever any item is at or
      below its reorder point, so the duty officer never misses a shortfall. */
   const RELIEF_TABS = [
-    ['distributions', T('relief.tab.distributions'), 'clock'],
-    ['inventory', T('relief.tab.inventory'), 'layers'],
-    ['records', T('relief.tab.records'), 'doc']
+    ['distributions', 'relief.tab.distributions', 'shelter'],
+    ['inventory', 'relief.tab.inventory', 'layers'],
+    ['records', 'relief.tab.records', 'doc']
   ];
 
   /* Relief Assistance (uniguard/src/components/LdrrmcReliefView.tsx):
@@ -325,31 +335,31 @@ const UG_RELIEF = (function () {
     const low = lowStockItems();
     const canRecord = canRecordStock(st.session);
     const sub = mine ? 'Distribution schedules, beneficiaries, relief stock and what was handed out in Barangay ' + mine + '.'
-      : 'Manage distributions, track stock levels, and record every pack handed out per barangay and family.';
+      : T('relief.subtitle');
     const main = tab === 'distributions' ? '<button class="ug-btn ug-btn--signal rl-main"' + A('relief-add') + '>' + I('plus', 15) + 'Add Distribution</button>'
       : tab === 'inventory' ? (canManageStock(st.session) ? '<button class="ug-btn ug-btn--signal rl-main"' + A('inv-add') + '>' + I('plus', 15) + 'Add item</button>' : '')
       : canRecord ? '<button class="ug-btn ug-btn--signal rl-main"' + A('rec-add') + '>' + I('plus', 15) + 'Record distribution</button>' : '';
     const lowLine = low.length
-      ? U.note('relief-low', low.map((i) => i.id + ':' + i.stock).join(','), 'alert', low.length + ' ' + (low.length === 1 ? 'item is' : 'items are') + ' at or below the reorder point',
+      ? U.note('relief-low', low.map((i) => i.id + ':' + i.stock).join(','), 'alert', low.length + ' ' + T(low.length === 1 ? 'relief.lowStockBannerOne' : 'relief.lowStockBannerMany'),
           low.slice(0, 3).map((i) => esc(i.name) + ' (' + i.stock + ' ' + esc(i.unit) + ')').join(' · ') + (low.length > 3 ? ' · +' + (low.length - 3) + ' more' : ''),
-          { btn: tab !== 'inventory' ? '<button class="n2-go"' + A('relief-tab', attr({ v: 'inventory' })) + '>Review</button>' : '' })
+          { btn: tab !== 'inventory' ? '<button class="n2-go"' + A('relief-tab', attr({ v: 'inventory' })) + '>' + esc(T('relief.review')) + '</button>' : '' })
       : '';
-    const TABS = [['distributions', 'Distributions', 'shelter'], ['inventory', 'Resource Inventory', 'layers'], ['records', 'Distribution Records', 'doc']];
+    const tabs = RELIEF_TABS.map(([id, label, icon]) => [id, esc(T(label)), icon]);
     return '<div class="ug-col rl" style="gap:20px">' +
       head(T('title.relief'), sub, main) +
       (tab === 'inventory' ? '' : lowLine) +
       /* phones: the section switch is a dropdown (the tabs hide there) */
       (() => {
-        const cur = TABS.find((t) => t[0] === tab) || TABS[0];
+        const cur = tabs.find((t) => t[0] === tab) || tabs[0];
         return '<div class="rl-bar"><div class="ug-wmore inc-dd rl-dd"><button class="inc-dd-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Relief section">' +
             I(cur[2], 15) + '<span>' + cur[1] + '</span>' + I('chevdn', 16) + '</button>' +
-          '<div class="inc-dd-panel" data-more-panel hidden role="listbox">' + TABS.map((t) =>
+          '<div class="inc-dd-panel" data-more-panel hidden role="listbox">' + tabs.map((t) =>
             '<button role="option" class="' + (tab === t[0] ? 'is-on' : '') + '"' + A('relief-tab', attr({ v: t[0] })) + '>' + I(t[2], 15) + '<span>' + t[1] + '</span>' +
               (tab === t[0] ? I('check', 14) : '') + '</button>').join('') + '</div></div>' +
           /* phones: the main action sits beside the section switch */
           main.replace('rl-main', 'rl-main rl-main--bar') + '</div>';
       })() +
-      '<div class="rl-tabs" role="tablist" aria-label="Relief sections">' + TABS.map((t) =>
+      '<div class="rl-tabs" role="tablist" aria-label="Relief sections">' + tabs.map((t) =>
         '<button role="tab" aria-selected="' + (tab === t[0]) + '" class="' + (tab === t[0] ? 'is-on' : '') + '"' + A('relief-tab', attr({ v: t[0] })) + '>' + I(t[2], 14) + t[1] + '</button>').join('') + '</div>' +
       (tab === 'inventory' ? dInventory(st) : tab === 'records' ? dRecords(st) : dDistributions(st)) +
     '</div>';
@@ -359,7 +369,7 @@ const UG_RELIEF = (function () {
   function dDistributions(st) {
     const mine = scopedBrgy(st);
     const barangays = mine ? [mine] : U.DATA.barangays;
-    const rows = (U.DATA.relief || []).filter((r) => !mine || r.barangay === mine);
+    const rows = visibleSchedules(st);
     const bens = (UG.DATA.beneficiaries || []).filter((b) => !mine || b.barangay === mine);
     const benFilter = mine || st.benBarangayFilter || 'All';
     const q = (st.benSearchLgu || '').trim().toLowerCase();
@@ -371,7 +381,7 @@ const UG_RELIEF = (function () {
     return '<div class="ug-col" style="gap:20px">' +
       /* active distributions */
       '<section class="rl-card">' +
-        cardHead('shelter', 'Active Distributions', exp('distributions', !rows.length) + '<span class="rl-count">' + rows.length + ' ' + (rows.length === 1 ? 'record' : 'records') + '</span>') +
+        cardHead('shelter', esc(T('relief.activeDistributions')), exp('distributions', !rows.length) + '<span class="rl-count">' + rows.length + ' ' + (rows.length === 1 ? 'record' : 'records') + '</span>') +
         (rows.length ? '<div class="rl-list">' + rows.map((r) =>
           '<div class="rl-item"><div class="rl-item-t"><h3>' + esc(r.title) + '</h3>' +
             '<div class="rl-meta"><span>' + I('pin', 13) + esc(r.location_name || r.barangay) + '</span><span>' + I('clock', 13) + esc(fmtDate(r.distribution_at)) + '</span>' +
@@ -381,13 +391,13 @@ const UG_RELIEF = (function () {
               '<button class="rl-ghost" data-act="relief-view" data-id="' + esc(r.id) + '">' + I('doc', 13) + 'View</button>' +
               '<button class="rl-ghost" data-act="relief-edit" data-id="' + esc(r.id) + '">' + I('settings', 13) + 'Edit</button>' +
             '</div></div>').join('') + '</div>'
-        : '<div class="rl-empty"><span>' + I('shelter', 22) + '</span><b>No Active Distributions</b><p>There are currently no active distribution drives recorded. Schedule one to let residents know when and where to go.</p>' +
+        : '<div class="rl-empty"><span>' + I('shelter', 22) + '</span><b>' + esc(T('relief.noActive')) + '</b><p>There are currently no active distribution drives recorded. Schedule one to let residents know when and where to go.</p>' +
           '<button class="ug-btn ug-btn--signal"' + A('relief-add') + '>' + I('plus', 14) + 'Schedule New Distribution</button></div>') +
       '</section>' +
       /* authorized beneficiaries */
       '<section class="rl-card" id="relief-beneficiaries">' +
-        cardHead('users', 'Authorized Beneficiaries', exp('beneficiaries', !visibleBens.length) +
-          '<button class="ug-btn ug-btn--signal rl-sm"' + A('beneficiary-add') + '>' + I('plus', 13) + 'Add</button>') +
+        cardHead('users', esc(T('relief.authorizedBeneficiaries')), exp('beneficiaries', !visibleBens.length) +
+          '<button class="ug-btn ug-btn--signal rl-sm"' + A('beneficiary-add') + '>' + I('plus', 13) + esc(T('relief.beneficiaryAdd')) + '</button>') +
         '<div class="rl-filters">' +
           '<label><span>' + (mine ? 'Barangay' : 'Filter by barangay') + '</span>' +
             (mine ? '<p class="rl-fixed">Brgy. ' + esc(mine) + '</p>'
@@ -413,11 +423,8 @@ const UG_RELIEF = (function () {
    * reorder point; amber when at or below reorder. Restock + Adjust buttons
    * open a modal that records a stock movement.
    *
-   * Barangay scoping (per the DOCX issue list):
-   *  - barangay_official: scoped to assigned barangay (a static chip is
-   *    locked to their barangay and the dropdown is hidden).
-   *  - LGU staff: see municipality-wide stock with an optional barangay filter
-   *    so they can audit any single barangay's stock.
+   * The inventory is a shared municipal warehouse. Barangay scoping applies
+   * to the distribution ledger, while inventory filters are category and search.
    */
   /* Resource Inventory (uniguard ReliefStockPanel, stock view): three
      figures, category pills with counts + search, the low-stock note, then
@@ -431,7 +438,7 @@ const UG_RELIEF = (function () {
 
   function dInventory(st) {
     const vis = visibleInventory(st);
-    const all = vis.all, cat = vis.cat, list = vis.list, mine = vis.mine, q = vis.q;
+    const { all, cat, list, q } = vis;
     const low = all.filter((i) => (i.stock || 0) <= (i.reorder || 0));
     const inStock = all.filter((i) => i.stock > 0).length;
     const cats = [['all', 'All', all.length]].concat(INV_CATEGORIES.map((c) => [c, c, all.filter((i) => inventoryCategory(i.category) === c).length]).filter((c) => c[2] > 0));
@@ -445,7 +452,7 @@ const UG_RELIEF = (function () {
         '<div class="rl-figs">' +
           '<div><span>Items</span><b>' + all.length.toLocaleString() + '</b></div>' +
           '<div><span>Items in stock</span><b>' + inStock.toLocaleString() + '</b></div>' +
-          '<div class="' + (low.length ? 'is-warn' : '') + '"><span>Low stock</span><b>' + low.length.toLocaleString() + '</b></div>' +
+          '<div class="' + (low.length ? 'is-warn' : '') + '"><span>' + esc(T('relief.lowStock')) + '</span><b>' + low.length.toLocaleString() + '</b></div>' +
         '</div>' +
         '<div class="rl-tool">' +
           /* phones: the category filter as a dropdown (the pills hide there) */
@@ -489,15 +496,13 @@ const UG_RELIEF = (function () {
     '</li>';
   }
 
-  /* full detail modal for an inventory item — opens when the row is clicked.
-     Shows every stored field in organized sections; Edit is offered where the
-     caller is an LGU or barangay official (RLS re-checks on the server). */
+  /* Duty staff can edit or restock; barangay officials and Super Admin can read. */
   function invDetailModal(id) {
     const i = (UG.DATA.inventory || []).find((x) => x.id === id);
-    if (!i) return;
+    if (!i) return false;
     const low = (i.stock || 0) <= (i.reorder || 0);
     const out = (i.stock || 0) <= 0;
-    const status = out ? 'Out of stock' : low ? 'Low stock' : 'In stock';
+    const status = T(out ? 'relief.outOfStock' : low ? 'relief.lowStock' : 'relief.inStock');
     const statusTone = out ? 'var(--ug-emergency)' : low ? 'var(--ug-warning)' : 'var(--ug-prepared)';
     const category = inventoryCategory(i.category);
     const catColor = CAT_COLOR[category] || 'var(--ug-ink-2)';
@@ -531,9 +536,10 @@ const UG_RELIEF = (function () {
         '</div>',
       footer:
         '<button class="ug-btn" data-modal-close>Close</button>' +
-        (canManageStock(typeof Auth !== 'undefined' && Auth.state.session) ? '<button class="ug-btn ug-btn--ghost" data-act="inv-restock" data-id="' + esc(i.id) + '">' + I('plus', 13) + 'Restock</button>' +
-        '<button class="ug-btn ug-btn--signal" data-act="inv-edit" data-id="' + esc(i.id) + '">' + I('settings', 13) + 'Edit</button>' : '')
+        (canManageStock(typeof Auth !== 'undefined' && Auth.state.session) ? '<button class="ug-btn ug-btn--ghost" data-act="inv-restock" data-id="' + esc(i.id) + '">' + I('plus', 13) + esc(T('relief.restockItem')) + '</button>' +
+        '<button class="ug-btn ug-btn--signal" data-act="inv-edit" data-id="' + esc(i.id) + '">' + I('settings', 13) + esc(T('relief.editItem')) + '</button>' : '')
     });
+    return true;
   }
 
   /* ------------------------------------------------------ distribution detail
@@ -630,5 +636,5 @@ const UG_RELIEF = (function () {
   return { mRelief, mReliefVerify, dRelief, fmtDate, fmtDateTime, head,
     visibleSchedules, visibleBeneficiaries, visibleInventory, visibleRecords, scopedBrgy,
     ensureInventory, inventoryCategory, canManageStock, canRecordStock, lowStockItems, DEFAULT_INVENTORY, DEFAULT_DISTRIBUTIONS_LOG,
-    INV_CATEGORIES, CAT_COLOR, RELIEF_TABS, invDetailModal, distDetailModal };
+    INV_CATEGORIES, CAT_COLOR, savedScheduleNote, invDetailModal, distDetailModal };
 })();

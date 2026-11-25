@@ -47,13 +47,14 @@ try {
     if (version === '031') {
       await db.exec("insert into public.road_status(road_name,status) values ('Fixture Road','caution')");
     }
-    if (version === '081') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 081 through 087.');
-    if (version === '082') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 082 through 087.');
-    if (version === '083') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 083 through 087.');
-    if (version === '084') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 084 through 087.');
-    if (version === '085') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 085 through 087.');
-    if (version === '086') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 086, then 087.');
-    if (version === '087') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 087.');
+    if (version === '081') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 081 through 088.');
+    if (version === '082') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 082 through 088.');
+    if (version === '083') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 083 through 088.');
+    if (version === '084') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 084 through 088.');
+    if (version === '085') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 085 through 088.');
+    if (version === '086') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 086 through 088.');
+    if (version === '087') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 087 through 088.');
+    if (version === '088') assert.equal(recommendation(await db.exec(checkerSql)), 'READY: apply 088.');
     try { await db.exec(await readMigration(file)); }
     catch (error) { throw Error(file + ': ' + error.message, { cause: error }); }
     if (version === '010') {
@@ -94,14 +95,25 @@ try {
   await db.exec(await readMigration('085_corroboration_reliability.sql'));
   await db.exec(await readMigration('086_relief_supply_units.sql'));
   await db.exec(await readMigration('087_relief_equipment_audit.sql'));
+  await db.exec(await readMigration('088_relief_stock_push.sql'));
   console.log('PASS Fresh migration chain, legacy hazard and road records, staged help requests and escalation replay.');
   const checkerResults = await db.exec(checkerSql);
   const milestones = checkerResults.find((result) => result.rows?.some((row) => row.migration === '076_super_admin_notifications.sql'))?.rows || [];
   assert.ok(milestones.length > 0);
   assert.deepEqual(milestones.filter((row) => row.status !== 'INSTALLED'), []);
   assert.equal(recommendation(checkerResults),
-    'CURRENT: schema features through 087 are installed.');
-  console.log('Applied the entire 001–087 chain in embedded PostgreSQL with Auth/Storage fixtures.');
+    'CURRENT: schema features through 088 are installed.');
+  await db.transaction(async tx => {
+    await tx.exec('grant update on public.relief_inventory to authenticated');
+    assert.equal(recommendation(await tx.exec(checkerSql)),
+      'STOP: stock write permissions or Realtime publication are incomplete. Review migration 074.');
+    await tx.exec('revoke update on public.relief_inventory from authenticated');
+    await tx.exec('alter table public.authorized_beneficiaries disable row level security');
+    assert.equal(recommendation(await tx.exec(checkerSql)),
+      'STOP: relief security or publication evidence is missing. Review the listed relief milestones.');
+    await tx.exec('alter table public.authorized_beneficiaries enable row level security');
+  });
+  console.log('Applied the entire 001–088 chain in embedded PostgreSQL with Auth/Storage fixtures.');
   await db.exec(`
     insert into auth.users(id,email) values
       ('00000000-0000-4000-8000-000000000001', 'actor@example.test'),

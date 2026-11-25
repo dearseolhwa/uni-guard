@@ -41,6 +41,14 @@ const UG_PWA = (function () {
       advisories: (data.advisories || []).filter((a) => a.severity !== 'prepared').slice(0, 20),
       incidents: (data.incidents || []).slice(0, 40).map((row) => ({ ...row, photo_url: null }))
     };
+    if (Auth.state.session?.role === 'citizen' && data.reliefSchedulesSyncedAt) {
+      payload.reliefSchedulesSyncedAt = data.reliefSchedulesSyncedAt;
+      payload.relief = (data.relief || []).filter((row) => row.active !== false)
+        .map(({ id, barangay, barangay_id, title, location_name, address, lat, lng, distribution_at,
+          contact_person, contact_phone, eligibility, required_docs, note }) =>
+          ({ id, barangay, barangay_id, title, location_name, address, lat, lng, distribution_at,
+            contact_person, contact_phone, eligibility, required_docs, note, active: true }));
+    }
     return tx(STORE_SNAPSHOT, 'readwrite', (s) => s.put(payload, key)).then(() => {
       if (snapshotKey() === key) state.lastSync = payload.at;
       return true;
@@ -100,6 +108,11 @@ const UG_PWA = (function () {
     if (snap?.hotlines) UG.DATA.hotlines = snap.hotlines;
     if (snap?.centers) UG.DATA.centers = snap.centers;
     if (snap?.incidents) UG.DATA.incidents = snap.incidents;
+    if (Auth.state.session?.role === 'citizen' && Array.isArray(snap?.relief) && snap.reliefSchedulesSyncedAt) {
+      UG.DATA.relief = snap.relief;
+      UG.DATA.reliefSchedulesSyncedAt = snap.reliefSchedulesSyncedAt;
+      UG.DATA.reliefSchedulesCached = true;
+    }
     const advisories = new Map((snap?.advisories || []).map((row) => [row.id, row]));
     for (const row of saved || []) {
       if (!advisories.has(row.id)) advisories.set(row.id, row);

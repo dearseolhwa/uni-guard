@@ -439,7 +439,7 @@ const UG_ADMIN = (function () {
        from UG.DATA.dispatchEquipment (loaded by Repo.loadDispatchDirectory);
        filter to this barangay's rows. */
     const barangayEquipment = (UG.DATA.dispatchEquipment || [])
-      .filter((e) => isLgu || e.owner_barangay_id === myBrgyId);
+      .filter((e) => e.owner_barangay_id && (isLgu || e.owner_barangay_id === myBrgyId));
     const eqRow = (r) => {
       const label = (function () {
         const list = (UG.DATA.equipmentCatalog || []);
@@ -447,11 +447,11 @@ const UG_ADMIN = (function () {
         return c ? c.label : (r.custom_label || r.identifier || 'Equipment');
       })();
       const canManage = (me.role === 'barangay_official' || isLgu);
-      /* Fix (Oct 28 2026): record_equipment_check lets the official (own
-         barangay) and the LGU run readiness checks, but this table had no
-         Check button, so barangay equipment always showed "never". */
       const manageBtns = canManage
-        ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-check" data-id="' + esc(r.id) + '">Check</button>' +
+        ? (r.status !== 'deployed'
+          ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-check" data-id="' + esc(r.id) + '">Check</button>' +
+            '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-status" data-id="' + esc(r.id) + '">Status</button>'
+          : '') +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-history" data-id="' + esc(r.id) + '">Service history</button>' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + esc(r.id) + '">Edit</button>' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>'
@@ -478,9 +478,10 @@ const UG_ADMIN = (function () {
       /* 050: barangay equipment table (with Add for the official / LGU) */
       /* Add equipment sits beside the section title as a compact button */
       head('Equipment', 'Boats, life vests, ropes, radios and other barangay-owned equipment.',
-        (me.role === 'barangay_official' || isLgu)
+        (barangayEquipment.length ? '<button class="hl-ghost" data-act="equipment-csv">' + I('download', 14) + 'Export CSV</button>' : '') +
+        ((me.role === 'barangay_official' || isLgu)
           ? '<button class="hl-ghost hl-primary rt-add" data-act="equipment-add" data-owner-brgy="' + esc(myBrgyId || '') + '" data-unit-type="Barangay">' + I('plus', 14) + 'Add equipment</button>'
-          : '') +
+          : '')) +
       (barangayEquipment.length
         ? '<div class="ug-card" style="overflow:hidden"><table class="ug-table"><thead><tr><th>Equipment</th><th>Type</th><th>Status</th><th>Condition</th><th>Last check</th><th class="t-right">Action</th></tr></thead><tbody>' + barangayEquipment.map(eqRow).join('') + '</tbody></table></div>'
         : statePanel('empty', 'No equipment yet', (me.role === 'barangay_official' || isLgu) ? 'Use "Add equipment" to register a piece of barangay equipment.' : 'The barangay official can add equipment here.')) +
@@ -641,6 +642,10 @@ const UG_ADMIN = (function () {
     '</div>';
   }
 
+  function auditRecordId(row) {
+    return row.entity === 'relief_inventory' ? row.meta?.item_id || row.meta?.text_id || row.entity_id : row.entity_id;
+  }
+
   function body(st) {
     if (st.route === 'users') return users(st);
     if (st.route === 'audit') return audit(st);
@@ -649,5 +654,5 @@ const UG_ADMIN = (function () {
     return '';
   }
 
-  return { handles, body, users, audit, responseTeam, dispatchUnits, assignmentPanel, ROLE_LABEL, roleOf, describe, filterAudit, filterUsers, actionBucket, entityLabel, head, statePanel };
+  return { handles, body, users, audit, responseTeam, dispatchUnits, assignmentPanel, ROLE_LABEL, roleOf, describe, filterAudit, filterUsers, actionBucket, entityLabel, auditRecordId, head, statePanel };
 })();
