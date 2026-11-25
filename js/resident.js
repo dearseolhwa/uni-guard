@@ -241,38 +241,89 @@ const UG_RW = (() => {
     if (day.toDateString() === today.toDateString()) return 'Distributing Now';
     return day.getTime() > today.getTime() ? 'Scheduled' : 'Completed';
   }
-  function documentExample(label) {
-    if (/authori[sz]ation|representative letter|sulat ng pahintulot/i.test(label)) {
-      return '<p>Include the date, both full names, the relief program and claim date, and the beneficiary’s signature. Add the representative’s signature or ID copies if the organizer asks for them.</p>' +
-        '<div class="rw-doc-sample"><strong>Sample authorization letter</strong>' +
-          '<p>[Date]</p><p>To the relief distribution desk:</p>' +
-          '<p>I, [beneficiary’s full name], authorize [representative’s full name] to claim my [name of relief assistance] at [distribution site] on [claim date].</p>' +
-          '<p>[Beneficiary’s signature over printed name]<br>[Representative’s signature over printed name, if required]</p></div>';
+  const DOCUMENT_EXAMPLES = [
+    {
+      matches: /authori[sz]ation|representative letter|sulat ng pahintulot/i,
+      file: 'authorization',
+      height: 811,
+      alt: 'Sample authorization letter showing the date, beneficiary and representative names, relief program, distribution site, claim date, and separate signature lines.',
+      help: 'Have the beneficiary sign above their printed name. Include the representative’s signature and ID copies if the relief desk asks for them.'
+    },
+    {
+      matches: /indigen/i,
+      file: 'indigency',
+      height: 699,
+      alt: 'Sample Certificate of Indigency showing the issuing barangay, resident’s name, purpose, date issued, and space for the official’s signature and name.',
+      help: 'Ask your barangay hall for a Certificate of Indigency for the relief program. Check that it has the issuing official’s signature.'
+    },
+    {
+      matches: /residenc|proof of address|utility bill/i,
+      file: 'residence',
+      height: 670,
+      alt: 'Sample utility bill showing the provider, name on the bill, household address, and bill date.',
+      help: 'Ask if the relief desk accepts a recent utility bill or a barangay certificate of residency. If the document is in someone else’s name, ask what else to bring.'
+    },
+    {
+      matches: /\bids?\b|identification|passport|licen[cs]e|lisensiya/i,
+      file: 'photo-id',
+      height: 481,
+      alt: 'Sample photo ID showing where to look for the photo, full name, issuing agency, and validity details.',
+      help: 'Examples include a National ID, Philippine passport, or driver’s license. Confirm which IDs the relief desk accepts and check the expiry date if your card shows one.'
     }
-    if (/indigen/i.test(label)) {
-      return '<p>Ask your barangay hall for a Certificate of Indigency for the relief program.</p>' +
-        '<div class="rw-doc-sample"><strong>Example of what to check</strong><p>Barangay name · Your full name · Purpose or program · Date issued · Signature of the issuing official</p></div>';
-    }
-    if (/residenc|proof of address/i.test(label)) {
-      return '<p>Examples include a barangay certificate of residency or a recent utility bill showing the household address. Ask the relief desk which proof it accepts and what to bring if the bill is under someone else’s name.</p>';
-    }
-    if (/\bid\b|identification|passport|lisensiya/i.test(label)) {
-      const examples = /government/i.test(label) ? 'National ID, Philippine passport, or driver’s license' : 'National ID, Philippine passport, or driver’s license. Ask if a barangay or school ID is also accepted';
-      return '<p>Examples: ' + esc(examples) + '.</p>' +
-        '<div class="rw-doc-sample rw-id-sample"><div aria-hidden="true">' + I('users', 22) + '</div><div>' +
-          '<strong>Sample photo ID</strong><p>Full name · [Your name]<br>Valid until · [Expiry date, if shown]</p></div></div>' +
-        '<p>Check that the details are readable and that the ID is still valid.</p>';
-    }
-    return '<p>Ask the relief desk for an example of this document and where to get it.</p>';
-  }
+  ];
+  const DOCUMENT_CHECKLIST = {
+    file: 'checklist',
+    height: 517,
+    alt: 'Checklist showing what to ask the relief desk about a required document.',
+    help: 'Ask the relief desk for a sample of this requirement and where to get it.'
+  };
 
   function reliefDocuments(docs, section) {
-    return '<div class="rw-doc-list">' + docs.map((label) =>
-      '<details class="rw-doc" data-relief-disclosure="' + esc(section + '|' + label) + '">' +
-        '<summary>' + I('doc', 15) + '<span>' + esc(label) + '</span>' + I('chevdn', 14) + '</summary>' +
-        '<div class="rw-doc-example">' + documentExample(label) +
-          '<p class="rw-help">Check the schedule or call the relief desk to confirm which documents it accepts and whether to bring originals or copies.</p></div>' +
-      '</details>').join('') + '</div>';
+    return '<div class="rw-doc-list"' + attr({ 'relief-docs': section }) + '>' + docs.map((label) =>
+      '<button type="button" class="rw-doc" aria-haspopup="dialog" data-keep-modal' +
+        A('rw-relief-doc', attr({ label })) + '>' +
+        I('doc', 16) + '<span class="rw-doc-label">' + esc(label) + '</span>' +
+        '<span class="rw-doc-open">View sample' + I('chevron', 13) + '</span></button>'
+    ).join('') + '</div>';
+  }
+
+  function reliefDocumentSelector(button) {
+    if (!button?.matches('[data-act="rw-relief-doc"]')) return null;
+    const section = button.closest('[data-relief-docs]')?.dataset.reliefDocs;
+    return section ? '[data-relief-docs="' + CSS.escape(section) + '"] [data-label="' + CSS.escape(button.dataset.label) + '"]' : null;
+  }
+
+  function reliefDocumentModal(label, trigger) {
+    if (!label) return;
+    const sample = DOCUMENT_EXAMPLES.find((item) => item.matches.test(label)) || DOCUMENT_CHECKLIST;
+    const returnTo = reliefDocumentSelector(trigger);
+    trigger?.focus({ preventScroll: true });
+    UG_FEATURES.modal({
+      title: label,
+      cls: 'rw-doc-modal',
+      body: '<figure class="rw-doc-preview">' +
+        '<img src="./img/relief-documents/' + sample.file + '.webp" width="800" height="' + sample.height + '" alt="' + esc(sample.alt) + '">' +
+        '<figcaption><p>' + esc(sample.help) + '</p>' +
+        '<p>Check the distribution notice or ask the relief desk whether to bring an original or a copy.</p></figcaption></figure>',
+      onClose: () => {
+        // A background refresh may have replaced the schedule while the preview was open.
+        if (returnTo) {
+          const button = trigger.isConnected ? trigger : document.querySelector(returnTo);
+          button?.focus({ preventScroll: true });
+        }
+      },
+      onMount: (wrap) => {
+        const closeButton = wrap.querySelector('[data-modal-close]');
+        const body = wrap.querySelector('.ug-modal-body');
+        body.tabIndex = 0;
+        closeButton.focus();
+        wrap.addEventListener('keydown', (event) => {
+          if (event.key !== 'Tab') return;
+          event.preventDefault();
+          (document.activeElement === closeButton ? body : closeButton).focus();
+        });
+      }
+    });
   }
 
   function hubCard(r) {
@@ -833,6 +884,6 @@ const UG_RW = (() => {
       '</aside>';
   }
 
-  return { report, reportDone, myReports, reportDetail, relief, reliefAllModal, reliefDetailModal, guides, faqs, map, settings, offline, sos, phoneTabs, phoneBar, phoneMenu };
+  return { report, reportDone, myReports, reportDetail, relief, reliefAllModal, reliefDetailModal, reliefDocuments, reliefDocumentModal, reliefDocumentSelector, guides, faqs, map, settings, offline, sos, phoneTabs, phoneBar, phoneMenu };
 })();
 window.UG_RW = UG_RW;

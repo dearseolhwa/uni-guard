@@ -198,12 +198,14 @@
     has(id) { return !!(id && ((S.corrDone && S.corrDone[id]) || this.all()[id])); },
     save(id) { try { const m = this.all(); m[id] = Date.now(); localStorage.setItem(this.key(), JSON.stringify(m)); } catch (e) { } }
   };
-  /* the field being typed in, so ANY redraw (live data, a refresh, a timer)
-     puts the cursor back instead of dropping it after one letter */
+  /* Preserve typing and relief document button focus when live data redraws the page. */
   const KEEP_ATTRS = ['data-field', 'data-rp', 'data-setting', 'data-f', 'id', 'name'];
-  function typingTarget() {
+  function focusedControl() {
     const a = document.activeElement;
-    if (!a || !root.contains(a) || !/^(INPUT|TEXTAREA)$/.test(a.tagName)) return null;
+    if (!a || !root.contains(a)) return null;
+    const documentButton = UG_RW.reliefDocumentSelector(a);
+    if (documentButton) return { sel: documentButton };
+    if (!/^(INPUT|TEXTAREA)$/.test(a.tagName)) return null;
     const k = KEEP_ATTRS.find((n) => a.getAttribute(n));
     if (!k) return null;
     let s0 = null, s1 = null;
@@ -224,7 +226,7 @@
     }
   }
   function renderNow(focusField) {
-    const typing = focusField ? null : typingTarget();
+    const retainedFocus = focusField ? null : focusedControl();
     applyPortal();
     /* Sidebar scroll position preservation. The DOCX reports a recurring
        bug: clicking a lower sidebar item snaps the sidebar back to the top
@@ -341,13 +343,13 @@
         el.focus();
         try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) { }
       }
-    } else if (typing) {
-      const el = q(typing.sel);
+    } else if (retainedFocus) {
+      const el = q(retainedFocus.sel);
       if (el && el.focus && document.activeElement !== el) {
         /* a field that keeps its text only in the page: carry it over */
-        if (!el.value && typing.v && el.type !== 'file') el.value = typing.v;
+        if (!el.value && retainedFocus.v && el.type !== 'file') el.value = retainedFocus.v;
         try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
-        try { if (typing.s0 != null) el.setSelectionRange(typing.s0, typing.s1); } catch (e) { }
+        try { if (retainedFocus.s0 != null) el.setSelectionRange(retainedFocus.s0, retainedFocus.s1); } catch (e) { }
       }
     }
     paintChrome();
@@ -2471,6 +2473,7 @@
     },
     'my-report-history': (d) => loadMyReports(d.more === 'true'),
     'rw-relief-all': () => { UG_RW.reliefAllModal(S); },
+    'rw-relief-doc': (d, el) => { UG_RW.reliefDocumentModal(d.label, el); },
     'rw-relief-detail': (d) => {
       if (S.role !== 'citizen') return;
       if (!UG_RW.reliefDetailModal(S, d.id)) toast('This schedule is no longer available for your barangay.', 'info');

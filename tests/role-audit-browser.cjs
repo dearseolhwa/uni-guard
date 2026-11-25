@@ -571,6 +571,65 @@ async function reliefAuditFollowup(browser, app) {
   }
 }
 
+async function reliefDocumentPreviews(browser, app) {
+  const documents = [
+    ['Valid government ID', 'photo-id'],
+    ['Barangay certificate of indigency', 'indigency'],
+    ['Authorization letter if claiming on behalf of a beneficiary', 'authorization'],
+    ['Proof of residence', 'residence'],
+    ['Organizer’s claim stub', 'checklist']
+  ];
+  await Promise.all([false, true].map(async mobile => {
+    const {page, context} = await fixture(browser, app, {mobile});
+    try {
+      if (mobile) await page.setViewportSize({width: 320, height: 650});
+      await enter(page, app, 'citizen', 'relief');
+      await page.evaluate((requirements) => {
+        UG.DATA.relief = [{
+          id: 'doc-preview-fixture', title: 'Sample relief schedule',
+          barangay: UG_APP.S.session.barangay, active: true, required_docs: requirements
+        }];
+        UG_APP.render();
+      }, documents.map(([label]) => label));
+      const schedule = page.locator('.rw-relief-main .rw-hub');
+      assert.equal(await schedule.locator('details').count(), 0);
+      for (const [label, file] of documents) {
+        const button = schedule.getByRole('button', {name: label + ' View sample', exact: true});
+        await button.click();
+        const dialog = page.getByRole('dialog', {name: label, exact: true});
+        const image = dialog.getByRole('img');
+        await image.evaluate((img) => img.decode());
+        assert.equal(await image.getAttribute('src'), './img/relief-documents/' + file + '.webp');
+        assert.ok(await image.getAttribute('alt'));
+        assert.ok(await image.evaluate((img) => {
+          const bounds = img.getBoundingClientRect();
+          return bounds.left >= 0 && bounds.right <= innerWidth;
+        }));
+        assert.equal(await dialog.getByRole('button', {name: 'Close'}).evaluate((el) => el === document.activeElement), true);
+        await page.evaluate(() => UG_APP.render());
+        await page.keyboard.press('Escape');
+        await dialog.waitFor({state: 'detached'});
+        await page.waitForFunction((label) => {
+          const focused = document.activeElement;
+          return focused?.dataset.label === label && !!focused.closest('.rw-relief-main .rw-hub');
+        }, label);
+      }
+
+      await page.locator('.rw-relief-main [data-act="rw-relief-all"]:visible').click();
+      const parent = page.getByRole('dialog', {name: 'Available Relief Distribution Schedules'});
+      await parent.getByRole('button', {name: /Authorization letter/}).click();
+      const authorization = page.getByRole('dialog', {name: documents[2][0], exact: true});
+      await authorization.getByRole('img').evaluate((img) => img.decode());
+      await page.keyboard.press('Escape');
+      await authorization.waitFor({state: 'detached'});
+      assert.equal(await parent.isVisible(), true);
+    } finally {
+      await context.close();
+    }
+  }));
+  console.log('PASS Relief document buttons open sample images on desktop and small phones, restore focus, and preserve the parent schedule.');
+}
+
 module.exports = async function verifyRoleAudits(browser, app) {
   await dispatchFailure(browser, app);
   await advisoryDelivery(browser, app);
@@ -581,5 +640,6 @@ module.exports = async function verifyRoleAudits(browser, app) {
   await reliefSupplyControls(browser, app);
   await escortAndEquipmentHistory(browser, app);
   await reliefAuditFollowup(browser, app);
+  await reliefDocumentPreviews(browser, app);
   await roleSweep(browser, app);
 };

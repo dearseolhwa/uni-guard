@@ -175,7 +175,7 @@ const UG_RELIEF = (function () {
     function reliefCard(r, canVerify) {
     const geoState = UG_GEO.classify(r.lat, r.lng);
     const elig = (r.eligibility || []).map((e) => '<li>' + esc(e) + '</li>').join('');
-    const docs = (r.required_docs || []).map((d) => '<li>' + esc(d) + '</li>').join('');
+    const docs = r.required_docs || [];
     return '<div class="ug-card">' +
       '<div class="ug-card-h"><h3>' + esc(r.title) + '</h3>' + U.badge('id', r.barangay) + '</div>' +
       '<div class="ug-card-b ug-col" style="gap:11px">' +
@@ -192,7 +192,7 @@ const UG_RELIEF = (function () {
           '<div style="min-width:0"><div style="font-size:12px;font-weight:600">' + esc(r.contact_person) + '</div>' +
           '<div class="ug-mono" style="font-size:12px;color:var(--ug-signal)">' + esc(r.contact_phone) + '</div></div></div>' +
         (elig ? '<div class="ug-field" style="margin:0"><div class="ug-lab">Eligibility</div><ul class="ug-bullets">' + elig + '</ul></div>' : '') +
-        (docs ? '<div class="ug-field" style="margin:0"><div class="ug-lab">Bring these documents</div><ul class="ug-bullets">' + docs + '</ul></div>' : '') +
+        (docs.length ? '<div class="ug-field" style="margin:0"><div class="ug-lab">Bring these documents</div>' + UG_RW.reliefDocuments(docs, 'mobile-' + r.id) + '</div>' : '') +
         (r.note ? '<div class="ug-note">' + esc(r.note) + '</div>' : '') +
         '<div class="ug-rowf ug-gap8" style="gap:8px">' +
           (canVerify

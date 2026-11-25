@@ -6,13 +6,15 @@
  */
 importScripts('./js/device-store.js');
 
-const VERSION = 'uniguard-v576';
+const VERSION = 'uniguard-v577';
 const SHELL = 'uniguard-shell-' + VERSION;
 const TILES = 'uniguard-tiles-' + VERSION;
 const IMAGES = 'uniguard-images-' + VERSION;
 const APP_ICON = './icons-192.png?v=565';
 const ICONS = ['./favicon.ico?v=565', APP_ICON, './icons-512.png?v=565', './icons-maskable-512.png?v=565'];
-const ICON_URLS = new Set(ICONS.map((path) => new URL(path, self.location.href).href));
+const RELIEF_SAMPLE_IMAGES = ['authorization', 'indigency', 'photo-id', 'residence', 'checklist']
+  .map((name) => './img/relief-documents/' + name + '.webp');
+const SHELL_IMAGE_URLS = new Set([...ICONS, ...RELIEF_SAMPLE_IMAGES].map((path) => new URL(path, self.location.href).href));
 
 const PRECACHE = [
   './',
@@ -88,7 +90,8 @@ const PRECACHE = [
   './js/urgent-alerts.js',
   './js/dispatch.js',
 
-  ...ICONS
+  ...ICONS,
+  ...RELIEF_SAMPLE_IMAGES
 ];
 
 self.addEventListener('install', (event) => {
@@ -181,7 +184,7 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin !== self.location.origin) return;
 
-  if (ICON_URLS.has(url.href)) {
+  if (SHELL_IMAGE_URLS.has(url.href)) {
     event.respondWith(cacheFirst(req, SHELL));
     return;
   }
