@@ -1825,11 +1825,30 @@ const Repo = (function () {
       await UG_PWA.upsertQueuedSos(Object.assign({ client_sent_at: new Date().toISOString() }, payload));
       return { id: 'PENDING-' + Date.now(), reach: 0, queued: true };
     }
-    const { data, error } = await c.rpc('submit_sos_once', {
-      p_request_id: payload.request_id || crypto.randomUUID(),
-      p_lat: payload.lat, p_lng: payload.lng, p_accuracy: payload.accuracy, p_note: payload.note || '',
-      p_kind: payload.kind || 'other'
-    });
+    /* A stalled mobile connection must never leave the resident on "Sending…"
+       with no answer. After 20 s give up; the caller treats it as a network
+       error and queues the SOS for retry. Safe to retry: submit_sos_once is
+       idempotent on request_id, so a slow request that did land is not
+       recorded twice. */
+    const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let timedOut = false;
+    const timer = ctl ? setTimeout(() => { timedOut = true; ctl.abort(); }, 20000) : null;
+    let data, error;
+    try {
+      let q = c.rpc('submit_sos_once', {
+        p_request_id: payload.request_id || crypto.randomUUID(),
+        p_lat: payload.lat, p_lng: payload.lng, p_accuracy: payload.accuracy, p_note: payload.note || '',
+        p_kind: payload.kind || 'other'
+      });
+      if (ctl && q.abortSignal) q = q.abortSignal(ctl.signal);
+      ({ data, error } = await q);
+    } catch (e) {
+      if (timedOut) throw new Error('Network request failed: the SOS timed out');
+      throw e;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (timedOut) throw new Error('Network request failed: the SOS timed out');
     if (error) fail(error);
     if (!upload) loadAll({ silent: true }).catch(() => { });
     return data;
