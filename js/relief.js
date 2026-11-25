@@ -296,7 +296,9 @@ const UG_RELIEF = (function () {
     const mine = scopedBrgy(st);
     const all = (UG.DATA.distributionLog || []).slice().sort((a, b) =>
       (Date.parse(b.distributed_at) || 0) - (Date.parse(a.distributed_at) || 0));
-    const rows = all.filter((r) => !mine || r.barangay === mine);
+    const rows = all.filter((r) => !mine || ('barangay_id' in r
+      ? !!st.session?.barangay_id && r.barangay_id === st.session.barangay_id
+      : r.barangay === mine));
     const brgyFilter = st.recBrgyFilter || 'All';
     return { rows: rows, filtered: rows.filter((r) => brgyFilter === 'All' || r.barangay === brgyFilter), brgyFilter: brgyFilter, mine: mine };
   }
@@ -541,6 +543,10 @@ const UG_RELIEF = (function () {
   function distDetailModal(id, st) {
     const r = (UG.DATA.relief || []).find((x) => x.id === id);
     if (!r) return false;
+    const showEscort = isStaff(st) && !st.session?.superAdmin;
+    const escortStatus = { requested: 'Requested', confirmed: 'Confirmed' }[r.escort_status] || 'Not requested';
+    const canRequestEscort = showEscort && r.active !== false && escortStatus === 'Not requested'
+      && (st.session?.role === 'lgu_ldrrmc' || (r.barangay_id ? r.barangay_id === st.session?.barangay_id : r.barangay === st.session?.barangay));
     const kv = (k, v) => '<div class="ug-rowf ug-between" style="gap:12px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">' + esc(k) + '</span><span style="text-align:right;font-weight:600;max-width:60%">' + esc(v == null || v === '' ? '—' : v) + '</span></div>';
     const li = (arr) => (arr || []).map((x) => '<li>' + esc(x) + '</li>').join('');
     const phone = String(r.contact_phone || '').replace(/[^\d+]/g, '');
@@ -559,6 +565,7 @@ const UG_RELIEF = (function () {
         '<div class="ug-rowf ug-between" style="gap:12px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--ug-line)"><span class="ug-dim">Contact phone</span>' +
           (phone ? '<a href="tel:' + esc(phone) + '" style="font-weight:600">' + esc(r.contact_phone) + '</a>' : '<span style="font-weight:600">—</span>') + '</div>' +
         kv('Status', r.active === false ? 'Inactive' : 'Active') +
+        (showEscort ? '<div data-relief-escort-state>' + kv('PNP escort', escortStatus) + '</div>' : '') +
         (r.eligibility && r.eligibility.length ? '<div class="ug-field" style="margin-top:10px"><div class="ug-lab">Eligibility</div><ul class="ug-bullets">' + li(r.eligibility) + '</ul></div>' : '') +
         (r.required_docs && r.required_docs.length ? '<div class="ug-field"><div class="ug-lab">Required documents</div><ul class="ug-bullets">' + li(r.required_docs) + '</ul></div>' : '') +
         (r.note ? '<div class="ug-note" style="margin-top:10px">' + esc(r.note) + '</div>' : '') +
@@ -566,6 +573,8 @@ const UG_RELIEF = (function () {
           ? '<a class="ug-waze-btn" style="margin-top:12px;display:inline-flex" target="_blank" rel="noopener noreferrer" href="' + UG_GEO.wazeUrl(r.lat, r.lng) + '">' + I('route', 13) + ' Open in Waze</a>' : ''),
       footer:
         '<button class="ug-btn" data-modal-close>Close</button>' +
+        (canRequestEscort ? '<button class="ug-btn" data-keep-modal data-act="relief-escort-request" data-id="' + esc(r.id) + '">' +
+          I('shield', 13) + esc(T('dispatch.requestEscort')) + '</button>' : '') +
         (isStaff(st)
           ? '<button class="ug-btn ug-btn--ghost" data-act="relief-verify" data-id="' + esc(r.id) + '">' + I('users', 13) + 'Verify beneficiary</button>' +
             '<button class="ug-btn ug-btn--signal" data-act="relief-edit" data-id="' + esc(r.id) + '">' + I('settings', 13) + 'Edit</button>'

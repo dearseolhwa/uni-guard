@@ -240,7 +240,9 @@ const UG_DISPATCH = (function () {
       read(c.from('emergency_hotlines').select('id, agency_name, contact_number, scope, description, category, active').eq('active', true)),
       read(c.from('barangays').select('id, name, captain_name, captain_phone')),
       isPolice ? read(c.from('evacuation_centers').select('id, name, barangay, barangay_id, needs_patrol, needs_patrol_at').eq('needs_patrol', true)) : [],
-      isPolice ? read(c.from('relief_distributions').select('*').neq('escort_status', 'none')) : []
+      isPolice ? read(c.from('relief_distributions').select('id,title,barangay,escort_status,escort_unit_id,distribution_at')
+        .eq('active', true).or('escort_status.eq.requested,and(escort_status.eq.confirmed,escort_unit_id.eq.' + target.unit.id + ')')
+        .order('distribution_at').limit(50)) : []
     ]);
     target.directory = {
       hotlines: hotlines.map((row) => ({ ...row, category: hotlineCategory(row) })),
@@ -334,6 +336,15 @@ const UG_DISPATCH = (function () {
      device itself, and the poll in js/app.js catches anything else. */
   let unitChannel = null;
   let unitChannelFor = null;
+  let unitRefreshTimer = null;
+  function scheduleUnitRefresh() {
+    if (unitRefreshTimer) return;
+    const target = state.data;
+    unitRefreshTimer = setTimeout(() => {
+      unitRefreshTimer = null;
+      if (state.data === target) app().refreshDispatch();
+    }, 350);
+  }
   function watchUnitDispatches() {
     const c = client();
     const unit = state.data.unit;
@@ -341,7 +352,7 @@ const UG_DISPATCH = (function () {
     try {
       if (unitChannel) c.removeChannel(unitChannel);
       unitChannelFor = unit.id;
-      unitChannel = c.channel('ug-unit-' + unit.id)
+      const channel = c.channel('ug-unit-' + unit.id)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'report_dispatches', filter: 'unit_id=eq.' + unit.id },
           (payload) => { ringForInsert(payload && payload.new); })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'report_dispatches', filter: 'unit_id=eq.' + unit.id },
@@ -356,7 +367,19 @@ const UG_DISPATCH = (function () {
               loadAll({ silent: true });
             }
           })
-        .subscribe();
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'dispatch_equipment' },
+          ({ new: row, old }) => {
+            if (row?.owner_unit_id === unit.id || state.data.equipment.some(item => item.id === old?.id)) scheduleUnitRefresh();
+          })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'equipment_checks' }, scheduleUnitRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'dispatch_equipment_use' }, scheduleUnitRefresh);
+      if (unit.unit_type === 'PNP') channel.on('postgres_changes', {
+        event: '*', schema: 'public', table: 'relief_distributions'
+      }, scheduleUnitRefresh);
+      unitChannel = channel.subscribe(scheduleOnReconnect);
+      function scheduleOnReconnect(status) {
+        if (status === 'SUBSCRIBED' && unitChannelFor === unit.id) scheduleUnitRefresh();
+      }
     } catch (e) { /* the poll still covers it */ }
   }
 
@@ -435,6 +458,8 @@ const UG_DISPATCH = (function () {
     const c = client();
     if (c && unitChannel) { try { c.removeChannel(unitChannel); } catch (e) { } }
     unitChannel = null; unitChannelFor = null;
+    clearTimeout(unitRefreshTimer);
+    unitRefreshTimer = null;
   }
   function onFixError(err) {
     if (err && err.code === 1) {          /* permission denied */
@@ -665,15 +690,7 @@ const UG_DISPATCH = (function () {
     }
   }
 
-  function sIncoming(st) {
-    if (state.loading) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('loading', T('state.loading'));
-    const list = state.data.dispatches || [];
-    if (state.error && !list.length) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('error', T('toast.couldNotLoad'), state.error);
-    const open = openDispatches();
-    const recentHistory = list.filter((d) => d.dispatch_status === 'done' || d.dispatch_status === 'declined').slice(0, 12);
-    if (!list.length) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) +
-      emptyState('truck', T('dispatch.noDispatches'), T('dispatch.noDispatchesHint'));
-
+  function pnpTasks() {
     /* PNP-specific sections: shelters needing patrol (D2) + relief
        distributions with an escort requested (D3). PNP can confirm the
        escort; patrol is read-only here (the toggle lives with LGU and
@@ -696,7 +713,7 @@ const UG_DISPATCH = (function () {
                 '</div></div></div>')
             : '') +
           (escortList.length
-            ? card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">Relief escorts (D3)</div>' +
+            ? card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">Relief escorts</div>' +
                 '<div class="ug-card ug-card--flat" style="margin-top:4px"><div class="ug-card-b ug-col" style="gap:6px">' +
                   escortList.map((r) => '<div class="ug-rowf ug-between" style="gap:8px;font-size:12px;align-items:center">' +
                     '<span style="flex:1;min-width:0">' + esc(r.title || '') + ' <span class="ug-dimmer">· ' + esc(r.barangay || '') + '</span></span>' +
@@ -710,6 +727,19 @@ const UG_DISPATCH = (function () {
         '</div>';
       }
     }
+
+    return pnpSection;
+  }
+
+  function sIncoming(st) {
+    if (state.loading) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('loading', T('state.loading'));
+    const list = state.data.dispatches || [];
+    const policeTasks = pnpTasks();
+    if (state.error && !list.length && !policeTasks) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) + statePanel('error', T('toast.couldNotLoad'), state.error);
+    const open = openDispatches();
+    const recentHistory = list.filter((d) => d.dispatch_status === 'done' || d.dispatch_status === 'declined').slice(0, 12);
+    if (!list.length) return pageHead(T('dispatch.incoming'), T('dispatch.incomingSub')) +
+      policeTasks + emptyState('truck', T('dispatch.noDispatches'), T('dispatch.noDispatchesHint'));
 
     const row = (d) => {
       const r = d.report || {};
@@ -726,7 +756,7 @@ const UG_DISPATCH = (function () {
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.',
         '<span class="ug-chip is-on">' + open.length + ' active</span>') +
-      pnpSection +
+      policeTasks +
       '<div class="ug-wgrid-3">' + [...open, ...recentHistory].map(row).join('') + '</div>' +
       (list.length > open.length + recentHistory.length ? '<button class="ug-btn ug-btn--ghost" data-act="dispatch-nav" data-route="analytics">View dispatch history</button>' : '') +
       '</div>';
@@ -967,8 +997,8 @@ const UG_DISPATCH = (function () {
 
   function sEquipment(st) {
     if (state.loading) return pageHead(T('title.equipment'), '') + statePanel('loading');
-    if (state.error)   return pageHead(T('title.equipment'), '') + statePanel('error', T('toast.couldNotLoad'), state.error);
     const rows = state.data.equipment || [];
+    if (state.error && !rows.length) return pageHead(T('title.equipment'), '') + statePanel('error', T('toast.couldNotLoad'), state.error);
     /* 050: unit_admin can add/edit/remove. Regular members only see the
        Check + Status buttons (record_equipment_check + set_equipment_status
        already allow members of the unit). */
@@ -994,6 +1024,7 @@ const UG_DISPATCH = (function () {
         '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-check" data-id="' + esc(r.id) + '">Check</button>' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-status" data-id="' + esc(r.id) + '">Status</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-history" data-id="' + esc(r.id) + '">Service history</button>' +
           manageBtns +
         '</div></td>' +
       '</tr>';
@@ -1040,7 +1071,8 @@ const UG_DISPATCH = (function () {
         '</div>' +
         (d ? '<p class="dpe-warn">' + I('clock', 14) + (r.last_checked_at ? 'Check due: not checked in 24 hours' : 'Check due: never checked') + '</p>' : '') +
         '<div class="dpe-acts"><button class="dpe-go" data-act="dispatch-check" data-id="' + esc(r.id) + '">' + I('check', 15) + 'Run check</button>' +
-          '<button class="dpe-soft" data-act="dispatch-status" data-id="' + esc(r.id) + '">Update status</button></div>' +
+          '<button class="dpe-soft" data-act="dispatch-status" data-id="' + esc(r.id) + '">Update status</button>' +
+          '<button class="dpe-soft dpe-history" data-act="equipment-history" data-id="' + esc(r.id) + '">Service history</button></div>' +
       '</article>';
     };
     return '<div class="dpe">' +
@@ -1582,7 +1614,7 @@ const UG_DISPATCH = (function () {
       : push === 'blocked'
         ? '<div class="dpm-push is-blocked">' + I('bell', 20) + '<div><b>Alerts are blocked</b><span>Allow notifications for this site in your browser settings to get new dispatches.</span></div></div>'
         : '';
-    return '<div class="dpm">' + greet + pushNote + banner + figs + orders + quick + '</div>';
+    return '<div class="dpm">' + greet + pushNote + banner + figs + pnpTasks() + orders + quick + '</div>';
   }
 
   /* phones: the barangay portal's bar (the active section rises into a
@@ -1782,6 +1814,26 @@ const UG_DISPATCH = (function () {
     'dispatch-enable-alarm': () => { UG_ALARM.unlock(); syncDispatchAlarm(); app().render(); },
     'dispatch-check': (d) => { state.openEquipmentId = d.id; openCheckModal(d.id); },
     'dispatch-status': (d) => openStatusModal(d.id),
+    'relief-escort-confirm': async (d, button) => {
+      if (state.data.unit?.unit_type !== 'PNP' || button?.disabled) return;
+      if (!client()) { app().toast('Connect to UniGuard to confirm an escort.', 'warning'); return; }
+      if (button) button.disabled = true;
+      const target = state.data;
+      try {
+        const result = await rpc('confirm_relief_escort', { p_distribution_id: d.id });
+        if (target !== state.data) return;
+        const row = target.directory.escortList.find(item => item.id === d.id);
+        if (row) Object.assign(row, { escort_status: result.escort_status, escort_unit_id: result.unit_id });
+        app().render();
+        app().toast('Escort confirmed', 'prepared');
+        await loadAll({ silent: true });
+      } catch (error) {
+        if (target === state.data) app().toast(error.message || 'Could not confirm the escort', 'warning');
+      } finally {
+        if (button) button.disabled = false;
+      }
+    },
+    'equipment-history': (d) => openEquipmentHistory(d.id),
     'dispatch-duty': async (d) => {
       try {
         await rpc('set_personnel_duty', { p_personnel_id: d.id, p_on_duty: d.next === 'true' });
@@ -2177,10 +2229,44 @@ const UG_DISPATCH = (function () {
     app().render();
   }
 
+  function openEquipmentHistory(id) {
+    const item = findEquipment(id);
+    const c = client();
+    if (!item || !c) { app().toast('Connect to UniGuard to view service history.', 'warning'); return; }
+    openModal({
+      title: 'Service history · ' + (item.identifier || equipmentLabel(item)),
+      body: '<div data-equipment-history aria-live="polite">Loading readiness checks…</div>',
+      footer: '<button class="ug-btn" data-modal-close>Close</button>',
+      onMount: async (wrap) => {
+        const content = wrap.querySelector('[data-equipment-history]');
+        try {
+          const rows = await read(c.from('equipment_checks').select('checked_at,condition,level,notes,items')
+            .eq('equipment_id', id).order('checked_at', { ascending: false })
+            .order('id', { ascending: false }).limit(30));
+          content.innerHTML = rows.length ? '<ul class="ug-col" style="gap:12px;list-style:none;padding:0">' +
+            rows.map((row) => '<li class="ug-note"><b>' + esc(conditionLabel(row.condition)) + '</b>' +
+              '<div>' + esc(absTime(row.checked_at)) + '</div>' +
+              (row.level ? '<div>' + esc(row.level) + '</div>' : '') +
+              (row.notes ? '<p>' + esc(row.notes) + '</p>' : '') +
+              (Array.isArray(row.items) && row.items.length
+                ? '<ul>' + row.items.filter(check => check && typeof check.item === 'string').map(check => '<li>' + esc(check.item || '') + ' · ' +
+                  (check.ok ? 'OK' : 'Needs attention') + '</li>').join('') + '</ul>' : '') +
+              '</li>').join('') + '</ul>' : '<p>No readiness checks have been recorded for this equipment.</p>';
+        } catch (error) {
+          content.textContent = 'Could not load service history. Close and try again.';
+        }
+      }
+    });
+  }
+
   function openCheckModal(id, opts) {
     const eq = findEquipment(id);
     if (!eq) {
       app().toast('That equipment is no longer in the list. Refresh and try again.', 'warning');
+      return;
+    }
+    if (eq.status === 'deployed') {
+      app().toast('Complete or decline the dispatch before running a readiness check.', 'warning');
       return;
     }
     /* First option (Ready) stays the default, as before. */
@@ -2240,7 +2326,11 @@ const UG_DISPATCH = (function () {
       app().toast('That equipment is no longer in the list. Refresh and try again.', 'warning');
       return;
     }
-    const statusOpts = STATUS_LABELS.map((p) => '<option value="' + p[0] + '"' + (p[0] === eq.status ? ' selected' : '') + '>' + p[1] + '</option>').join('');
+    if (eq.status === 'deployed') {
+      app().toast('Complete or decline the dispatch before updating this equipment.', 'warning');
+      return;
+    }
+    const statusOpts = STATUS_LABELS.filter(([status]) => status !== 'deployed').map((p) => '<option value="' + p[0] + '"' + (p[0] === eq.status ? ' selected' : '') + '>' + p[1] + '</option>').join('');
     openModal({
       title: 'Set status · ' + (eq.identifier || equipmentLabel(eq)),
       body: '<div class="ug-field"><label class="ug-lab">Status</label><select class="ug-sel" data-st-status>' + statusOpts + '</select></div>' +
@@ -2750,6 +2840,7 @@ const UG_DISPATCH = (function () {
         const retireBtn = wrap.querySelector('[data-eq-retire]');
         const removeBtn = wrap.querySelector('[data-eq-remove]');
         let useCount = 0;
+        let checkCount = 0;
         if (c) {
           try {
             /* Fix (Oct 28 2026): with head:true supabase-js puts the
@@ -2768,15 +2859,16 @@ const UG_DISPATCH = (function () {
                 .select('id').eq('equipment_id', id).limit(1);
               useCount = (rows && rows.length) || 0;
             }
-          } catch (e) { /* fall back to "no history" — server will reject if wrong */ }
+            const checks = await c.from('equipment_checks').select('id', { count: 'exact', head: true }).eq('equipment_id', id);
+            checkCount = checks.error ? 0 : (checks.count || 0);
+          } catch (e) { /* the server still rejects removal when history exists */ }
         }
-        if (useCount > 0) {
-          statusEl.innerHTML = 'This equipment has been used in <b>' + useCount + '</b> dispatch(es). ' +
-            'Permanently deleting it would erase that history. <b>Retire</b> it instead — it stays in the list, marked unavailable, and the history is preserved.';
+        if (useCount > 0 || checkCount > 0) {
+          statusEl.textContent = 'This item has dispatch or service history. Retire it to preserve its records.';
           retireBtn.hidden = false;
           removeBtn.hidden = true;
         } else {
-          statusEl.innerHTML = 'This equipment has never been used in a dispatch. You can <b>remove</b> it permanently (the readiness-check history is also deleted) or <b>retire</b> it (status = unavailable, stays in the list).';
+          statusEl.innerHTML = 'This equipment has no recorded use or checks. You can remove it or retire it to keep the listing.';
           retireBtn.hidden = false;
           removeBtn.hidden = false;
         }

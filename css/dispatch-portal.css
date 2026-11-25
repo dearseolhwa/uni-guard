@@ -496,6 +496,7 @@
   .dpe-acts { display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; margin-top: 14px; }
   .dpe-acts button { height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 999px; cursor: pointer; font: inherit; font-size: 13.5px; font-weight: 700; }
   .dpe-acts svg { width: 15px; height: 15px; }
+  .dpe-acts .dpe-history { grid-column: 1 / -1; }
   .dpe-go { background: #EE5A1F; color: #fff; }
   .dpe-card:not(.is-due) .dpe-go { background: #FFF1EA; color: #C2410C; }
   .dpe-soft { background: #F6F3F1; color: #1F1F1F; }

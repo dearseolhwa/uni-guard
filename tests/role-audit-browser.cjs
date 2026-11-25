@@ -394,6 +394,93 @@ async function reliefSupplyControls(browser, app) {
   } finally { await context.close(); }
 }
 
+async function escortAndEquipmentHistory(browser, app) {
+  const staff = await fixture(browser, app, { mobile: false });
+  const police = await fixture(browser, app, { mobile: true });
+  try {
+    await enter(staff.page, app, 'lgu_ldrrmc', 'relief');
+    await staff.page.evaluate(() => {
+      UG.DATA.relief = [{ id: 'escort-test', title: 'Fixture relief escort', barangay: 'Poblacion', active: true }];
+      UG_APP.S.reliefTab = 'distributions';
+      window.escortRequests = [];
+      Repo.client = () => ({ rpc: async (name, args) => {
+        window.escortRequests.push({ name, args });
+        return { data: { id: 'escort-test', escort_status: 'requested' } };
+      } });
+      UG_APP.render();
+    });
+    await staff.page.getByRole('button', {name: 'View', exact: true}).click();
+    await staff.page.getByRole('button', {name: 'Request escort', exact: true}).click();
+    await staff.page.locator('[data-prompt-value]').fill('Staffing support');
+    await staff.page.getByRole('button', {name: 'Save', exact: true}).click();
+    await staff.page.locator('[data-relief-escort-state]').getByText('Requested', {exact:true}).waitFor();
+    assert.deepEqual(await staff.page.evaluate(() => window.escortRequests), [
+      { name: 'request_relief_escort', args: {p_distribution_id:'escort-test',p_note:'Staffing support'} }
+    ]);
+
+    await enter(police.page, app, 'dispatch_team', 'dispatch');
+    await police.page.evaluate(() => {
+      const state = UG_DISPATCH.state;
+      const unit = { id: 'fixture-pnp', unit_type: 'PNP', name: 'Fixture PNP', active: true };
+      let equipStatus = 'available';
+      let escortStatus = 'requested';
+      const channels = {};
+      const client = {
+        rpc: async (name, args) => {
+          if (name !== 'confirm_relief_escort' || args.p_distribution_id !== 'escort-test') throw Error('Unexpected RPC');
+          escortStatus = 'confirmed';
+          return { data: { id:'escort-test', escort_status: escortStatus, unit_id: unit.id } };
+        },
+        channel() {
+          return { on(_event, filter, cb) { channels[filter.table] = cb; return this; }, subscribe() { return this; } };
+        },
+        removeChannel() {},
+        from(table) {
+          let single = false;
+          const query = {
+            select: () => query, eq: () => query, order: () => query, limit: () => query,
+            or: () => query, in: () => query, not: () => query, range: () => query, maybeSingle: () => { single = true; return query; },
+            then(resolve) {
+              if (table === 'dispatch_units') return resolve({ data: single ? unit : [] });
+              if (table === 'dispatch_equipment') return resolve({ data: [{
+                id:'gear-audit',owner_unit_id:unit.id,custom_label:'Fixture winch',status:equipStatus,condition:'ready'
+              }] });
+              if (table === 'equipment_checks') return resolve({ data: [{
+                checked_at:'2025-11-25T00:00:00Z',condition:'ready',level:'Full',notes:'Fixture service note',
+                items:[{item:'Cable',ok:true}]
+              }] });
+              if (table === 'relief_distributions') return resolve({ data: [{
+                id:'escort-test',title:'Fixture relief escort',escort_status:escortStatus
+              }] });
+              return resolve({ data: [] });
+            }
+          };
+          return query;
+        }
+      };
+      Repo.client = () => client;
+      UG_APP.S.session = {...UG_APP.S.session, dispatch_unit_id:unit.id, unit_role:'unit_admin'};
+      window.changeGear = () => {
+        equipStatus = 'maintenance';
+        channels.dispatch_equipment({new:{id:'gear-audit',owner_unit_id:unit.id}});
+      };
+      UG_DISPATCH.loadAll();
+    });
+    await police.page.getByRole('button', {name: 'Confirm escort', exact: true}).click();
+    await police.page.getByText('Escort confirmed', {exact:true}).waitFor();
+    assert.equal(await police.page.getByRole('button', {name:'Confirm escort'}).count(),0);
+    await police.page.locator('.dpm-tiles').getByRole('button', {name:'Equipment',exact:true}).click();
+    await police.page.getByRole('button', {name:'Service history',exact:true}).click();
+    await police.page.getByText('Fixture service note', {exact:true}).waitFor();
+    await police.page.getByRole('button', {name:'Close',exact:true}).filter({visible:true}).last().click();
+    await police.page.evaluate(() => window.changeGear());
+    await police.page.getByText('Maintenance', {exact:true}).waitFor();
+    console.log('PASS Relief staff request an escort, mobile PNP confirms it with an empty dispatch list, and equipment history and realtime status render.');
+  } finally {
+    await Promise.all([staff.context.close(),police.context.close()]);
+  }
+}
+
 module.exports = async function verifyRoleAudits(browser, app) {
   await dispatchFailure(browser, app);
   await advisoryDelivery(browser, app);
@@ -402,5 +489,6 @@ module.exports = async function verifyRoleAudits(browser, app) {
   await urgentReceipts(browser, app);
   await corroborationControls(browser, app);
   await reliefSupplyControls(browser, app);
+  await escortAndEquipmentHistory(browser, app);
   await roleSweep(browser, app);
 };

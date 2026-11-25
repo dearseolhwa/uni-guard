@@ -299,10 +299,26 @@ item keeps the unit used by those distributions so a void can restore stock
 correctly. Inventory totals count item types and distribution records.
 Quantities appear per item with their units.
 
+## Supply and equipment audit release
+
+Run the [migration checker](CHECK-SUPABASE-MIGRATIONS.sql), then apply any
+missing files through [087](../migrations/087_relief_equipment_audit.sql) before
+publishing web build `uniguard-v575`. Migration 087 backfills distribution
+barangay IDs from audit entries or exact matching directory names, and preserves
+unmatched history for MDRRMO. Items at or below their reorder point generate an
+in-app notice for active MDRRMO duty staff. Standard equipment catalog templates
+remain available. To load sample units or equipment in development or staging,
+prepend `set uniguard.demo_seed = 'on';` to `seed/003_dispatch_units.sql` in the
+same SQL Editor query.
+
+Verify an escort request from Relief → View and confirm it from the PNP home
+screen. Check that booked equipment stays deployed until the dispatch releases
+it, and that readiness checks appear under Service history.
+
 ## 1. Database
 
 For a fresh database, apply the files in `migrations/` in filename order, from
-`001_align_core_tables.sql` through `086_relief_supply_units.sql`.
+`001_align_core_tables.sql` through `087_relief_equipment_audit.sql`.
 `000_inspect_current_schema.sql` is optional and read-only. Use the SQL Editor
 and record each full filename. Migration 011 installs `pg_trgm` before creating
 its index. Apply `045_super_admin_improvements.sql`, followed by 046 and 047. Migration 043 promotes the account matching its

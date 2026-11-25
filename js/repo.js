@@ -257,7 +257,7 @@ const Repo = (function () {
       try { return JSON.parse(v || '[]'); } catch (e) { return []; }
     })();
     return {
-      id: r.id, barangay: r.barangay || '', title: r.title || '',
+      id: r.id, barangay: r.barangay || '', barangay_id: r.barangay_id || null, title: r.title || '',
       location_name: r.location_name || '', address: r.address || '',
       lat: r.lat, lng: r.lng,
       distribution_at: r.distribution_at,
@@ -701,6 +701,8 @@ const Repo = (function () {
      corroboration) collapses into one background load. The app can hold a
      refresh back while someone is typing (setRefreshGate); the held refresh
      runs on the next poll, focus change or visibility change. */
+  const EQUIPMENT_WATCHED = ['dispatch_equipment', 'equipment_checks', 'dispatch_equipment_use'];
+  let directoryPending = false;
   const WATCHED = ['reports', 'report_corroborations', 'report_assignments', 'advisories', 'notifications',
     'evacuation_centers', 'relief_distributions', 'relief_inventory', 'relief_distribution_log', 'authorized_beneficiaries', 'preparedness_guides', 'faqs',
     'road_work_posts', 'road_status', 'sos_log', 'sos_staff_receipts', 'barangay_dispatch_requests', 'change_requests', 'report_dispatches', 'report_ratings',
@@ -735,7 +737,12 @@ const Repo = (function () {
     if (!ok) return;   /* stays pending; retried by the next trigger */
     refreshPending = false;
     lastRefreshAt = Date.now();
-    try { await loadAll({ silent: true }); } catch (e) { }
+    const loadDirectory = directoryPending && !!state.resourceSync['dispatch directory'];
+    directoryPending = false;
+    try {
+      await Promise.all([loadAll({ silent: true }), loadDirectory ? loadDispatchDirectory() : null]);
+      if (loadDirectory) window.dispatchEvent(new CustomEvent('ug:equipment-changed'));
+    } catch (e) { }
   }
 
   /* one channel per table: a table the server refuses (missing, or not in the
@@ -746,6 +753,7 @@ const Repo = (function () {
     subscribed = true;
     startPoll();
     WATCHED.forEach(join);
+    if (['lgu_ldrrmc', 'barangay_official'].includes(Auth.state.session?.role)) EQUIPMENT_WATCHED.forEach(join);
   }
 
   function join(t) {
@@ -757,6 +765,7 @@ const Repo = (function () {
           /* the page can ring the alarm from the new row itself, before the
              refresh lands (js/app.js listens for ug:realtime) */
           try { document.dispatchEvent(new CustomEvent('ug:realtime', { detail: { table: t, type: payload && payload.eventType, row: payload && payload.new } })); } catch (e) { }
+          if (EQUIPMENT_WATCHED.includes(t)) directoryPending = true;
           scheduleRefresh(/^(notifications|sos_log|sos_staff_receipts|reports)$/.test(t) ? 0 : undefined);
         });
       channels[t] = ch;
@@ -764,7 +773,10 @@ const Repo = (function () {
         if (channels[t] !== ch) return;   /* an old channel we already replaced */
         if (status === 'SUBSCRIBED') {
           /* rejoined after a drop: catch up on whatever happened meanwhile */
-          if (rejoinDelay[t]) scheduleRefresh(0);
+          if (rejoinDelay[t]) {
+            if (EQUIPMENT_WATCHED.includes(t)) directoryPending = true;
+            scheduleRefresh(0);
+          }
           rejoinDelay[t] = 0;
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           rejoin(t);
@@ -788,6 +800,7 @@ const Repo = (function () {
     pollTimer = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      directoryPending = true;
       scheduleRefresh(0);
     }, UG_CONFIG.LIVE_REFRESH_MS || 20000);
     document.addEventListener('visibilitychange', () => {
@@ -800,6 +813,7 @@ const Repo = (function () {
   }
 
   function unsubscribe() {
+    directoryPending = false;
     const c = client();
     subscribed = false;
     Object.keys(channels).forEach((t) => {

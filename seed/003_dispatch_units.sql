@@ -12,6 +12,18 @@
 --  Run AFTER migrations 054 and 055 (needs the category column).
 -- ============================================================================
 
+-- Opt-in for a development or staging database. Set the flag in the same SQL
+-- Editor query as this file so the setting and the seed share a session.
+begin;
+
+do $$
+begin
+  if current_setting('uniguard.demo_seed', true) is distinct from 'on' then
+    raise exception 'Dispatch demo data requires the uniguard.demo_seed setting in a development or staging database.';
+  end if;
+end;
+$$;
+
 -- ---------------------------------------------------- equipment_catalog
 -- Per unit_type, the labels and the readiness checklist items the unit
 -- admin runs through every shift. The checklist is a JSONB array of strings.
@@ -261,3 +273,5 @@ select null, b.id, c.id, '', 'BRGY-' || upper(left(regexp_replace(b.name, '[^A-Z
    select 1 from public.dispatch_equipment de
     where de.owner_barangay_id = b.id and de.catalog_id = c.id
  );
+
+commit;

@@ -3999,6 +3999,7 @@
                     '<td>' + UG_UTIL.esc((typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.statusLabel ? UG_DISPATCH.statusLabel(r.status) : r.status)) + '</td>' +
                     '<td>' + UG_UTIL.esc((typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.conditionLabel ? UG_DISPATCH.conditionLabel(r.condition) : r.condition)) + '</td>' +
                     '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
+                      '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-keep-modal data-act="equipment-history" data-id="' + UG_UTIL.esc(r.id) + '">Service history</button>' +
                       '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + UG_UTIL.esc(r.id) + '">Edit</button>' +
                       '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + UG_UTIL.esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>' +
                     '</div></td>' +
@@ -4550,32 +4551,36 @@
     },
 
     /* D3: request / confirm a relief escort. */
-    'relief-escort-request': async (d) => {
-      const res = await UG_FEATURES.prompt({
-        title: 'Request a PNP escort for this distribution',
-        label: 'Note', placeholder: 'Convoy size, route, schedule'
-      });
-      if (!res) return;
+    'relief-escort-request': async (d, button) => {
+      const owner = S.session;
+      if (!requireRole(['lgu_ldrrmc', 'barangay_official']) || isSuperAdmin()) return;
+      if (button?.disabled) return;
+      if (button) button.disabled = true;
       try {
-        const c = Repo.client && Repo.client();
-        if (!c) { toast('Offline', 'warning'); return; }
-        const { error } = await c.rpc('request_relief_escort', {
+        const res = await UG_FEATURES.prompt({
+          title: 'Request a PNP escort for this distribution', allowEmpty: true,
+          label: 'Reason for the request', placeholder: 'For example, crowd control at a relief site'
+        });
+        if (res === null || S.session !== owner) return;
+        const c = Repo.client();
+        if (!c) throw new Error('Connect to UniGuard to request an escort.');
+        const { data, error } = await c.rpc('request_relief_escort', {
           p_distribution_id: d.id, p_note: String(res || '')
         });
         if (error) throw error;
-        toast('Escort requested from the PNP', 'prepared');
+        if (S.session !== owner) return;
+        const status = data?.escort_status || 'requested';
+        const distribution = (UG.DATA.relief || []).find(r => r.id === d.id);
+        if (distribution) distribution.escort_status = status;
+        UG_FEATURES.closeDialogs();
         render();
-      } catch (e) { toast(e.message || 'Could not request', 'warning'); }
-    },
-    'relief-escort-confirm': async (d) => {
-      try {
-        const c = Repo.client && Repo.client();
-        if (!c) { toast('Offline', 'warning'); return; }
-        const { error } = await c.rpc('confirm_relief_escort', { p_distribution_id: d.id });
-        if (error) throw error;
-        toast('Escort confirmed', 'prepared');
-        render();
-      } catch (e) { toast(e.message || 'Could not confirm', 'warning'); }
+        UG_RELIEF.distDetailModal(d.id, S);
+        toast(status === 'confirmed' ? 'PNP escort already confirmed' : 'Escort requested from the PNP', 'prepared');
+      } catch (e) {
+        if (S.session === owner) toast(e.message || 'Could not request an escort', 'warning');
+      } finally {
+        if (button) button.disabled = false;
+      }
     },
 
     /* A2 LGU console: update a help request status forward-only. */
@@ -6704,6 +6709,7 @@
     toast: toast,
     go: go,
     loadRouteData: loadRouteData,
+    refreshDispatch: refreshDispatch,
     actions: ALL,
     /* `go(route)` writes the hash so back/forward and reload land on the
        same route. The wrapper used to swallow errors with try/catch,

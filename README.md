@@ -125,7 +125,7 @@ The first entry is **Home**, which is the operations dashboard.
 ## Getting started
 
 1. **Database.** Apply missing SQL files in `migrations/` in filename order through
-   `086_relief_supply_units.sql`. `000` only inspects the schema. Apply
+   `087_relief_equipment_audit.sql`. `000` only inspects the schema. Apply
    `045_super_admin_improvements.sql`, then 046 and 047. Use sample seed files
    only in development or staging.
 2. **Auth settings.** Set the Site URL, redirect URLs, and email delivery settings.

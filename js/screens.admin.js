@@ -452,6 +452,7 @@ const UG_ADMIN = (function () {
          Check button, so barangay equipment always showed "never". */
       const manageBtns = canManage
         ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="dispatch-check" data-id="' + esc(r.id) + '">Check</button>' +
+          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-history" data-id="' + esc(r.id) + '">Service history</button>' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + esc(r.id) + '">Edit</button>' +
           '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>'
         : '';
