@@ -163,6 +163,67 @@ async function dispatchFailure(browser, app) {
   } finally { await context.close(); }
 }
 
+async function dispatchActiveControls(browser, app) {
+  await Promise.all([false, true].map(async (mobile) => {
+    const {page, context} = await fixture(browser, app, {mobile});
+    try {
+      await enter(page, app, 'dispatch_team', 'dispatch');
+      await page.evaluate(() => {
+        const data = UG_DISPATCH.state.data;
+        data.unit = {id: 'dispatch-controls-unit', name: 'Fixture fire unit', unit_type: 'BFP'};
+        const fire = {id: 'active-fire', unit_id: data.unit.id, team: 'BFP', dispatch_status: 'en_route',
+          dispatched_at: '2026-11-25T01:00:00Z', dispatched_by_name: 'Fixture duty officer',
+          report: {code: 'FIXTURE-FIRE', hazard_type: 'Fire', barangay: 'Poblacion'},
+          instructions: 'Meet the duty officer at the assembly point.'};
+        data.dispatches = [fire, {...fire, id: 'closed-fire', dispatch_status: 'done',
+          report: {...fire.report, code: 'FIXTURE-CLOSED'}}];
+        UG_APP.render();
+      });
+
+      const count = page.locator(mobile ? '.dpm-figs [data-act="dispatch-active"]' : '.dp-active-count');
+      const detail = page.locator('[data-dispatch-detail]');
+      async function expectOpen() {
+        await detail.getByRole('button', {name: 'Mark on scene', exact: true}).waitFor();
+        assert.equal(await page.evaluate(() => UG_APP.S.openId), 'active-fire');
+        assert.match(await detail.innerText(), /Meet the duty officer/);
+        await detail.getByRole('button', {name: 'Back', exact: true}).click();
+        await detail.waitFor({state: 'detached'});
+      }
+
+      await count.click();
+      await expectOpen();
+
+      if (!mobile) {
+        await page.getByRole('button', {name: /Active dispatches 1/}).click();
+        await expectOpen();
+      }
+
+      const fireCard = page.locator('[data-active-dispatch][data-id="active-fire"]');
+      if (mobile) await page.getByRole('button', {name: 'Open dispatch', exact: true}).click();
+      else await fireCard.click();
+      await expectOpen();
+
+      await page.evaluate(() => {
+        const data = UG_DISPATCH.state.data;
+        data.dispatches.splice(1, 0, {...data.dispatches[0], id: 'active-second',
+          dispatch_status: 'acknowledged', report: {...data.dispatches[0].report, code: 'FIXTURE-SECOND'}});
+        UG_APP.render();
+      });
+      if (mobile) await page.getByRole('tab', {name: /Completed/}).click();
+      await count.click();
+      await page.waitForFunction(() => UG_APP.S.route === 'dispatch' &&
+        document.activeElement?.hasAttribute('data-active-dispatch'));
+      assert.equal(await page.locator('[data-active-dispatch]').count(), 2);
+      await page.locator('[data-active-dispatch][data-id="active-second"]').click();
+      await detail.getByRole('button', {name: 'Mark en route', exact: true}).waitFor();
+      assert.equal(await page.evaluate(() => UG_APP.S.openId), 'active-second');
+    } finally {
+      await context.close();
+    }
+  }));
+  console.log('PASS Active dispatch counts and cards open the assigned incident on desktop and mobile, and multiple assignments can be selected individually.');
+}
+
 async function advisoryDelivery(browser, app) {
   const id = '8c3c1de0-8cd9-4170-af6c-49af240c7e15';
   const record = {id, title: 'Fixture targeted advisory', body: 'Keep away from the river.', severity: 'warning',
@@ -632,6 +693,7 @@ async function reliefDocumentPreviews(browser, app) {
 
 module.exports = async function verifyRoleAudits(browser, app) {
   await dispatchFailure(browser, app);
+  await dispatchActiveControls(browser, app);
   await advisoryDelivery(browser, app);
   await photoAndDialogs(browser, app);
   await productionAuth(browser, app);

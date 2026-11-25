@@ -59,7 +59,10 @@
 .dp-figs > div { position: relative; min-width: 0; display: flex; flex-direction: column; }
 /* dividers sit in the middle of the gap so all three columns start the same distance apart */
 .dp-figs > div + div::before { content: ''; position: absolute; left: -24px; top: 2px; bottom: 2px; width: 1px; background: #F1EDEA; }
-.dp-figs p { margin: 0; font-size: 12px; font-weight: 500; line-height: 16px; color: #8A8A8A; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-fig-label { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; line-height: 16px; color: #737373; }
+.dp-active-figure { display: block; width: 100%; padding: 0; border: 0; border-radius: 8px; background: none; font: inherit; text-align: left; cursor: pointer; }
+.dp-active-figure:hover .dp-fig-label, .dp-active-figure:hover b { color: #9b340e; }
+.dp-active-figure svg { flex: none; color: #b13e15; }
 .dp-figs b { display: block; margin-top: 8px; font-size: 28px; font-weight: 600; line-height: 32px; color: #262626; font-variant-numeric: tabular-nums; }
 .dp-figs small { display: block; min-height: 16px; margin-top: 6px; font-size: 12px; font-weight: 500; line-height: 16px; color: #A3A3A3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dp-new { display: flex; flex-direction: column; text-align: left; padding: 22px 24px; border-radius: 16px; border: 0; cursor: pointer; color: #fff; font-family: inherit;
@@ -80,6 +83,12 @@
 .dp-page .ug-table th { height: 44px; }
 .dp-page td.dp-none { padding: 28px 16px !important; text-align: center !important; font-size: 13px; color: #8A8A8A; }
 .dp-page .ug-card { border-radius: 20px; border-color: rgba(255,255,255,.9); background: #fff; box-shadow: 0 6px 24px -14px rgba(120,60,30,.35); }
+.dp-active-count, .dp-dispatch-card { cursor: pointer; }
+.dp-dispatch-card { font: inherit; text-align: left; }
+.dp-dispatch-card strong { font-size: 13px; }
+.dp-page .dp-dispatch-card:hover { border-color: #df947b; }
+.dp-dispatch-link { display: flex; align-items: center; gap: 4px; color: #9b340e; font-size: 12px; font-weight: 700; }
+.ug-dp :is(.dp-active-count, .dp-active-figure, .dp-dispatch-card, .dpm-figs button):focus-visible { outline: 2px solid #9b340e; outline-offset: 3px; }
 .ug-dp .ug-btn--signal { background: linear-gradient(135deg, #F07A4A, #E2552B); border-color: #E2552B; color: #fff; }
 
 /* phone header (rail hidden) */
@@ -306,7 +315,8 @@
 
   /* figures */
   .dpm-figs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .dpm-figs button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border: 0; border-radius: 18px; background: #fff; box-shadow: var(--dpcard); cursor: pointer; font: inherit; text-align: left; }
+  .dpm-figs > :is(button, div) { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border: 0; border-radius: 18px; background: #fff; box-shadow: var(--dpcard); font: inherit; text-align: left; }
+  .dpm-figs > button { cursor: pointer; }
   .dpm-figs b { font-size: 22px; font-weight: 800; color: var(--dpk); font-variant-numeric: tabular-nums; }
   .dpm-figs span { font-size: 12px; color: var(--dpm); }
 

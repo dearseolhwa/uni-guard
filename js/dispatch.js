@@ -413,7 +413,7 @@ const UG_DISPATCH = (function () {
 
   const metres = UG_UTIL.distanceM;
   function openDispatches() {
-    return (state.data.dispatches || []).filter((d) => d.dispatch_status !== 'done' && d.dispatch_status !== 'declined');
+    return (state.data.dispatches || []).filter(OPEN_ST);
   }
 
   function syncTracking() {
@@ -743,19 +743,25 @@ const UG_DISPATCH = (function () {
 
     const row = (d) => {
       const r = d.report || {};
-      return '<button class="ug-card" style="text-align:left;cursor:pointer" data-act="dispatch-open" data-id="' + esc(d.id) + '">' +
-        '<div class="ug-card-b ug-col" style="gap:8px">' +
-        '<div class="ug-rowf ug-between" style="gap:8px">' +
-          '<span style="font-size:13px;font-weight:700">' + esc(r.code || '') + ' · ' + esc(r.hazard_type || T('label.type')) + '</span>' +
-          '<span>' + badge(d.dispatch_status, d.dispatch_status) + '</span>' +
-        '</div>' +
-        '<div class="ug-dim" style="font-size:12px">' + esc(r.barangay || '') + (d.eta ? ' · ETA ' + absTime(d.eta) : '') + '</div>' +
-        '<div class="ug-dimmer" style="font-size:11px">Dispatched ' + ago(d.dispatched_at) + ' by ' + esc(d.dispatched_by_name || '') + '</div>' +
-        '</div></button>';
+      const active = OPEN_ST(d);
+      const info = dInfo(d);
+      return '<button type="button" class="ug-card dp-dispatch-card" data-act="dispatch-open" data-id="' + esc(d.id) + '"' +
+        (active ? ' data-active-dispatch' : '') + '>' +
+        '<span class="ug-card-b ug-col" style="gap:8px">' +
+        '<span class="ug-rowf ug-between" style="gap:8px">' +
+          '<strong>' + esc([info.code, info.name].filter(Boolean).join(' · ')) + '</strong>' +
+          badge(d.dispatch_status, STEP_WORD[d.dispatch_status] || d.dispatch_status) +
+        '</span>' +
+        '<span class="ug-dim" style="font-size:12px">' + esc(info.brgy) + (d.eta ? ' · ETA ' + absTime(d.eta) : '') + '</span>' +
+        '<span class="ug-dimmer" style="font-size:11px">Dispatched ' + ago(d.dispatched_at) + ' by ' + esc(d.dispatched_by_name || '') + '</span>' +
+        (active ? '<span class="dp-dispatch-link">Open dispatch' + I('chevron', 13) + '</span>' : '') +
+        '</span></button>';
     };
     return '<div class="ug-col" style="gap:18px">' +
       pageHead('Incoming Dispatches', 'Open dispatches addressed to your unit.',
-        '<span class="ug-chip is-on">' + open.length + ' active</span>') +
+        open.length
+          ? '<button type="button" class="ug-chip is-on dp-active-count" data-act="dispatch-active">' + open.length + ' active' + I('chevron', 14) + '</button>'
+          : '<span class="ug-chip">0 active</span>') +
       policeTasks +
       '<div class="ug-wgrid-3">' + [...open, ...recentHistory].map(row).join('') + '</div>' +
       (list.length > open.length + recentHistory.length ? '<button class="ug-btn ug-btn--ghost" data-act="dispatch-nav" data-route="analytics">View dispatch history</button>' : '') +
@@ -765,7 +771,9 @@ const UG_DISPATCH = (function () {
   function sDispatchDetail(st) {
     const id = state.openDispatchId;
     const d = (state.data.dispatches || []).find((x) => x.id === id);
-    if (!d) return pageHead(T('title.dispatchDetail'), '') + emptyState('truck', T('dispatch.noDispatches'), T('dispatch.noDispatchesHint'));
+    if (!d) return pageHead(T('title.dispatchDetail'), '',
+      '<button class="ug-btn ug-btn--ghost" data-act="dispatch-nav" data-route="dispatch">' + esc(T('dispatch.back')) + '</button>') +
+      emptyState('truck', 'Dispatch unavailable', 'Return to the list to see the assignments available to your unit.');
     const r = d.report || {};
     const events = (state.data.events || []).filter((e) => e.dispatch_id === d.id);
     const team = d.team;
@@ -935,12 +943,12 @@ const UG_DISPATCH = (function () {
           '<li class="' + (k === 0 ? 'is-last' : '') + '"><i></i><div><b>' + esc((e.action === 'sent' || e.action === 'dispatched' ? 'Dispatched' : STEP_WORD[e.action]) || stepLabel(e.action) || e.action) + '</b>' +
             '<small>' + esc([e.actor_name, absTime(e.created_at)].filter(Boolean).join(' · ')) + '</small>' +
             (e.note ? '<p>' + esc(e.note) + '</p>' : '') + '</div></li>').join('') + '</ol></section>' : '';
-      return '<div class="ug-col dpm-detail" style="gap:14px">' + hero + (isOpenNow ? statusCard : '') + fieldPanel + hospitalBlock + roadBlock + tl + afterAction +
+      return '<div class="ug-col dpm-detail" data-dispatch-detail style="gap:14px">' + hero + (isOpenNow ? statusCard : '') + fieldPanel + hospitalBlock + roadBlock + tl + afterAction +
         (d.dispatch_status === 'done' && !d.after_action ? card('<div class="ug-col" style="gap:8px"><div style="font-size:14px;font-weight:700">File an after-action report</div>' + afterActionForm(d) + '</div>') : '') +
       '</div>';
     }
-    return '<div class="ug-col" style="gap:18px">' +
-      pageHead('Dispatch ' + (d.id || '').slice(0, 8), 'Incident ' + (r.code || '') + ' · ' + (r.barangay || ''),
+    return '<div class="ug-col" data-dispatch-detail style="gap:18px">' +
+      pageHead('Dispatch ' + (r.code || (d.id || '').slice(0, 8)), r.barangay || '',
         '<button class="ug-btn ug-btn--ghost ug-btn--sm" data-act="dispatch-nav" data-route="dispatch">' + I('chevron', 13) + esc(T('dispatch.back')) + '</button>') +
       '<div class="ug-wgrid-2">' +
         card('<div class="ug-col" style="gap:8px"><div style="font-size:13px;font-weight:700">' + esc(r.code || '') + ' · ' + esc(r.hazard_type || '') + '</div>' +
@@ -1578,13 +1586,16 @@ const UG_DISPATCH = (function () {
       : '<div class="dpm-promo is-calm"><span class="dpm-promo-t"><small>All clear</small><b>No new dispatch</b><em>You will hear an alarm the moment one arrives.</em></span>' +
           '<span class="dpm-promo-i" aria-hidden="true">' + I('check', 72) + '</span></div>';
 
-    const figs = '<div class="dpm-figs">' + [['Active', open.length, 'dispatch'], ['On duty', onDuty + '/' + crew.length, 'roster'], ['Checks due', overdue, 'equipment']].map((f) =>
+    const activeFigure = '<b>' + open.length + '</b><span>Active</span>';
+    const figs = '<div class="dpm-figs">' +
+      (open.length ? '<button type="button" data-act="dispatch-active">' + activeFigure + '</button>' : '<div>' + activeFigure + '</div>') +
+      [['On duty', onDuty + '/' + crew.length, 'roster'], ['Checks due', overdue, 'equipment']].map((f) =>
         '<button data-act="dispatch-nav" data-route="' + f[2] + '"><b>' + f[1] + '</b><span>' + f[0] + '</span></button>').join('') + '</div>';
 
     const order = (d) => {
       const r = d.report || {}, stt = d.dispatch_status, m = etaMins(d), isOpen = OPEN_ST(d), inf = dInfo(d);
       return '<article class="dpm-order">' +
-        '<button class="dpm-order-h" data-act="dispatch-open" data-id="' + esc(d.id) + '"><b>' + esc(inf.code || inf.name) + '</b>' + I('chevron', 15) + '</button>' +
+        '<button class="dpm-order-h" data-act="dispatch-open" data-id="' + esc(d.id) + '"' + (isOpen ? ' data-active-dispatch' : '') + '><b>' + esc(inf.code || inf.name) + '</b>' + I('chevron', 15) + '</button>' +
         '<p class="dpm-st is-' + esc(stt) + '">' + esc(STEP_WORD[stt] || stt) + '</p>' +
         '<div class="dpm-order-b"><div>' +
             '<p class="dpm-what">' + esc(inf.code ? inf.name : (TEAM_HZ[d.team] && TEAM_HZ[d.team] !== inf.name ? d.team : 'Dispatch')) + (inf.brgy ? ' · Brgy. ' + esc(inf.brgy) : '') + '</p>' +
@@ -1671,7 +1682,7 @@ const UG_DISPATCH = (function () {
     const now = new Date();
     const clock = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     const date = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    const open = (state.data.dispatches || []).filter((d) => d.dispatch_status !== 'done' && d.dispatch_status !== 'declined');
+    const open = openDispatches();
     const newest = (state.data.dispatches || []).filter((d) => d.dispatch_status === 'sent')
       .sort((a, b) => Date.parse(b.dispatched_at || 0) - Date.parse(a.dispatched_at || 0))[0];
     const crew = state.data.personnel || [];
@@ -1686,8 +1697,14 @@ const UG_DISPATCH = (function () {
           '<div class="dp-figs">' + [
             ['Active dispatches', open.length, unit ? unit.name + ' · ' + unitTypeLabel(unit.unit_type) : (open.length ? 'open now' : 'none open')],
             ['On duty', crew.filter((p) => p.on_duty).length, 'of ' + crew.length + ' crew'],
-            ['Checks overdue', overdue, 'of ' + gear.length + ' items']].map((f) =>
-            '<div><p>' + esc(f[0]) + '</p><b>' + f[1] + '</b><small>' + esc(f[2]) + '</small></div>').join('') + '</div>' +
+            ['Checks overdue', overdue, 'of ' + gear.length + ' items']].map(([label, count, description], index) => {
+              const activeButton = index === 0 && count > 0;
+              const figure = '<span class="dp-fig-label">' + esc(label) + (activeButton ? I('chevron', 13) : '') + '</span>' +
+                '<b>' + count + '</b><small>' + esc(description) + '</small>';
+              return '<div>' + (activeButton
+                ? '<button type="button" class="dp-active-figure" data-act="dispatch-active">' + figure + '</button>'
+                : figure) + '</div>';
+            }).join('') + '</div>' +
           '<button class="dp-new"' + (newest ? ' data-act="dispatch-open" data-id="' + esc(newest.id) + '"' : ' data-act="dispatch-nav" data-route="dispatch"') + '>' +
             '<span class="dp-new-h"><span>New dispatch</span>' + I(newest ? 'alert' : 'chevron', 16) + '</span>' +
             '<span class="dp-new-t">' + (newest
@@ -1748,11 +1765,20 @@ const UG_DISPATCH = (function () {
   /* ----------------------------------------------------------------- actions */
   function openDispatch(id) {
     const ui = app();
+    if (!state.data.dispatches.some((row) => row.id === id)) {
+      ui.toast('This assignment is unavailable to your unit.', 'warning');
+      return;
+    }
     ui.go('dispatch-detail');
     if (ui.S) ui.S.openId = id;
     state.openDispatchId = id;
     state.route = 'dispatch-detail';
     ui.render();
+    const heading = document.querySelector('[data-dispatch-detail] h2');
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    }
   }
 
   async function openAlert(id) {
@@ -1787,6 +1813,20 @@ const UG_DISPATCH = (function () {
     'dispatch-eqf': (d) => { state.eqF = d.v; app().render(); },
     'dispatch-mtab': (d) => { state.mTab = d.v === 'done' ? 'done' : 'active'; app().render(); },
     'dispatch-open': (d) => openDispatch(d.id),
+    'dispatch-active': () => {
+      const active = openDispatches();
+      if (active.length === 1) return openDispatch(active[0].id);
+      const ui = app();
+      if (!active.length) {
+        ui.toast('Your unit has no active dispatches.', 'info');
+        return;
+      }
+      if (ui.S?.route !== 'dispatch') ui.go('dispatch');
+      state.route = 'dispatch';
+      state.mTab = 'active';
+      ui.render();
+      document.querySelector('.dp-page [data-active-dispatch]')?.focus();
+    },
     'dispatch-respond': async (d) => {
       try {
         const note = (document.querySelector('[data-act="dispatch-note"][data-id="' + d.id + '"]') || {}).value || '';
