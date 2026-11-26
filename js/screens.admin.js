@@ -528,7 +528,7 @@ const UG_ADMIN = (function () {
     const count = (n, word) => '<span class="rl-count">' + n + ' ' + word + (n === 1 ? '' : 's') + '</span>';
     const btn = (act, label, icon, extra, cls) => '<button type="button" class="rl-ghost du-b' + (cls ? ' ' + cls : '') + '" data-act="' + act + '"' + extra + '>' + (icon ? I(icon, 13) : '') + esc(label) + '</button>';
     const table = (columns, records, render, empty, rowAttrs = () => '') => {
-      const head = columns.map(([label, cls]) => '<th scope="col" role="columnheader" class="' + (cls === 'c' || cls === 'r' || cls === 'du-txt' ? cls : '') + '">' + esc(label) + '</th>').join('');
+      const head = columns.map(([label, cls]) => '<th scope="col" role="columnheader" class="' + String(cls || '').split(' ').filter((c) => c === 'c' || c === 'r' || c === 'du-txt').join(' ') + '">' + esc(label) + '</th>').join('');
       const rows = records.map((record) => '<tr role="row"' + rowAttrs(record) + '>' +
         render(record).map((value, index) => {
           const [label, cls] = columns[index];
@@ -586,7 +586,7 @@ const UG_ADMIN = (function () {
       '<b>' + esc(r.title || '') + '</b><small>' + esc(r.barangay ? 'Brgy. ' + r.barangay : '') + '</small>',
       dot(r.escort_status, r.escort_status === 'requested'),
       esc(r.escort_note || '—'),
-      esc(r.escort_unit_id ? unitName(r.escort_unit_id) : '—'),
+      r.escort_unit_id ? 'Unit: ' + esc(unitName(r.escort_unit_id)) : '<span class="du-nil">—</span>',
       r.escort_status === 'requested'
         ? '<span class="du-done">Awaiting PNP confirmation</span>'
         : '<span class="du-done">Confirmed</span>'
@@ -621,31 +621,31 @@ const UG_ADMIN = (function () {
         table([[T('label.name') + ' / ' + T('label.address')], [T('label.type'), 'c'], [T('label.contact'), 'rl-mono du-num'],
           [T('label.status')], [T('label.active'), 'c'], [T('label.actions'), 'r']], shown, unitRow,
           [st.unitSearch ? 'search' : 'truck', st.unitSearch || typeF !== 'All' ? 'No units match this search' : T('admin.noUnits')],
-          (u) => ' class="du-row" data-act="open-unit" data-id="' + esc(u.id) + '"') +
+          (u) => ' class="du-row" data-act="open-unit" data-id="' + esc(u.id) + '"').replace('du-table"', 'du-table du-units"') +
       '</section>' +
       '<section class="rl-card">' +
         cardHead('inbox', 'Municipal dispatch requests') +
-        table([['When'], ['Request'], ['Status'], ['Action', 'r']], UG.DATA.municipalDispatchRequests || [],
+        table([['When', 'k-time'], ['Request', 'k-title'], ['Status', 'k-status'], ['Action', 'r']], UG.DATA.municipalDispatchRequests || [],
           (r) => [esc(UG_UTIL.absTime(r.requested_at)), esc(r.details), r.assigned_dispatch_id ? 'Assigned' : 'Awaiting assignment',
             btn('open-incident', 'Open incident', 'doc', ' data-id="' + esc(r.report_id) + '"')], ['inbox', 'No municipal dispatch requests']) +
       '</section>' +
       /* A1 support requests */
       '<section class="rl-card">' +
         cardHead('inbox', T('admin.supportRequestInbox'), (pending ? '<span class="rl-count">' + pending + ' pending</span>' : '') + count(requests.length, 'request')) +
-        table([[T('label.when'), 'du-num'], [T('label.unit')], [T('label.kind'), 'c'], [T('label.details'), 'du-txt'],
-          [T('label.status')], [T('label.action'), 'r']], requests, requestRow, ['inbox', T('admin.noSupportRequests')]) +
+        table([[T('label.when'), 'du-num k-time'], [T('label.unit'), 'k-title'], [T('label.kind'), 'c k-chip'], [T('label.details'), 'du-txt k-body'],
+          [T('label.status'), 'k-status'], [T('label.action'), 'r']], requests, requestRow, ['inbox', T('admin.noSupportRequests')]) +
       '</section>' +
       '<div class="du-pair">' +
         /* A2 inbox */
         '<section class="rl-card">' +
           cardHead('alert', 'Dispatch help requests', count(helpReqs.length, 'request')) +
-          table([['When', 'du-num'], ['Kind', 'c'], ['Message', 'du-txt'], ['Status'], ['Action', 'r']],
+          table([['When', 'du-num k-time'], ['Kind', 'c k-chip'], ['Message', 'du-txt k-body'], ['Status', 'k-status'], ['Action', 'r']],
             helpReqs, helpRow, ['check', 'No help requests']) +
         '</section>' +
         /* D3 escort list */
         '<section class="rl-card">' +
           cardHead('shield', 'Relief escorts', count(escortRows.length, 'escort')) +
-          table([['Distribution'], ['Escort'], ['Note', 'du-txt'], ['Unit'], ['Action', 'r']],
+          table([['Distribution', 'k-title'], ['Escort', 'k-status'], ['Note', 'du-txt k-body'], ['Unit', 'k-time'], ['Action', 'r']],
             escortRows, escortRow, ['shield', 'No active escorts']) +
         '</section>' +
       '</div>' +

@@ -2579,3 +2579,88 @@ html[data-portal="resident"] .ug-map .ug-map-warn { background: rgba(255,255,255
   .rh-m { display: block; }
   .rh-d { display: none !important; }
 }
+
+/* ------------------------------------------------ sidebar: more + account */
+/* the header keeps only SOS and the bell; the secondary pages and the
+   account with Sign out live in the sidebar (js/screens.web.js rwSide) */
+.rw-tip--phone { display: none; }
+.rw-nav { padding-bottom: 20px; }
+.rw-nav-sep { flex: none; height: 1px; margin: 10px 14px; background: rgba(255,255,255,.14); }
+/* every item, main or secondary, uses the same .rw-nav-i style; the list
+   scrolls on its own when the window is short, with a thin light scrollbar */
+.ug-rw-side .rw-nav { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.28) transparent; }
+.ug-rw-side .rw-nav::-webkit-scrollbar { display: block; width: 6px; }
+.ug-rw-side .rw-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.28); border-radius: 999px; }
+.ug-rw-side .rw-nav::-webkit-scrollbar-track { background: transparent; }
+.ug-rw-side .rw-nav > * { flex: none; }
+.rw-acct {
+  position: relative; z-index: 1; flex: none; margin: 0 12px 16px; padding: 6px;
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); border-radius: 20px;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.rw-acct-me {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 4px; border: 0; border-radius: 14px;
+  background: none; color: #fff; cursor: pointer; text-align: left; font-family: inherit; transition: background .2s;
+}
+.rw-acct-me:hover { background: rgba(255,255,255,.08); }
+.rw-acct-av {
+  flex: none; width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center;
+  background: #fff; color: var(--rw-red); font-size: 15px; font-weight: 800;
+}
+.rw-acct-t { min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.2; }
+.rw-acct-t b { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rw-acct-t small { font-size: 11px; color: rgba(254,226,226,.8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rw-acct-out {
+  flex: none; width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 12px;
+  background: none; color: rgba(255,228,230,.85); cursor: pointer; transition: background .2s, color .2s;
+}
+.rw-acct-out .rw-lab { display: none; }
+.rw-acct-out:hover { background: #fff; color: var(--rw-red); }
+.rw-acct-out svg { width: 16px; height: 16px; }
+/* minimized: the account shrinks to the avatar above the sign-out icon */
+.ug-rw.is-folded .rw-nav { padding-bottom: 20px; }
+.ug-rw.is-folded .rw-nav-sep { margin: 8px 6px; width: 32px; }
+.ug-rw.is-folded .rw-acct { margin: 0 12px 16px; flex-direction: column; padding: 6px 4px; }
+.ug-rw.is-folded .rw-acct-t { display: none; }
+.ug-rw.is-folded .rw-acct-me { flex: none; padding: 0; }
+@media (max-width: 1279px) {
+  .ug-rw.is-folded .rw-nav { padding-bottom: 20px; }
+  .ug-rw.is-folded .rw-nav-sep { margin: 10px 14px; width: auto; }
+  .ug-rw.is-folded .rw-acct { flex-direction: row; padding: 6px; }
+  .ug-rw.is-folded .rw-acct-t { display: flex; }
+  .ug-rw.is-folded .rw-acct-me { flex: 1; padding: 4px; }
+}
+@media (max-width: 767px) { .rw-tip--phone { display: inline-flex; } }
+
+/* ------------------------------------------- phone header: title, no tabs
+   Relief, Advisories, Map, Guides and FAQs moved from the scrolling header
+   tabs into the Menu (js/resident.js phoneMenu). The header now shows the
+   mark, the page title, then + and the bell. */
+@media (max-width: 767px) {
+  .ug-rw-head { gap: 10px; padding: 8px 12px; }
+  .ug-rw-head .rw-head-l { flex: 1; min-width: 0; gap: 10px; }
+  .ug-rw-head .rw-head-l h2 { display: block !important; margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em;
+    color: var(--rw-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rw-pm-list .rw-pm-card button.is-on { background: #FEF2F2; }
+}
+/* sidebar items a touch larger: 18px icons, 15px labels, an even 12px
+   between icon and label, and 4px between rows */
+.ug-rw-side .rw-nav { gap: 4px; padding-left: 12px; padding-right: 12px; }
+.ug-rw-side .rw-nav-i { min-height: 46px; gap: 12px; padding: 12px 16px; font-size: 15px; border-radius: 16px; }
+.ug-rw-side .rw-nav-i svg { width: 20px; height: 20px; }
+.ug-rw.is-folded .ug-rw-side .rw-nav-i { width: 48px; height: 48px; min-height: 0; padding: 0; }
+.ug-rw.is-folded .ug-rw-side .rw-nav-i svg { width: 20px; height: 20px; }
+@media (max-width: 1279px) {
+  .ug-rw.is-folded .ug-rw-side .rw-nav-i { width: 100%; height: auto; min-height: 46px; padding: 12px 16px; }
+  .ug-rw.is-folded .ug-rw-side .rw-nav-i svg { width: 20px; height: 20px; }
+}
+/* the list fades out just above the account card instead of cutting off */
+/* and fades in under the divider at the top, so rows scrolling up melt away
+   instead of being sliced off; the fade sits inside the list's top padding,
+   so nothing is faded while the list is at rest */
+.ug-rw-side .rw-nav {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 20px, #000 calc(100% - 24px), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 20px, #000 calc(100% - 24px), transparent 100%);
+  scroll-padding-top: 20px; padding-top: 20px;
+}

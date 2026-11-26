@@ -869,15 +869,13 @@ const UG_RW = (() => {
   }
 
   /* ========================================================= phone navigation */
-  const TOP_TABS = [['relief', 'Relief'], ['advisories', 'Advisories'], ['map', 'Map'], ['guides', 'Guides'], ['faqs', 'FAQs']];
-  function phoneTabs(st) {
-    const active = st.route === 'advisory-detail' ? 'advisories' : st.route === 'relief-verify' ? 'relief' : st.route;
-    return '<nav class="rw-ptabs" aria-label="Sections"><div>' + TOP_TABS.map((t) =>
-      '<button class="' + (active === t[0] ? 'is-on' : '') + '"' + (active === t[0] ? ' aria-current="page"' : '') + A('nav', attr({ route: t[0] })) + '>' + t[1] + '<i></i></button>').join('') + '</div></nav>';
-  }
+  /* the section tabs that used to scroll across the phone header now live
+     in the Menu (phoneMenu); the header shows the page title instead */
+  function phoneTabs() { return ''; }
   function phoneBar(st) {
     const r = st.route;
-    const menuOn = ['notifications', 'offline', 'settings', 'reports', 'report-detail'].indexOf(r) !== -1;
+    const menuOn = ['notifications', 'offline', 'settings', 'reports', 'report-detail', 'advisories', 'advisory-detail', 'map',
+      'relief', 'relief-verify', 'guides', 'faqs'].indexOf(r) !== -1;
     const item = (route, label, icon, on) => '<button class="rw-pb-i' + (on ? ' is-on' : '') + '"' + A('nav', attr({ route: route })) + '><span>' + I(icon, 22) + '</span><b>' + label + '</b></button>';
     return '<nav class="rw-pbar" aria-label="Emergency essentials"><div class="rw-pbar-in">' +
       item('home', 'Home', 'home', r === 'home') + item('centers', 'Shelters', 'shelter', r === 'centers') +
@@ -888,13 +886,17 @@ const UG_RW = (() => {
   }
   function phoneMenu(st) {
     const s = st.session || {};
-    /* grouped: what is yours, then the app; each row has a soft chevron.
-       Notifications live behind the bell in the header, not here. */
+    /* grouped by purpose: what is happening, getting ready, then what is
+       yours; each row has a soft chevron. Home, Shelters, SOS and Hotlines sit
+       in the bottom bar; Notifications live behind the bell in the header. */
     const groups = [
-      ['Your activity', [['reports', 'My Reports', 'doc']]],
-      ['App', [['offline', 'Offline Sync', 'download'], ['settings', 'Settings', 'settings']]]
+      ['Stay informed', [['advisories', 'Advisories', 'megaphone'], ['map', 'Hazard Map', 'map'], ['relief', 'Relief', 'relief']]],
+      ['Be prepared', [['guides', 'Preparedness Guides', 'guide'], ['faqs', 'FAQs', 'faq'], ['offline', 'Offline Sync', 'download']]],
+      ['Your account', [['reports', 'My Reports', 'doc'], ['settings', 'Settings', 'settings']]]
     ];
-    const row = (it) => '<button class="' + (st.route === it[0] || (it[0] === 'reports' && st.route === 'report-detail') ? 'is-on' : '') + '"' + A('nav', attr({ route: it[0] })) + '>' +
+    const ON = { 'report-detail': 'reports', 'advisory-detail': 'advisories', 'relief-verify': 'relief' };
+    const cur = ON[st.route] || st.route;
+    const row = (it) => '<button class="' + (cur === it[0] ? 'is-on' : '') + '"' + (cur === it[0] ? ' aria-current="page"' : '') + A('nav', attr({ route: it[0] })) + '>' +
       I(it[2], 20) + '<span>' + it[1] + '</span>' + '<i class="rw-pm-chev">' + I('chevron', 16) + '</i></button>';
     return '<div class="rw-pm-scrim"' + A('rw-pmenu') + '></div>' +
       '<aside class="rw-pm" aria-label="Menu">' +

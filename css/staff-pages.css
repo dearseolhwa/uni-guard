@@ -1334,3 +1334,60 @@ td.du-txt { max-width: 340px; font-size: 12px; color: var(--bg-mid, #737373); }
 .rl-card:has(.du-type-dd) { overflow: visible; }
 .du-type-dd .ug-nfilt-btn { height: 36px; padding: 0 12px 0 14px; font-size: 13px; }
 .du-type-dd .ug-nfilt-menu { top: 42px; min-width: 210px; z-index: 30; }
+
+/* Response units on phones and tablets: one compact card per unit instead of
+   a label/value list. Name and address on top, then type, contact, status
+   and active as one quiet line, then the actions as an even row. */
+@media (max-width: 1023px) {
+  .du-units tbody tr.du-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 16px; }
+  .du-units td:not(.du-none) { display: block; padding: 0; border: 0; }
+  .du-units .du-field { display: none; }
+  .du-units td:nth-child(1) { flex: 1 0 100%; margin-bottom: 4px; }
+  .du-units .du-who { gap: 12px; }
+  .du-units .du-av { width: 40px; height: 40px; border-radius: 12px; }
+  .du-units .du-unit-name { font-size: 15px; font-weight: 600; text-align: left; padding: 0; }
+  .du-units .du-who small { display: block; margin-top: 2px; font-size: 12px; }
+  /* meta line: type chip · contact · status · active */
+  .du-units .du-pill { min-width: 0; height: 24px; padding: 0 10px; font-size: 11px; font-weight: 600; }
+  .du-units td:nth-child(3) .du-value { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--bg-ink, #262626); }
+  .du-units td:nth-child(3)::before, .du-units td:nth-child(4)::before { content: '·'; margin-right: 10px; color: var(--bg-soft, #C4C4C4); }
+  .du-units td:nth-child(3), .du-units td:nth-child(4) { display: inline-flex; align-items: center; }
+  .du-units td:nth-child(5) { margin-left: auto; }
+  .du-units .du-act { min-width: 0; height: 22px; font-size: 11px; }
+  /* actions: an even row of quiet buttons */
+  .du-units td.r { flex: 1 0 100%; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--bg-line, #EFEFEF); }
+  .du-units .du-acts { display: flex; flex-wrap: nowrap; gap: 8px; width: 100%; }
+  .du-units .du-b { flex: 1 1 0; min-width: 0; min-height: 38px; justify-content: center; padding: 0 8px; white-space: nowrap; }
+  .du-units tbody tr.du-row + tr.du-row { border-top: 1px solid var(--bg-line, #E5E5E5); }
+}
+@media (max-width: 380px) {
+  .du-units .du-acts { flex-wrap: wrap; }
+  .du-units .du-b { flex-basis: calc(50% - 4px); }
+}
+
+/* The inboxes on phones and tablets (municipal dispatch requests, support
+   requests, help requests, relief escorts): the same compact card as the
+   units. Title on top; kind chip, time and status on one line; the message;
+   then the actions under a thin line. Columns are tagged k-* in
+   js/screens.admin.js dispatchUnits. */
+@media (max-width: 1023px) {
+  .du-table:not(.du-units) tbody tr:not(:has(> .du-none)) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 16px; }
+  .du-table:not(.du-units) td:not(.du-none) { display: block; padding: 0; border: 0; width: auto; max-width: none; text-align: left; }
+  .du-table:not(.du-units) .du-field { display: none; }
+  .du-table:not(.du-units) td.k-title { order: 1; flex: 1 0 100%; font-size: 15px; color: var(--bg-ink, #171717); }
+  .du-table:not(.du-units) td.k-title b { font-weight: 600; }
+  .du-table:not(.du-units) td.k-title small { display: block; margin-top: 2px; font-size: 12px; color: var(--bg-mid, #737373); }
+  .du-table:not(.du-units) td.k-chip { order: 2; }
+  .du-table:not(.du-units) td.k-chip .du-pill { min-width: 0; height: 24px; padding: 0 10px; font-size: 11px; font-weight: 600; }
+  .du-table:not(.du-units) td.k-time { order: 3; font-size: 12px; color: var(--bg-mid, #737373); white-space: nowrap; }
+  .du-table:not(.du-units) td.k-time { display: inline-flex !important; align-items: center; }
+  .du-table:not(.du-units) tr:has(> .k-chip) td.k-time::before { content: '·'; margin-right: 8px; color: var(--bg-soft, #C4C4C4); }
+  .du-table:not(.du-units) td.k-time:has(.du-nil) { display: none !important; }
+  .du-table:not(.du-units) td.k-status { order: 4; margin-left: auto; font-size: 12px; }
+  .du-table:not(.du-units) td.k-body { order: 5; flex: 1 0 100%; font-size: 13px; line-height: 1.5; color: var(--bg-ink, #262626); }
+  .du-table:not(.du-units) td.r { order: 6; flex: 1 0 100%; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--bg-line, #EFEFEF); }
+  .du-table:not(.du-units) td.r .du-acts { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .du-table:not(.du-units) td.r .du-b { flex: 1 1 0; min-width: 0; min-height: 38px; justify-content: center; white-space: nowrap; }
+  .du-table:not(.du-units) td.r .du-done { font-size: 12px; color: var(--bg-mid, #737373); }
+  .du-table:not(.du-units) tbody tr + tr { border-top: 1px solid var(--bg-line, #E5E5E5); }
+}

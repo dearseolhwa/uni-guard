@@ -2715,3 +2715,12 @@ html[data-portal="barangay"] .ug-note2 { background: #fff !important; }
 .ug-bg .bg-head-r .bg-btn.bg-btn--emergency:is(:hover, :focus-visible) { background: #B91C1C !important; border-color: #991B1B !important; color: #fff !important; }
 .ug-bg .bg-head-r .bg-btn.bg-btn--emergency:active { transform: scale(.98); }
 .ug-bg .bg-head-r .bg-btn.bg-btn--emergency:focus-visible { outline: 2px solid #DC2626; outline-offset: 3px; }
+
+/* SOS Log: the list no longer stops at a fixed 640px box with its own
+   scroll (it left an empty band above the phone bottom bar). On phones the
+   whole page scrolls and the card runs its full length; on wider screens the
+   list fills the window height before it scrolls inside. */
+.sl-list { max-height: max(420px, calc(100dvh - 260px)); }
+@media (max-width: 1023.98px) {
+  .sl-list { max-height: none; overflow: visible; }
+}

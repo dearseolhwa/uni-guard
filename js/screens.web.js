@@ -33,8 +33,9 @@ const UG_WEB = (() => {
   /* CITIZEN DESKTOP (WEB) SHELL                                         */
   /* ------------------------------------------------------------------ */
   /* the resident shell, after the React build (uniguard/src/components:
-     DashboardSidebar, DashboardHeader). Sidebar sections; the rest of the
-     pages sit behind the grid menu in the header. css/resident.css */
+     DashboardSidebar, DashboardHeader). Sidebar sections, then the
+     secondary pages and the account with Sign out; the header keeps only SOS
+     and the bell. css/resident.css */
   /* what a resident needs first in an emergency: where the danger is, what
      officials say, where to go, who to call, then relief */
   const RNAV = [
@@ -62,6 +63,7 @@ const UG_WEB = (() => {
   function rwActive(route) {
     return route === 'advisory-detail' ? 'advisories'
       : route === 'relief-verify' ? 'relief'
+      : route === 'report-done' ? 'report'
       : route === 'report-detail' ? 'reports' : route;
   }
 
@@ -84,6 +86,13 @@ const UG_WEB = (() => {
     try { return localStorage.getItem('uniguard_homeask_hidden_' + ((st.session && (st.session.id || st.session.email)) || '')) === '1'; } catch (e) { return false; }
   }
 
+  function rwItem(n, active, unread, cls) {
+    return '<button class="rw-nav-i' + (cls || '') + (active === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + ' title="' + esc(n[1]) + '">' +
+      I(n[2], 16) + '<span class="rw-lab">' + esc(n[1]) + '</span>' +
+      (n[0] === 'notifications' && unread ? '<span class="rw-count">' + (unread > 9 ? '9+' : unread) + '</span>' : '') +
+    '</button>';
+  }
+
   function rwSide(st) {
     const s = st.session;
     const active = rwActive(st.route);
@@ -96,11 +105,17 @@ const UG_WEB = (() => {
         '<div class="rw-fold"><button class="rw-fold-btn"' + A('rw-fold') + ' aria-label="Minimize sidebar" title="Minimize sidebar">' +
           '<span style="display:flex;transform:rotate(180deg)">' + I('chevron', 14) + '</span></button></div>' +
       '</div>' +
-      '<nav class="rw-nav">' + RNAV.map((n) =>
-        '<button class="rw-nav-i' + (active === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + ' title="' + esc(n[1]) + '">' +
-          I(n[2], 16) + '<span class="rw-lab">' + esc(n[1]) + '</span>' +
-          (n[0] === 'notifications' && unread ? '<span class="rw-count">' + (unread > 9 ? '9+' : unread) + '</span>' : '') +
-        '</button>').join('') + '</nav>' +
+      '<nav class="rw-nav">' + RNAV.map((n) => rwItem(n, active, unread)).join('') +
+        RMENU.map((n) => rwItem(n, active, 0, ' rw-nav-i--sub')).join('') +
+      '</nav>' +
+      /* the account and Sign out, formerly in the header's grid menu */
+      '<div class="rw-acct">' +
+        '<button class="rw-acct-me"' + A('nav', attr({ route: 'settings' })) + ' title="Account settings">' +
+          '<span class="rw-acct-av">' + esc((s.name || 'U').trim().charAt(0).toUpperCase()) + '</span>' +
+          '<span class="rw-acct-t"><b>' + esc(s.name || 'Resident') + '</b>' +
+            '<small>' + (s.barangay ? 'Brgy. ' + esc(s.barangay) : 'Resident') + '</small></span></button>' +
+        '<button class="rw-acct-out"' + A('logout') + ' aria-label="Sign out" title="Sign out">' + I('logout', 16) + '<span class="rw-lab">Sign out</span></button>' +
+      '</div>' +
       WAVES +
     '</aside>';
   }
@@ -119,27 +134,11 @@ const UG_WEB = (() => {
       UG_RW.phoneTabs(st) +
       '<div class="rw-head-r">' +
         '<span class="rw-tip"' + tip('Emergency SOS') + '><button class="rw-sos"' + A('sos-trigger') + ' aria-label="Emergency SOS">' + I('alert', 14) + 'SOS</button></span>' +
-        '<span class="rw-tip"' + tip('Report Hazard') + '><button class="rw-ibtn' + (st.route === 'report' ? ' is-on' : '') + '"' + A('nav', attr({ route: 'report' })) + ' aria-label="Report Hazard">' + I('plus', 16) + '</button></span>' +
+        '<span class="rw-tip rw-tip--phone"' + tip('Report Hazard') + '><button class="rw-ibtn' + (st.route === 'report' ? ' is-on' : '') + '"' + A('nav', attr({ route: 'report' })) + ' aria-label="Report Hazard">' + I('plus', 16) + '</button></span>' +
         /* the bell opens the notification panel (js/screens.js notifPanel) */
         '<span class="rw-tip ug-nwrap"' + (st.notifPanel ? '' : tip('Notifications')) + '><button class="rw-ibtn' + (active === 'notifications' || st.notifPanel ? ' is-on' : '') + '"' + A('notif-panel') +
           ' aria-label="Notifications' + (unread ? ', ' + unread + ' unread' : '') + '" aria-haspopup="dialog" aria-expanded="' + !!st.notifPanel + '">' + I('bell', 16) +
           (unread ? '<span class="rw-dot">' + (unread > 9 ? '9+' : unread) + '</span>' : '') + '</button>' + UG_SCREENS.notifPanel(st) + '</span>' +
-        /* .ug-wmore + [data-more-panel]: opened by toggle-more, closed by a tap outside (js/app.js) */
-        '<span class="rw-tip ug-wmore"' + tip('Menu') + '>' +
-          '<button class="rw-ibtn" aria-haspopup="true" aria-label="Quick Menu"' + A('toggle-more') + '>' + I('grid', 16) + '</button>' +
-          '<div class="rw-qmenu" data-more-panel hidden>' +
-            '<div class="rw-profile"><span class="rw-wm">' + I('shield', 96) + '</span>' +
-              '<span class="rw-av">' + esc((s.name || 'U').trim().charAt(0).toUpperCase()) + '</span>' +
-              '<span class="rw-pn">' + esc(s.name || '') + '</span>' +
-              '<span class="rw-ps">' + (s.barangay ? 'Barangay ' + esc(s.barangay) + ', ' : '') + 'Lingayen</span>' +
-              '<span class="rw-pr">CITIZEN • RESIDENT</span></div>' +
-            RMENU.map((n) =>
-              '<button class="rw-qi"' + A('nav', attr({ route: n[0] })) + '><span class="rw-qi-l"><span class="rw-qi-ico">' + I(n[2], 16) + '</span>' +
-                '<span>' + esc(n[1]) + '</span></span>' + I('chevron', 14) + '</button>').join('') +
-            '<button class="rw-qi rw-qi--out"' + A('logout') + '><span class="rw-qi-l"><span class="rw-qi-ico">' + I('logout', 16) + '</span>' +
-              '<span>Sign Out</span></span></button>' +
-          '</div>' +
-        '</span>' +
       '</div>' +
     '</header>';
   }
