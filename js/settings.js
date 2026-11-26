@@ -520,7 +520,7 @@ const UG_SETTINGS = (function () {
           '</span>' +
 '' +
         '</div>' +
-        '<div class="ug-col" style="gap:4px"><span style="font-size:12px;font-weight:600">This portal rings for</span>' +
+        '<div class="ug-col stg-rings" style="gap:4px"><span style="font-size:12px;font-weight:600">This portal rings for</span>' +
           ra.events.map((e) => '<span class="ug-dim" style="font-size:12px;line-height:1.5">• ' + esc(e) + '</span>').join('') + '</div>' +
         '<button class="ug-btn ug-btn--sm" style="align-self:flex-start"' + A('alarm-test') + '>' + I('bell', 14) + 'Test alarm</button>' +
       '</div></div>';
@@ -646,19 +646,31 @@ const UG_SETTINGS = (function () {
     const lang = (st.settingsLang || (getSettings().language.default)) || 'en';
 
     return '<div class="ug-col" style="gap:18px">' +
-      '<div class="ug-rowf ug-between ug-wrap" style="gap:14px;align-items:flex-end">' +
+      '<div class="ug-rowf ug-between ug-wrap stg-tpl-h" style="gap:14px;align-items:flex-end">' +
         '<div><div class="ug-lab">Message Templates</div>' +
           '<h3 style="font-size:14px;margin-top:3px">Reusable broadcast templates · English & Filipino</h3>' +
-          '<p class="ug-dim" style="font-size:12px;margin-top:4px;line-height:1.5">Pre-written advisories the duty officer applies to the composer during a response. Placeholders like {barangay} are filled in at publish time.</p></div>' +
-        '<div class="ug-rowf ug-gap8" style="gap:8px">' +
+          '<p class="ug-dim" style="font-size:12px;margin-top:4px;line-height:1.5">Pre-written advisories the duty officer applies to the composer during a response. Blanks like the barangay name are filled in when you publish.</p></div>' +
+        '<div class="ug-rowf ug-gap8 stg-tpl-acts" style="gap:8px">' +
           '<button class="ug-btn ug-btn--ghost ug-btn--sm"' + A('tpl-export') + '>' + I('download', 14) + 'Export JSON</button>' +
           '<button class="ug-btn ug-btn--signal ug-btn--sm"' + A('tpl-add') + '>' + I('plus', 14) + 'New Template</button>' +
         '</div>' +
       '</div>' +
-      '<div class="ug-rowf ug-gap8 ug-wrap" style="gap:7px">' +
-        cats.map((c) => '<button class="ug-chip' + (cat === c[0] ? ' is-on' : '') + '"' + A('tpl-cat', attr({ v: c[0] })) + '>' + I(c[2], 13) + c[1] + '</button>').join('') +
-        '<span style="flex:1"></span>' +
-        '<div class="ug-rowf ug-gap6" style="gap:6px">' +
+      '<div class="ug-rowf ug-gap8 ug-wrap stg-tpl-f" style="gap:7px">' +
+        /* phones: the category as one dropdown (the chips below are hidden there) */
+        (() => {
+          const n = (k) => k === 'all' ? all.length : all.filter((t) => t.category === k).length;
+          const cur = cats.find((c) => c[0] === cat) || cats[0];
+          return '<div class="ug-wmore inc-dd tpl-dd">' +
+            '<button class="inc-dd-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Template category">' +
+              I(cur[2], 15) + '<span>' + esc(cur[0] === 'all' ? 'All categories' : cur[1]) + '</span><b>' + n(cur[0]) + '</b>' + I('chevdn', 16) + '</button>' +
+            '<div class="inc-dd-panel" data-more-panel hidden role="listbox">' + cats.map((c) =>
+              '<button role="option" class="' + (c[0] === cat ? 'is-on' : '') + '"' + A('tpl-cat', attr({ v: c[0] })) + '>' + I(c[2], 15) +
+                '<span>' + esc(c[0] === 'all' ? 'All categories' : c[1]) + '</span><b>' + n(c[0]) + '</b>' + (c[0] === cat ? I('check', 14) : '') + '</button>').join('') +
+            '</div></div>';
+        })() +
+        '<div class="stg-cats">' + cats.map((c) => '<button class="ug-chip' + (cat === c[0] ? ' is-on' : '') + '"' + A('tpl-cat', attr({ v: c[0] })) + '>' + I(c[2], 13) + c[1] + '</button>').join('') + '</div>' +
+        '<span class="stg-sp" style="flex:1"></span>' +
+        '<div class="ug-rowf ug-gap6 stg-lang" style="gap:6px">' +
           '<span class="ug-dimmer" style="font-size:11px;align-self:center">Preview language</span>' +
           [['en','EN'],['fil','FIL']].map((l) => '<button class="ug-chip' + (lang === l[0] ? ' is-on' : '') + '"' + A('tpl-lang', attr({ v: l[0] })) + '>' + l[1] + '</button>').join('') +
         '</div>' +
@@ -671,29 +683,47 @@ const UG_SETTINGS = (function () {
     '</div>';
   }
 
+  /* the blanks a template can hold, in plain words */
+  const PH_NAMES = { barangay: 'Barangay name', center: 'Evacuation center', area: 'Area', date: 'Date', time: 'Time',
+    hazard: 'Hazard', location: 'Location', name: 'Name', road: 'Road name', signal: 'Signal number' };
+  const phKey = (p) => String(p || '').replace(/[{}\s]/g, '').toLowerCase();
+  function phName(p) {
+    const k = phKey(p);
+    return PH_NAMES[k] || (k ? (k.charAt(0).toUpperCase() + k.slice(1)).replace(/_/g, ' ') : 'Blank');
+  }
+  const phHint = (p) => 'Replaced with the ' + phName(p).toLowerCase() + ' when the advisory is published';
+  /* the message with each {blank} shown as a soft highlighted word */
+  function fillBlanks(text) {
+    return esc(text || '').replace(/\{([a-z_]+)\}/gi, (m, k) => '<mark class="tpl-blank" title="' + esc(phHint(k)) + '">' + esc(phName(k)) + '</mark>');
+  }
+
   function templateCard(t, lang) {
     const cat = CATEGORY[t.category] || CATEGORY.general;
     const title = lang === 'fil' ? (t.title_fil || t.title_en) : (t.title_en || t.title_fil);
     const body = lang === 'fil' ? (t.body_fil || t.body_en) : (t.body_en || t.body_fil);
-    const ph = (t.placeholders || []).map((p) => '<code>' + esc(p) + '</code>').join(' ');
-    return '<div class="ug-card ug-tpl-card">' +
-      '<div class="ug-card-h"><div class="ug-rowf ug-gap8" style="gap:8px;align-items:center;min-width:0">' +
-        '<span class="ug-tpl-cat" style="background:' + cat.color + '">' + I(cat.icon, 12) + esc(cat.label) + '</span>' +
-        '<span class="ug-dimmer ug-mono" style="font-size:11px">' + esc(t.id) + '</span></div>' +
-        '<div class="ug-rowf ug-gap6" style="gap:6px">' +
-          '<button class="ug-ico-btn" aria-label="Edit template" data-act="tpl-edit" data-id="' + esc(t.id) + '">' + I('settings', 14) + '</button>' +
-          '<button class="ug-ico-btn" aria-label="Delete template" data-act="tpl-delete" data-id="' + esc(t.id) + '">' + I('x', 14) + '</button>' +
-        '</div></div>' +
-      '<div class="ug-card-b ug-col" style="gap:10px">' +
-        '<div><div class="ug-lab" style="font-size:11px">' + esc(t.label) + '</div>' +
-          '<div style="font-size:13px;font-weight:600;margin-top:2px">' + esc(title) + '</div></div>' +
-        '<div class="ug-dim ug-clamp3" style="font-size:12px;line-height:1.5">' + esc(body) + '</div>' +
-        (ph ? '<div class="ug-tpl-ph">' + ph + '</div>' : '') +
-        '<div class="ug-rowf ug-gap6 ug-tpl-langs" style="gap:6px">' +
-          '<span class="ug-badge ug-badge--id' + (t.title_en ? '' : ' is-off') + '">EN</span>' +
-          '<span class="ug-badge ug-badge--id' + (t.title_fil ? '' : ' is-off') + '">FIL</span>' +
-        '</div>' +
-      '</div></div>';
+    /* placeholders in plain words: "{barangay}" reads as "Barangay name", and
+       in the message itself it shows as a soft highlighted blank */
+    const langs = [t.title_en ? 'EN' : '', t.title_fil ? 'FIL' : ''].filter(Boolean).join(' · ');
+    const blanks = (t.placeholders || []).map((p) => phName(p));
+    /* one quiet card (Nov 2026): category and code on the left, edit / delete
+       on the right; the purpose, the title, three lines of the message with
+       its blanks softly highlighted; a footer naming the blanks and the
+       languages. Neutral greys, no coloured tags. css/screens-additions.css .tpc-* */
+    /* the whole card opens the editor (the edit / delete buttons keep their own action) */
+    return '<article class="tpc" role="button" tabindex="0" data-act="tpl-edit" data-id="' + esc(t.id) + '" aria-label="Edit template ' + esc(t.id) + '" title="Click to edit">' +
+      '<header class="tpc-h"><span class="tpc-cat">' + I(cat.icon, 13) + esc(cat.label) + '</span><span class="tpc-id">' + esc(t.id) + '</span>' +
+        '<span class="tpc-acts">' +
+          '<button class="tpc-b" title="Edit template" aria-label="Edit template" data-act="tpl-edit" data-id="' + esc(t.id) + '">' + I('settings', 15) + '</button>' +
+          '<button class="tpc-b tpc-b--del" title="Delete template" aria-label="Delete template" data-act="tpl-delete" data-id="' + esc(t.id) + '">' + I('x', 15) + '</button>' +
+        '</span></header>' +
+      '<div class="tpc-body">' +
+        '<h4 class="tpc-t">' + fillBlanks(title) + '</h4>' +
+        '<p class="tpc-m">' + fillBlanks(body) + '</p>' +
+      '</div>' +
+      '<footer class="tpc-f"><span class="tpc-fill" title="These are filled in when the advisory is published">' +
+          (blanks.length ? I('info', 13) + '<span>Fills in: ' + esc(blanks.join(', ')) + '</span>' : '<span>No blanks to fill</span>') + '</span>' +
+        '<span class="tpc-lang" title="Languages this template is written in">' + esc(langs || 'No text yet') + '</span></footer>' +
+    '</article>';
   }
 
   /* ------------------------------------------------------------ shared bits */

@@ -397,7 +397,7 @@ const UG_RELIEF = (function () {
       /* authorized beneficiaries */
       '<section class="rl-card" id="relief-beneficiaries">' +
         cardHead('users', esc(T('relief.authorizedBeneficiaries')), exp('beneficiaries', !visibleBens.length) +
-          '<button class="ug-btn ug-btn--signal rl-sm"' + A('beneficiary-add') + '>' + I('plus', 13) + esc(T('relief.beneficiaryAdd')) + '</button>') +
+          '<button class="ug-btn ug-btn--signal rl-sm rl-add-c"' + A('beneficiary-add') + ' aria-label="' + esc(T('relief.beneficiaryAdd')) + '" title="' + esc(T('relief.beneficiaryAdd')) + '">' + I('plus', 15) + '<span>' + esc(T('relief.beneficiaryAdd')) + '</span></button>') +
         '<div class="rl-filters">' +
           '<label><span>' + (mine ? 'Barangay' : 'Filter by barangay') + '</span>' +
             (mine ? '<p class="rl-fixed">Brgy. ' + esc(mine) + '</p>'

@@ -26,9 +26,10 @@ const UG_ADMIN = (function () {
   const superOnly = (title) => '<div class="ug-col" style="gap:16px">' + head(title, 'Restricted to the Super Admin.') +
     statePanel('empty', 'Super Admin only', 'Accounts, roles and the activity log are managed by the Super Admin. Ask them if you need a change made.') + '</div>';
 
-  function head(title, sub, actions) {
+  /* after: optional markup placed right after the title (e.g. an info button) */
+  function head(title, sub, actions, after) {
     return '<div class="ug-rowf ug-between ug-wrap ug-phead" style="gap:14px;align-items:flex-end">' +
-      '<div><h2 style="font-size:20px">' + esc(title) + '</h2>' +
+      '<div><h2 style="font-size:20px"' + (after ? ' class="ug-phead-t"' : '') + '>' + esc(title) + (after || '') + '</h2>' +
       '<p class="ug-dim" style="font-size:12px;margin-top:4px">' + esc(sub) + '</p></div>' +
       '<div class="ug-rowf ug-gap8" style="gap:8px">' + (actions || '') + '</div></div>';
   }
@@ -523,7 +524,10 @@ const UG_ADMIN = (function () {
     const TYPE_ICON = { BFP: 'flame', PNP: 'shield', Rescue: 'wave', Hospital: 'shelter' };
     const unitName = (id) => { const u = allUnits.find((x) => String(x.id) === String(id)); return u ? u.name : (id || '—'); };
     const cap = (v) => { v = String(v || '').replace(/_/g, ' '); return v ? v.charAt(0).toUpperCase() + v.slice(1) : '—'; };
-    const dot = (v, on) => '<span class="du-dot' + (on ? ' is-on' : '') + '"><i></i>' + esc(cap(v)) + '</span>';
+    /* the dot's colour follows the value: green = ready / done, amber = waiting or under way, grey = off */
+    const tone = (v) => /avail|stand|ready|on.?duty|approv|resolv|confirm|^active/i.test(v || '') ? 't-ok'
+      : /pend|sent|request|acknow|busy|dispatch|respond|en.?route|scene/i.test(v || '') ? 't-wait' : 't-off';
+    const dot = (v, on) => '<span class="du-dot ' + tone(v) + (on ? ' is-on' : '') + '"><i></i>' + esc(cap(v)) + '</span>';
     const cardHead = (icon, title, right) => '<div class="rl-ch"><h2>' + I(icon, 15) + esc(title) + '</h2><div class="rl-ch-r">' + (right || '') + '</div></div>';
     const count = (n, word) => '<span class="rl-count">' + n + ' ' + word + (n === 1 ? '' : 's') + '</span>';
     const btn = (act, label, icon, extra, cls) => '<button type="button" class="rl-ghost du-b' + (cls ? ' ' + cls : '') + '" data-act="' + act + '"' + extra + '>' + (icon ? I(icon, 13) : '') + esc(label) + '</button>';
@@ -596,8 +600,18 @@ const UG_ADMIN = (function () {
 
     return '<div class="ug-col du" style="gap:20px">' +
       head(T('admin.dispatchUnitsTitle'), T('admin.dispatchUnitsSub'),
-        superAdmin ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="admin-create-unit">' + I('plus', 14) + esc(T('action.newUnit')) + '</button>' : '') +
-      UG.note('du-hint', 1, 'info', 'How this page works', esc(T('admin.dispatchUnitsHint'))) +
+        superAdmin ? '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="admin-create-unit">' + I('plus', 14) + esc(T('action.newUnit')) + '</button>' : '',
+        /* "How this page works" as a bare info symbol beside the title; a click
+           opens a small card (toggle-more, closed by a tap outside in js/app.js) */
+        '<span class="ug-wmore du-info">' +
+          '<button type="button" class="du-info-btn" data-act="toggle-more" aria-haspopup="dialog" aria-label="How this page works" title="How this page works">' + I('info', 16) + '</button>' +
+          '<span class="du-info-pop" role="dialog" aria-label="How this page works" data-more-panel hidden>' +
+            '<b class="du-info-h">How this page works</b>' +
+            '<span class="du-hint">' + T('admin.dispatchUnitsHint').split('|').map((line) => {
+              const at = line.indexOf(':');
+              return '<span class="du-hint-i"><b>' + esc(line.slice(0, at)) + '</b><span>' + esc(line.slice(at + 1)) + '</span></span>';
+            }).join('') + '</span>' +
+          '</span></span>') +
       /* units */
       '<section class="rl-card">' +
         cardHead('truck', 'Response units', count(shown.length, 'unit')) +

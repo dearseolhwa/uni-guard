@@ -76,7 +76,7 @@ const UG_RAIL = (() => {
   /* picking a section closes the hovered rail (the pin button does not) */
   document.addEventListener('click', (e) => {
     const b = e.target.closest && e.target.closest('.ug-rail button');
-    if (!b || b.classList.contains('ugr-pin')) return;
+    if (!b || b.classList.contains('ugr-pin') || b.hasAttribute('data-rail-group')) return;
     const r = b.closest('.ug-rail');
     if (r.classList.contains('is-pinned')) return;
     clearTimeout(openTimer); openTimer = 0;
@@ -103,6 +103,43 @@ const UG_RAIL = (() => {
       '<span class="ugr-ico">' + it.icon + '</span><span class="ugr-lbl">' + esc(it.label) + '</span>' + badge + '</button>';
   }
 
+  /* a parent row that folds its pages in and out (after the reference menu:
+     "+" / "−" on the right, the pages indented under a thin line, the
+     current page as the pill). { key, icon, label, children: [items] }.
+     Open or closed is remembered per group on this device; a group with the
+     current page opens by itself. */
+  const GROUP_KEY = 'uniguard.rail.groups';
+  function groupState() { try { return JSON.parse(localStorage.getItem(GROUP_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  const TOG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">' +
+    '<path d="M5 12h14"/><path class="ugr-tog-v" d="M12 5v14"/></svg>';
+  function group(g) {
+    const kids = g.children || [];
+    const hasOn = kids.some((k) => k.on);
+    const saved = groupState()[g.key];
+    const open = hasOn || saved === true;
+    const n = kids.reduce((a, k) => a + (Number(k.count) || 0), 0);
+    return '<div class="ugr-grp' + (open ? ' is-open' : '') + (hasOn ? ' has-on' : '') + '" data-rail-grp="' + esc(g.key) + '">' +
+      '<button type="button" class="ugr-i ugr-par' + (hasOn ? ' is-par-on' : '') + '" data-rail-group="' + esc(g.key) + '" aria-expanded="' + open + '"' +
+        ' title="' + esc(g.label) + '" aria-label="' + esc(g.label) + '">' +
+        '<span class="ugr-ico">' + g.icon + '</span><span class="ugr-lbl">' + esc(g.label) + '</span>' +
+        (n ? '<span class="ugr-count ugr-par-n">' + (n > 99 ? '99+' : n) + '</span>' : '') +
+        '<span class="ugr-tog">' + TOG + '</span></button>' +
+      '<div class="ugr-sub" role="group" aria-label="' + esc(g.label) + '">' + kids.map((k) => item(k, 'ugr-subi')).join('') + '</div>' +
+    '</div>';
+  }
+  /* the parent row opens or closes its group in place (no redraw) */
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('[data-rail-group]');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const g = b.closest('.ugr-grp'); if (!g) return;
+    const open = !g.classList.contains('is-open');
+    g.classList.toggle('is-open', open);
+    b.setAttribute('aria-expanded', String(open));
+    const st = groupState(); st[b.getAttribute('data-rail-group')] = open;
+    try { localStorage.setItem(GROUP_KEY, JSON.stringify(st)); } catch (err) { }
+  }, true);
+
   /* opts: { theme, id, label, brand: { attrs, label, sub }, groups: [{ title, items }],
              tools: [items], user: { initial, name, sub }, signout: attrs } */
   function html(opts) {
@@ -124,7 +161,7 @@ const UG_RAIL = (() => {
           opts.groups.filter((g) => g.items.length).map((g, i) =>
             (g.title ? '<p class="ugr-g' + (i ? '' : ' is-first') + '"><span>' + esc(g.title) + '</span></p>'
               : g.divider ? '<hr class="ugr-div" aria-hidden="true">' : '') +
-            g.items.map((it) => item(it)).join('')).join('') +
+            g.items.map((it) => it.children ? group(it) : item(it)).join('')).join('') +
         '</nav>' +
         '<div class="ugr-foot">' +
           (opts.tools || []).map((it) => item(it, 'ugr-tool')).join('') +

@@ -1261,7 +1261,8 @@ const UG_DISPATCH = (function () {
     return '<div class="ug-col" style="gap:18px">' +
       pageHead(T('title.requests'), T('dispatch.requestsSub'),
         '<button class="ug-btn ug-btn--signal ug-btn--sm" data-act="dispatch-request-new">' + I('plus', 14) + 'New request</button>') +
-      (open.length ? '<span class="ug-chip is-on">' + open.length + ' open</span>' : '') +
+      /* a small count pill, its own width (it stretched across the page in the column) */
+      (open.length ? '<span class="dp-open-n"><i></i>' + open.length + ' open request' + (open.length === 1 ? '' : 's') + '</span>' : '') +
       '<div class="ug-card" style="overflow:hidden"><table class="ug-table">' +
       '<thead><tr><th>When</th><th>Kind</th><th>Details</th><th>Status</th><th>Decided</th><th>Action</th></tr></thead>' +
       '<tbody>' + (rows.length ? rows.map(row).join('') : '<tr><td colspan="6" class="dp-none">No requests yet</td></tr>') + '</tbody></table></div>' +
@@ -1470,8 +1471,8 @@ const UG_DISPATCH = (function () {
       '<div class="dps-cols"><div class="dps-col">' +
         (U8 && U8.alertsCard ? '<div class="dps-wrap dpn-alarm">' + U8.alertsCard() + '</div>' : '') +
         (U8 && U8.alarmCard ? '<div class="dps-wrap dpn-alarm">' + U8.alarmCard(st) + '</div>' : '') +
+      /* Sign out lives in the sidebar (desktop) and the menu (phones), not here */
       '</div><div class="dps-col">' + location + language + data +
-        '<button class="dps-out" data-act="logout">' + I('logout', 16) + 'Sign out</button>' +
       '</div></div>' +
     '</div>';
   }
@@ -1535,6 +1536,27 @@ const UG_DISPATCH = (function () {
      components/DispatchPortal.tsx): an orange rail of section icons on the
      left, the clock and the unit summary on top, then the section. Every
      section, action and query is this module's own. css/dispatch-portal.css */
+  /* The rail opens on hover; picking a section closes it at once, and it
+     stays closed until the pointer leaves the rail (the page re-renders on
+     navigation, so the flag lives here, outside the DOM). */
+  let railShut = false;
+  /* the pin keeps the rail open (remembered on this device) */
+  const RAIL_PIN = 'uniguard.dprail.pinned';
+  const railPinned = () => { try { return localStorage.getItem(RAIL_PIN) === '1'; } catch (e) { return false; } };
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('.dp-rail button');
+    if (!b || b.classList.contains('dp-pin') || railPinned()) return;
+    railShut = true;
+    const r = b.closest('.dp-rail'); if (r) r.classList.add('is-shut');
+    try { b.blur(); } catch (err) { }
+  }, true);
+  document.addEventListener('mouseout', (e) => {
+    const r = e.target.closest && e.target.closest('.dp-rail');
+    if (!r || (e.relatedTarget && r.contains(e.relatedTarget))) return;
+    railShut = false;
+    document.querySelectorAll('.dp-rail.is-shut').forEach((x) => x.classList.remove('is-shut'));
+  });
+
   /* ---------------------------------------------------- phone layout (Nov 2026)
      Inspired by a food-delivery app: a greeting card, an orange "new
      dispatch" banner, the dispatches as order cards with Active / Completed,
@@ -1754,6 +1776,7 @@ const UG_DISPATCH = (function () {
     const crew = state.data.personnel || [];
     const gear = state.data.equipment || [];
     const overdue = gear.filter((r) => !r.last_checked_at || (Date.now() - Date.parse(r.last_checked_at)) > 86400000).length;
+    const initial = esc(((session.name || '?').trim().charAt(0) || '?').toUpperCase());
     const nr = newest ? (newest.report || {}) : null;
     const phone = isPhone();
     window.__dpPhone = phone;
@@ -1781,18 +1804,25 @@ const UG_DISPATCH = (function () {
       (st.fixed ? ' style="width:' + st.w + 'px;height:' + st.h + 'px"' : '') + '>' +
       '<i class="dp-blob dp-blob--a" aria-hidden="true"></i><i class="dp-blob dp-blob--b" aria-hidden="true"></i>' +
       '<div class="dp-shell">' +
-        /* the shared sidebar (js/rail.js), in the dispatch orange */
-        UG_RAIL.html({
-          theme: 'dispatch', id: 'ug-dispatch-nav', label: 'Dispatch sections',
-          brand: { attrs: ' data-act="dispatch-nav" data-route="dispatch"', label: 'Go to incoming dispatches', sub: unit ? unit.name : 'Dispatch' },
-          groups: [{ items: visible.map((n) => ({ attrs: ' data-act="dispatch-nav" data-route="' + n[0] + '"', icon: I(n[2], 20), label: n[1],
-            on: route === n[0], count: n[0] === 'notifications' ? unread : 0 })) }],
-          tools: [{ attrs: ' data-act="dispatch-refresh"', icon: I('wave', 20), label: T('action.refresh') }],
-          /* no header menu on the dispatch console, so the sidebar keeps Sign out */
-          account: true,
-          user: { initial: UG_RAIL.initial(session.name, 'D'), name: session.name || 'Dispatch team',
-            sub: unit ? unitTypeLabel(unit.unit_type) : (session.title || 'Dispatch team') }
-        }) +
+        /* the original orange icon rail (restored): opens on hover, closes
+           when a section is picked until the pointer leaves */
+        '<aside class="dp-rail' + (railPinned() ? ' is-pinned' : railShut ? ' is-shut' : '') + '">' +
+          '<button class="dp-logo" data-act="dispatch-nav" data-route="dispatch" aria-label="Go to incoming dispatches" title="Incoming Dispatches">' + U.brandMark(34) + '</button>' +
+          '<nav class="dp-nav" id="ug-dispatch-nav" aria-label="Dispatch sections">' +
+            '<button type="button" class="dp-pin" data-act="dispatch-rail-pin" aria-pressed="' + railPinned() + '" aria-label="' + (railPinned() ? 'Let the sidebar close' : 'Keep the sidebar open') + '" title="' + (railPinned() ? 'Unpin: let the sidebar close' : 'Pin: keep the sidebar open') + '">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5Z"/><path d="M12 14v6"/></svg></button>' +
+            '<div class="dp-meRow"><span class="dp-me" title="' + esc((session.name || '') + ' · ' + (session.scope || '')) + '">' + initial + '</span>' +
+              '<span class="dp-lbl dp-meT"><b>' + esc(session.name || 'Dispatch') + '</b><small>' + esc(unit ? unit.name : (session.title || 'Dispatch team')) + '</small></span></div>' +
+            '<span class="dp-sep" aria-hidden="true"></span>' +
+            visible.map((n) =>
+              '<button class="' + (route === n[0] ? 'is-on' : '') + '" data-act="dispatch-nav" data-route="' + n[0] + '" aria-label="' + esc(n[1]) + '"' + (route === n[0] ? ' aria-current="page"' : '') + '>' +
+                I(n[2], 22) + '<span class="dp-lbl">' + esc(n[1]) + '</span>' + (n[0] === 'notifications' && unread ? '<i class="dp-dot"></i>' : '') + '</button>').join('') +
+            '<span class="dp-sep dp-sep--b" aria-hidden="true"></span>' +
+            '<button class="dp-tool" data-act="dispatch-refresh" aria-label="' + esc(T('action.refresh')) + '" title="' + esc(T('action.refresh')) + '">' + I('wave', 20) + '<span class="dp-lbl">' + esc(T('action.refresh')) + '</span></button>' +
+            '<button class="dp-out" data-act="logout" aria-label="' + esc(T('action.signout')) + '" title="' + esc(T('action.signout')) + '">' + I('logout', 20) + '<span class="dp-lbl">' + esc(T('action.signout')) + '</span></button>' +
+            '<span class="dp-build" title="build">' + esc((typeof UG_CONFIG !== 'undefined' && UG_CONFIG.BUILD) || 'dev') + '</span>' +
+          '</nav>' +
+        '</aside>' +
         '<main class="dp-main">' +
           (phone
             ? '<div class="dp-phone dpm-top"><button class="dpm-brand" data-act="dispatch-nav" data-route="dispatch" aria-label="Go to Home">' + U.brandMark(26) +
@@ -1875,6 +1905,11 @@ const UG_DISPATCH = (function () {
     'dispatch-refresh': () => { const A0 = app(); if (A0 && A0.S && A0.S.bgMenu) A0.S.bgMenu = false; return loadAll(); },
     'dispatch-eqf': (d) => { state.eqF = d.v; app().render(); },
     'dispatch-mtab': (d) => { state.mTab = d.v === 'done' ? 'done' : 'active'; app().render(); },
+    'dispatch-rail-pin': () => {
+      try { localStorage.setItem(RAIL_PIN, railPinned() ? '0' : '1'); } catch (e) { }
+      railShut = false;
+      app().render();
+    },
     'dispatch-open': (d) => openDispatch(d.id),
     'dispatch-alert-open': (d) => { popupHidden.add(d.id); return openDispatch(d.id); },
     'dispatch-alert-later': () => {

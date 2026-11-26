@@ -123,10 +123,35 @@ const UG_BRGY = (() => {
     const s = st.session || {};
     const route = activeRoute(st.route);
     const counts = navCounts(s, V);
-    const items = V.nav.map((n) => ({ attrs: A('nav', attr({ route: n[0] })), icon: I(NAV_ICON[n[0]] || 'info', 20), label: n[1],
+    const items = V.nav.map((n) => ({ route: n[0], attrs: A('nav', attr({ route: n[0] })), icon: I(NAV_ICON[n[0]] || 'info', 20), label: n[1],
       on: route === n[0], count: counts[n[0]] || 0, alert: n[0] === 'sos' }));
-    /* one plain list in order of urgency: no group titles or dividers */
-    const grouped = [{ items: items }];
+    /* the pages that used to sit behind the header's grid menu (guides,
+       FAQs, reports, settings…) follow the sections in the same list */
+    const more = (V.menu || []).filter((m) => !V.nav.some((n) => n[0] === m[0]) && m[0] !== 'admin-home')
+      .map((m) => ({ route: m[0], attrs: A('nav', attr({ route: m[0] })), icon: I(m[2], 20), label: m[1], on: route === m[0] }));
+    /* urgent sections stay on top; related pages fold under a parent row
+       (js/rail.js group), placed where its first page used to be; Settings last */
+    const FOLD = [
+      { key: 'resources', label: 'Resources', icon: I('grid', 20), routes: ['centers', 'relief', 'roadwork', 'hotlines'] },
+      { key: 'insights', label: 'Reports & insights', icon: I('activity', 20), routes: ['analytics', 'reporting', 'others-review'] },
+      { key: 'public', label: 'Public guides', icon: I('info', 20), routes: ['guides', 'faqs'] }
+    ];
+    const all = items.concat(more);
+    const list = [];
+    const placed = {};
+    all.forEach((it) => {
+      const f = FOLD.find((g) => g.routes.indexOf(it.route) !== -1);
+      if (!f) { if (it.route !== 'settings') list.push(it); return; }
+      if (!placed[f.key]) {
+        placed[f.key] = { key: f.key, label: f.label, icon: f.icon, children: [] };
+        list.push(placed[f.key]);
+      }
+      placed[f.key].children.push(it);
+    });
+    /* a group with a single page is just that page */
+    const flat = list.map((it) => it.children && it.children.length === 1 ? it.children[0] : it);
+    const settings = all.find((it) => it.route === 'settings');
+    const grouped = [{ items: flat.concat(settings ? [settings] : []) }];
     const groups = V.sup
       ? [{ title: 'Super Admin', items: [{ attrs: A('nav', attr({ route: 'admin-home' })), icon: I('shield', 20), label: 'Main screen' }] }].concat(grouped)
       : grouped;
@@ -136,7 +161,9 @@ const UG_BRGY = (() => {
         : { attrs: A('nav', attr({ route: 'dashboard' })), label: 'Go to Home', sub: V.lgu ? 'LDRRMO' : (s.barangay ? 'Brgy. ' + s.barangay : 'Barangay') },
       groups: groups,
       user: { initial: UG_RAIL.initial(s.name, V.lgu ? 'L' : 'B'), name: s.name || (V.lgu ? 'LDRRMO Officer' : 'Barangay Official'),
-        sub: V.sup ? 'Super Admin' : V.lgu ? 'LDRRMO Staff' : 'Barangay official' }
+        sub: V.sup ? 'Super Admin' : V.lgu ? 'LDRRMO Staff' : 'Barangay official' },
+      /* the profile and Sign out, formerly in the header's grid menu */
+      account: true
     });
   }
 
@@ -164,21 +191,7 @@ const UG_BRGY = (() => {
           (unread ? '<span class="bg-dot">' + (unread > 9 ? '9+' : unread) + '</span>' : '') + '</button>' + UG_SCREENS.notifPanel(st) + '</span>' +
         /* phones: the Menu drawer opens from the header (the bottom bar keeps five sections) */
         '<button class="bg-ibtn bg-pm-open' + (st.bgMenu ? ' is-on' : '') + '"' + A('bg-pmenu') + ' aria-label="Menu" aria-haspopup="dialog" aria-controls="bg-pm" aria-expanded="' + !!st.bgMenu + '">' + I('menu', 18) + '</button>' +
-        /* .ug-wmore + [data-more-panel]: toggle-more opens it, a tap outside closes it */
-        '<span class="ug-wmore bg-menu">' +
-          '<button class="bg-ibtn" aria-haspopup="true" aria-label="Menu" title="Menu"' + A('toggle-more') + '>' + I('grid', 16) + '</button>' +
-          '<div class="bg-panel" data-more-panel hidden>' +
-            '<div class="bg-profile"><span class="bg-wm">' + I('shield', 96) + '</span>' +
-              '<span class="bg-av">' + esc((s.name || 'B').trim().charAt(0).toUpperCase()) + '</span>' +
-              '<b>' + esc(s.name || '') + '</b><span>' + esc(V.who) + '</span>' +
-              '<i>' + V.role + '</i></div>' +
-            '<div class="bg-mobile-nav">' + V.nav.map((n) =>
-              '<button class="bg-qi' + (route === n[0] ? ' is-on' : '') + '"' + A('nav', attr({ route: n[0] })) + '><span>' + n[1] + '</span>' + I('chevron', 14) + '</button>').join('') +
-              '<button class="bg-qi lv-mobile"' + A('refresh-data') + '><span>Refresh data · ' + (live ? 'Live' : 'Offline') + '</span>' + I('wave', 14) + '</button></div>' +
-            (V.sup ? '<button class="bg-qi bg-qi--main"' + A('nav', attr({ route: 'admin-home' })) + '><span class="bg-qi-l"><span class="bg-qi-ico">' + I('chevron', 16) + '</span>Back to main screen</span>' + I('chevron', 14) + '</button>' : '') +
-            V.menu.map((m) => '<button class="bg-qi"' + A('nav', attr({ route: m[0] })) + '><span class="bg-qi-l"><span class="bg-qi-ico">' + I(m[2], 16) + '</span>' + m[1] + '</span>' + I('chevron', 14) + '</button>').join('') +
-            '<button class="bg-qi bg-qi--out"' + A('logout') + '><span class="bg-qi-l"><span class="bg-qi-ico">' + I('logout', 16) + '</span>Sign Out</span></button>' +
-          '</div></span>' +
+        /* the grid menu is gone: its pages, the profile and Sign out are in the sidebar (rail) */
       '</div>' +
     '</header>';
   }

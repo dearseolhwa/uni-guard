@@ -24,7 +24,7 @@
 <link rel="stylesheet" href="vendor/leaflet.css">
 <link rel="stylesheet" href="css/app.css?v=631">
 <link rel="stylesheet" href="css/screens.css?v=610">
-<link rel="stylesheet" href="css/screens-additions.css?v=612">
+<link rel="stylesheet" href="css/screens-additions.css?v=618">
 <link rel="stylesheet" href="css/dispatch.css?v=561">
 <!-- Oct 2026 design: light, one palette per role. Remove these three lines to
      return to the previous dark design. Inter (the one typeface) comes from Google
@@ -36,14 +36,14 @@
 <!-- Super Admin home screen (copied from the React app); every rule is scoped under .ug-sa -->
 <link rel="stylesheet" href="css/superadmin.css?v=579">
 <link rel="stylesheet" href="css/resident.css?v=614">
-<link rel="stylesheet" href="css/barangay.css?v=636">
-<link rel="stylesheet" href="css/dispatch-portal.css?v=582">
+<link rel="stylesheet" href="css/barangay.css?v=659">
+<link rel="stylesheet" href="css/dispatch-portal.css?v=588">
 <link rel="stylesheet" href="css/auth.css?v=589">
-<link rel="stylesheet" href="css/staff-pages.css?v=619">
-<link rel="stylesheet" href="css/soft-accents.css?v=579">
+<link rel="stylesheet" href="css/staff-pages.css?v=636">
+<link rel="stylesheet" href="css/soft-accents.css?v=580">
 <link rel="stylesheet" href="css/type.css?v=561">
 <!-- the one sidebar every portal uses (js/rail.js); last so no portal sheet restyles it -->
-<link rel="stylesheet" href="css/rail.css?v=622">
+<link rel="stylesheet" href="css/rail.css?v=626">
 <!-- the bell's notification panel (js/screens.js notifPanel) -->
 <link rel="stylesheet" href="css/notif-panel.css?v=604">
 </head>
@@ -92,7 +92,7 @@
 
 <script src="js/config.js?v=561"></script>
 <script src="js/util.js?v=561"></script>
-<script src="js/i18n.js?v=617"></script>
+<script src="js/i18n.js?v=619"></script>
 <!-- Shared export layer: metadata, filenames, dates, CSV, scope checks (export-core),
      the formal PDF template (pdf) and the formatted Excel writer (xlsx-lite) -->
 <script src="js/export-core.js?v=561"></script>
@@ -107,29 +107,29 @@
 <!-- per-hazard alarm sounds, used by the alert overlay, the queues and the dispatch portal -->
 <script src="js/alarm.js?v=561"></script>
 
-<script src="js/screens.js?v=629"></script>
+<script src="js/screens.js?v=631"></script>
 <!-- the one sidebar every portal uses (css/rail.css) -->
-<script src="js/rail.js?v=622"></script>
+<script src="js/rail.js?v=623"></script>
 <script src="js/screens.web.js?v=620"></script>
 <script src="js/resident.js?v=599"></script>
-<script src="js/barangay.js?v=632"></script>
+<script src="js/barangay.js?v=635"></script>
 <script src="js/screens.auth.js?v=589"></script>
-<script src="js/screens.admin.js?v=619"></script>
+<script src="js/screens.admin.js?v=623"></script>
 <!-- Super Admin home screen: Overview, Accounts, Activity (route admin-home) -->
-<script src="js/screens.superadmin.js?v=618"></script>
+<script src="js/screens.superadmin.js?v=619"></script>
 
 <!-- feature modules: render functions + data shape, loaded before repo so they
      can seed UG.DATA defaults that the repo overwrites when Supabase is reachable. -->
-<script src="js/relief.js?v=577"></script>
-<script src="js/settings.js?v=614"></script>
+<script src="js/relief.js?v=578"></script>
+<script src="js/settings.js?v=621"></script>
 <script src="js/guides.js?v=561"></script>
 <script src="js/faqs.js?v=561"></script>
-<script src="js/roadwork.js?v=581"></script>
+<script src="js/roadwork.js?v=582"></script>
 <script src="js/sos.js?v=619"></script>
 <script src="js/device-store.js?v=567"></script>
 <script src="js/notifications-store.js?v=567"></script>
 <script src="js/urgent-alerts.js?v=570"></script>
-<script src="js/dispatch.js?v=618"></script>
+<script src="js/dispatch.js?v=622"></script>
 <!-- Module G: situation report, incident summary, damage and needs assessment -->
 <script src="js/reporting.js?v=570"></script>
 <!-- Module export definitions (hotlines, analytics, admin, relief, guides, dispatch) -->
@@ -142,6 +142,6 @@
 <script src="js/map.js?v=613"></script>
 <script src="js/features.js?v=569"></script>
 <script src="js/pwa.js?v=576"></script>
-<script src="js/app.js?v=626"></script>
+<script src="js/app.js?v=631"></script>
 </body>
 </html>

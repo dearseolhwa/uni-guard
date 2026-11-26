@@ -979,3 +979,53 @@ span.ug-chip, div.ug-chip { cursor: default; }
 .ug-sos-zone { animation: ug-sos-zone 2.4s ease-in-out infinite; }
 @keyframes ug-sos-zone { 50% { fill-opacity: .16; stroke-opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .ug-sos-zone { animation: none; } }
+
+/* message templates: blanks in plain words (js/settings.js templateCard) */
+.ug-tpl-ph { align-items: center; gap: 6px !important; }
+.tpl-fill-l { display: inline-flex; align-items: center; gap: 5px; margin-right: 2px; font-size: 11.5px; color: #8A8A8A; }
+.tpl-fill-l svg { width: 12px; height: 12px; color: #A3A3A3; }
+.tpl-fill { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 999px; background: #F4F4F5; color: #404040;
+  font-size: 12px; font-weight: 600; cursor: help; }
+.tpl-blank { padding: 0 5px; border-radius: 5px; background: #F4F4F5; color: #262626; font-weight: 600; box-shadow: inset 0 -1.5px 0 #C4C4C4; cursor: help; }
+
+/* message template card (js/settings.js templateCard): calm and even */
+.ug-tpl-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)) !important; gap: 16px !important; align-items: stretch; }
+.tpc { display: flex; flex-direction: column; min-width: 0; padding: 18px 20px 16px; border-radius: 20px; background: #fff;
+  border: 1px solid #EDEDED; box-shadow: 0 1px 2px rgba(0,0,0,.04); transition: border-color .15s, box-shadow .15s; }
+.tpc:hover { border-color: #E0E0E0; box-shadow: 0 6px 18px -12px rgba(0,0,0,.25); }
+.tpc-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tpc-cat { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; background: #F4F4F5;
+  font-size: 12px; font-weight: 600; color: #404040; white-space: nowrap; }
+.tpc-cat svg { width: 13px; height: 13px; color: #737373; }
+.tpc-id { font-size: 12px; color: #A3A3A3; font-variant-numeric: tabular-nums; }
+.tpc-acts { margin-left: auto; display: flex; gap: 2px; }
+.tpc-b { width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 999px; background: none; color: #8A8A8A; cursor: pointer; }
+.tpc-b svg { width: 15px; height: 15px; }
+.tpc-b:hover { background: #F4F4F5; color: #171717; }
+.tpc-b--del:hover { background: #FEF2F2; color: #991B1B; }
+.tpc-body { flex: 1; margin-top: 14px; }
+.tpc-k { margin: 0 0 4px; font-size: 12px; font-weight: 500; color: #8A8A8A; }
+.tpc-t { margin: 0; font-size: 15.5px; font-weight: 600; line-height: 1.35; color: #171717; }
+.tpc-m { margin: 8px 0 0; font-size: 13.5px; line-height: 1.6; color: #525252;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tpc .tpl-blank { padding: 0 4px; border-radius: 4px; background: #F4F4F5; box-shadow: none; font-weight: 600; color: #262626; }
+.tpc-f { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #F2F2F2;
+  font-size: 12px; color: #8A8A8A; }
+.tpc-fill { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.tpc-fill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpc-fill svg { width: 13px; height: 13px; flex: none; color: #B5B5B5; }
+.tpc-lang { flex: none; font-weight: 600; color: #737373; letter-spacing: .02em; }
+@media (max-width: 767px) { .tpc { padding: 16px; border-radius: 18px; } .tpc-t { font-size: 15px; } }
+.tpc .tpc-k { margin: 0 0 4px !important; }
+.tpc .tpc-t { margin: 0 !important; }
+.tpc .tpc-m { margin: 8px 0 0 !important; }
+/* the code (MT-001) never breaks; a long category name shortens instead */
+.tpc-id { flex: none; white-space: nowrap; }
+.tpc-cat { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.tpc-cat svg { flex: none; }
+.tpc .tpc-body { margin-top: 12px; }
+/* the card itself is the edit button */
+.tpc[data-act] { cursor: pointer; }
+.tpc[data-act]:hover { border-color: #D4D4D4; }
+.tpc[data-act]:active { transform: translateY(1px); }
+.tpc[data-act]:focus-visible { outline: 2px solid #171717; outline-offset: 2px; }

@@ -236,10 +236,11 @@ const UG_ROADWORK = (function () {
 
       '<div class="ug-card"><div class="ug-card-h"><h3>' + esc(T('roadwork.recentPosts')) + '</h3></div>' +
         '<div class="ug-rows">' + (UG.DATA.roadWork || []).slice(0, 8).map((r) =>
-          '<div class="ug-row"><span class="r-dot" style="background:' + (r.status === 'active' ? 'var(--ug-warning)' : 'var(--ug-ink-3)') + '"></span>' +
+          /* the whole row opens the post (open-roadwork: description, road, where, dates, directions) */
+          '<div class="ug-row rw-post" role="button" tabindex="0" data-act="open-roadwork" data-id="' + esc(r.id) + '" aria-label="Open ' + esc(r.title || 'road work post') + '"><span class="r-dot" style="background:' + (r.status === 'active' ? 'var(--ug-warning)' : 'var(--ug-ink-3)') + '"></span>' +
             '<div class="r-main"><div class="r-t">' + esc(r.title) + '</div>' +
               '<div class="r-m"><span>' + I('pin', 12) + esc(r.barangay) + '</span><span>' + I('clock', 12) + (r.expected_end ? esc(T('roadwork.untilLabel')) + ' ' + fmt(r.expected_end) : '') + '</span></div></div>' +
-            U.badge(r.status === 'active' ? 'warning' : 'id', r.status) + '</div>').join('') + '</div></div>' +
+            U.badge(r.status === 'active' ? 'warning' : 'id', r.status) + '<span class="rw-post-go" aria-hidden="true">' + I('chevron', 14) + '</span></div>').join('') + '</div></div>' +
     '</div>';
   }
 

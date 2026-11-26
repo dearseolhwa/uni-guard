@@ -2111,7 +2111,7 @@ const UG_SCREENS = (() => {
     const brgyFilterUi = isLGUq
       ? '<label class="inc-sel">' + I('pin', 14) +
           '<select data-field="incBrgyFilter" aria-label="Filter incidents by barangay">' +
-            '<option value="All"' + (bf === 'All' ? ' selected' : '') + '>All barangays (' + U.DATA.incidents.length + ')</option>' +
+            '<option value="All"' + (bf === 'All' ? ' selected' : '') + '>All barangays</option>' +
             U.DATA.barangays.map(b => '<option value="' + esc(b) + '"' + (bf === b ? ' selected' : '') + '>' + esc(b) + ' (' + (brgyCounts[b] || 0) + ')</option>').join('') +
           '</select></label>' +
           (bf !== 'All' ? '<button class="inc-clear"' + A('inc-brgy-clear') + ' aria-label="Clear barangay filter">' + I('x', 12) + '</button>' : '')
@@ -2121,7 +2121,7 @@ const UG_SCREENS = (() => {
     const hazardFilterUi =
       '<label class="inc-sel">' + I('layers', 14) +
         '<select data-field="incHazardFilter" aria-label="Filter incidents by hazard type">' +
-          '<option value="All"' + (hf === 'All' ? ' selected' : '') + '>All hazard types (' + inBrgy.length + ')</option>' +
+          '<option value="All"' + (hf === 'All' ? ' selected' : '') + '>All hazards</option>' +
           UG_HAZARDS.LIST.map(h => '<option value="' + esc(h.key) + '"' + (hf === h.key ? ' selected' : '') + '>' + esc(h.label) + ' (' + (hazCounts[h.key] || 0) + ')</option>').join('') +
         '</select></label>' +
         (hf !== 'All' ? '<button class="inc-clear"' + A('inc-hazard-clear') + ' aria-label="Clear hazard filter">' + I('x', 12) + '</button>' : '');
@@ -2644,6 +2644,20 @@ const UG_SCREENS = (() => {
                 '<button class="' + (scope === 'all' ? 'is-on' : '') + '"' + A('shelter-scope', attr({ v: 'all' })) + '>All</button>' +
                 '<button class="' + (scope === 'mine' ? 'is-on' : '') + '"' + A('shelter-scope', attr({ v: 'mine' })) + '>' + esc(myBrgy || 'My barangay') + '</button></div>'
             : '') +
+          /* phones: the status as one dropdown beside the search (the
+             segmented control below is hidden there); same look as the
+             incident filters (.inc-dd) */
+          (() => {
+            const opts = [['all', 'All shelters', scoped.length], ['open', 'Open', counts[0][1]], ['full', 'Full', counts[1][1]], ['closed', 'Closed', counts[2][1]]];
+            const cur = opts.find((o) => o[0] === f) || opts[0];
+            return '<div class="ug-wmore inc-dd sc-dd">' +
+              '<button class="inc-dd-btn"' + A('toggle-more') + ' aria-haspopup="listbox" aria-label="Filter shelters by status">' +
+                '<span>' + esc(cur[1]) + '</span><b>' + cur[2] + '</b>' + I('chevdn', 16) + '</button>' +
+              '<div class="inc-dd-panel" data-more-panel hidden role="listbox">' + opts.map((o) =>
+                '<button role="option" class="' + (o[0] === f ? 'is-on' : '') + '"' + A('center-filter', attr({ v: o[0] })) + '>' +
+                  '<span>' + esc(o[1]) + '</span><b>' + o[2] + '</b>' + (o[0] === f ? I('check', 14) : '') + '</button>').join('') +
+              '</div></div>';
+          })() +
           '<div class="sc-seg sc-seg--sm sc-status">' +
             [['all', 'All', scoped.length], ['open', 'Open', counts[0][1]], ['full', 'Full', counts[1][1]], ['closed', 'Closed', counts[2][1]]]
               .map(c => '<button class="' + (f === c[0] ? 'is-on' : '') + '"' + A('center-filter', attr({ v: c[0] })) + '>' + c[1] + ' <em>' + c[2] + '</em></button>').join('') +

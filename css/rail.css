@@ -215,3 +215,47 @@
 @media (max-width: 767.98px) {
   .ug-rail { display: none !important; }
 }
+
+/* the section list scrolls on its own (the brand stays on top, the profile
+   and Sign out at the bottom): a thin scrollbar while open, and rows fade
+   at the top and bottom edges instead of being cut off */
+.ug-rail .ugr-nav > * { flex: none; }
+.ug-rail .ugr-nav { overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 16px), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 16px), transparent 100%); }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover) .ugr-nav { scrollbar-width: thin; scrollbar-color: var(--rl-line) transparent; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover) .ugr-nav::-webkit-scrollbar { display: block; width: 6px; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover) .ugr-nav::-webkit-scrollbar-thumb { background: var(--rl-line); border-radius: 999px; }
+.ug-rail .ugr-foot { flex: none; }
+
+
+/* =================================================== foldable groups
+   (js/rail.js group): a parent row with + / − on the right; open, its pages
+   sit indented under a thin vertical line, the current one as the pill.
+   Closed rail: only the parent icon shows (highlighted when it holds the
+   current page). Colours come from each role's theme. */
+.ug-rail .ugr-grp { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.ug-rail .ugr-par { position: relative; }
+.ug-rail .ugr-tog { flex: none; width: 20px; height: 20px; display: grid; place-items: center; margin-left: auto; color: var(--rl-dim); opacity: 0; transition: opacity .12s; }
+.ug-rail .ugr-tog svg { width: 16px; height: 16px; }
+.ug-rail .ugr-tog-v { transition: transform .2s, opacity .2s; transform-origin: center; }
+.ug-rail .ugr-grp.is-open .ugr-tog-v { transform: scaleY(0); opacity: 0; }
+.ug-rail .ugr-par-n { margin-left: auto; }
+.ug-rail .ugr-par-n + .ugr-tog { margin-left: 6px; }
+.ug-rail .ugr-grp.is-open .ugr-par-n { display: none !important; }
+.ug-rail .ugr-grp.is-open .ugr-par-n + .ugr-tog { margin-left: auto; }
+/* the pages */
+.ug-rail .ugr-sub { display: none; flex-direction: column; gap: 4px; position: relative; margin-left: 24px; padding-left: 12px; }
+.ug-rail .ugr-sub::before { content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 1px; background: var(--rl-line); }
+.ug-rail .ugr-sub .ugr-i { height: 42px; }
+/* the parent of the current page reads as "you are in here" */
+.ug-rail .ugr-par.is-par-on { color: var(--rl-fg); font-weight: 600; }
+/* open rail: show the toggle and, for an open group, its pages */
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-tog { opacity: 1; transition-delay: .08s; }
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover, .ug-rail:not(.is-shut):has(:focus-visible)) .ugr-grp.is-open .ugr-sub { display: flex; }
+/* closed rail: the parent icon stands in for its pages; it gets the
+   current-page highlight when one of them is open */
+.ug-rail:not(.is-pinned):not(.is-hover) .ugr-grp.has-on > .ugr-par,
+.ug-rail.is-shut:not(.is-pinned) .ugr-grp.has-on > .ugr-par { background: var(--rl-on-bg, #fff); color: var(--rl-accent); }
+/* open rail, group folded but holding the current page: the parent is the pill */
+:is(.ug-rail.is-pinned, .ug-rail:not(.is-shut).is-hover) .ugr-grp.has-on:not(.is-open) > .ugr-par { background: var(--rl-on-bg, #fff); color: var(--rl-accent); }

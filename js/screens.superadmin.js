@@ -455,14 +455,16 @@ const UG_SUPERADMIN = (function () {
     return UG_RAIL.html({
       theme: 'admin', id: 'ug-admin-nav', label: 'Super Admin sections',
       brand: { attrs: btn('sa-view', { view: 'overview' }), label: 'Go to the overview', sub: 'Super Admin' },
-      groups: [
-        { title: 'Admin', items: [['overview', 'Overview', 'home'], ['accounts', 'Accounts', 'users'], ['activity', 'Activity', 'activity']].map((v) =>
-          ({ attrs: btn('sa-view', { view: v[0] }), icon: li(v[2], 20), label: v[1], on: st.view === v[0] })) },
-        { title: 'Operations', items: SIDE_MENU.map((m) => m.route === 'notifications'
+      /* one plain list, like the other staff sidebars: the three admin views,
+         then the console sections (no group titles or dividers) */
+      groups: [{ items: [['overview', 'Overview', 'home'], ['accounts', 'Accounts', 'users'], ['activity', 'Activity', 'activity']].map((v) =>
+          ({ attrs: btn('sa-view', { view: v[0] }), icon: li(v[2], 20), label: v[1], on: st.view === v[0] }))
+        .concat(SIDE_MENU.map((m) => m.route === 'notifications'
           ? { attrs: btn('sa-notif') + ' aria-haspopup="dialog"', icon: li(m.icon, 20), label: m.label, count: n, alert: true }
-          : { attrs: btn('nav', { route: m.route }), icon: li(m.icon, 20), label: m.label }) }
-      ],
-      user: { initial: UG_RAIL.initial(s.name, 'S'), name: s.name || 'Super Admin', sub: 'Super Admin' }
+          : { attrs: btn('nav', { route: m.route }), icon: li(m.icon, 20), label: m.label })) }],
+      user: { initial: UG_RAIL.initial(s.name, 'S'), name: s.name || 'Super Admin', sub: 'Super Admin' },
+      /* the profile and Sign out at the foot, as in the console sidebar */
+      account: true
     });
   }
 

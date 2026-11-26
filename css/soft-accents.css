@@ -204,3 +204,20 @@ html[data-portal="admin"] .ug-note2 { background: #fff !important; backdrop-filt
 .sh-steps li { display: flex; gap: 10px; font-size: 13px; line-height: 1.5; color: #262626; }
 .sh-steps li > b { flex: none; width: 20px; height: 20px; border-radius: 999px; display: grid; place-items: center; background: #fff; border: 1px solid #E5E5E5; font-size: 11px; color: #991B1B; }
 .sh-fine { margin: 12px 0 0; font-size: 11px; color: #A3A3A3; }
+
+/* hover / tap / keyboard focus on a main button: the fill AND the label
+   switch together. Before, the dark hover fill could win while the soft
+   button rule kept the dark label, so "+ Add" read as dark on dark. */
+html .ug-bg :is(.bg-page, .bg-shell, .ug-d-main) :is(.ug-btn--signal, .bg-btn--solid, .hl-save, .hl-primary):is(:hover, :focus-visible, :active),
+html .ug-bg :is(.ug-btn--signal, .bg-btn--solid, .hl-save, .hl-primary):is(:hover, :focus-visible, :active) {
+  color: #fff !important;
+}
+html .ug-bg :is(.bg-page, .bg-shell, .ug-d-main) :is(.ug-btn--signal, .bg-btn--solid, .hl-save, .hl-primary):is(:hover, :focus-visible, :active) :is(svg, span, b),
+html .ug-bg :is(.ug-btn--signal, .bg-btn--solid, .hl-save, .hl-primary):is(:hover, :focus-visible, :active) :is(svg, span, b) {
+  color: #fff !important;
+}
+/* touch screens: no sticky hover; a tap only darkens while pressed */
+@media (hover: none) {
+  html .ug-bg .bg-page .ug-btn--signal:hover:not(:active) { background: var(--soft-bg) !important; border-color: var(--soft-bd) !important; color: var(--soft-tx) !important; }
+  html .ug-bg .bg-page .ug-btn--signal:hover:not(:active) svg { color: var(--soft-tx) !important; }
+}

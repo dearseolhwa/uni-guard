@@ -2724,3 +2724,326 @@ html[data-portal="barangay"] .ug-note2 { background: #fff !important; }
 @media (max-width: 1023.98px) {
   .sl-list { max-height: none; overflow: visible; }
 }
+
+/* incident filters, phone (v2): the search on top, then status, hazard and
+   (for the LDRRMO) barangay as one row of identical grey pills: same height,
+   same 13px semibold label, same soft chevron, no counts in the pills */
+@media (max-width: 767px) {
+  .bg-page .inc-tool { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; }
+  .bg-page .inc-search { grid-column: 1 / -1 !important; grid-row: 1 !important; }
+  .bg-page .inc-tool > .inc-dd { grid-column: span 3 !important; grid-row: 2 !important; }
+  .bg-page .inc-filters > .inc-sel:first-of-type { grid-column: span 3 !important; grid-row: 2 !important; }
+  .bg-page .inc-tool:has(.inc-sel ~ .inc-sel) > .inc-dd,
+  .bg-page .inc-tool:has(.inc-sel ~ .inc-sel) .inc-filters > .inc-sel { grid-column: span 2 !important; grid-row: 2 !important; }
+  .bg-page .inc-meta { grid-column: 1 / -1 !important; }
+  .bg-page .inc-tool .inc-dd-btn, .bg-page .inc-sel { height: 40px !important; min-height: 40px; border: 0 !important; border-radius: 999px; background: #F4F4F5 !important;
+    padding: 0 10px 0 14px !important; color: #171717; }
+  .bg-page .inc-tool .inc-dd-btn span, .bg-page .inc-sel select { font-size: 13px !important; font-weight: 600 !important; color: #171717 !important; }
+  .bg-page .inc-tool .inc-dd-btn b { display: none; }
+  /* one chevron for all three: the select's own 12px grey arrow, matched on the status button */
+  .bg-page .inc-tool .inc-dd-btn svg { width: 12px !important; height: 12px !important; color: #9CA3AF !important; stroke-width: 2.5; flex: none; }
+  .bg-page .inc-sel select { width: 100%; padding-right: 18px !important; }
+  .bg-page .inc-search { height: 42px !important; background: #F4F4F5 !important; border: 0 !important; }
+  .bg-page .inc-tool .inc-dd-panel { min-width: 240px; }
+}
+@media (max-width: 767px) {
+  .bg-page .inc-tool .inc-dd-btn, .bg-page .inc-sel { padding: 0 9px 0 12px !important; }
+  .bg-page .inc-sel select { padding-right: 15px !important; font-size: 12.5px !important; letter-spacing: -.01em; }
+  .bg-page .inc-tool .inc-dd-btn span { font-size: 12.5px !important; letter-spacing: -.01em; }
+}
+
+/* Incident queue rows, phone (v3): tighter and even.
+   Title wraps to two lines instead of being cut; code and description
+   below it; one facts line in the same 12px grey (status, stale, barangay,
+   confirms, age, severity) that wraps naturally with even gaps; the
+   severity bars sit inline with the facts, crimson only for Critical. */
+@media (max-width: 767px) {
+  .bg-page .iq-main { gap: 6px 12px !important; padding: 14px 14px 14px 16px !important; }
+  .bg-page .iq-hz-t b { white-space: normal !important; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    font-size: 15px; line-height: 1.3; }
+  .bg-page .iq-hz-t code { margin-top: 2px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .bg-page .iq-hz-t small { margin-top: 3px; font-size: 13px; color: #525252; }
+  .bg-page .iq-act { gap: 6px; }
+  .bg-page .iq-act .ug-btn, .bg-page .iq-act button:not(.iq-tog) { height: 32px !important; padding: 0 12px !important; font-size: 12.5px !important; }
+  .bg-page .iq-act .ug-btn svg { width: 13px; height: 13px; }
+  .bg-page .iq-tog { width: 32px !important; height: 32px !important; }
+  /* the facts line */
+  .bg-page .iq-status, .bg-page .iq-brgy, .bg-page .iq-main > span:has(> .iq-conf), .bg-page .iq-age, .bg-page .iq-sev { margin-top: 4px; }
+  .bg-page .iq-status { margin-left: 28px !important; gap: 10px !important; }
+  .bg-page .iq-pill, .bg-page .iq-flag, .bg-page .iq-brgy b, .bg-page .iq-conf, .bg-page .iq-age, .bg-page .iq-sev small {
+    font-size: 12px !important; line-height: 1.3; letter-spacing: 0 !important; text-transform: none !important; }
+  .bg-page .iq-pill { font-weight: 600 !important; color: #171717 !important; }
+  .bg-page .iq-flag { font-weight: 500 !important; color: #737373 !important; gap: 4px; }
+  .bg-page .iq-brgy b, .bg-page .iq-conf, .bg-page .iq-age { font-weight: 500 !important; color: #737373 !important; }
+  .bg-page .iq-conf.is-met { color: #171717 !important; font-weight: 600 !important; }
+  .bg-page .iq-sev { margin-left: 0 !important; gap: 5px !important; }
+  .bg-page .iq-sev small { font-weight: 600 !important; color: #737373 !important; }
+  .bg-page .iq-sev.is-crit small { color: #991B1B !important; }
+  .bg-page .iq-bars { gap: 2px; }
+  .bg-page .iq-bars i { width: 3px !important; height: 9px !important; border-radius: 1px; }
+}
+@media (max-width: 767px) {
+  /* every facts item, including ones that wrap, starts under the title */
+  .bg-page .iq-main { padding-left: 44px !important; row-gap: 3px !important; }
+  .bg-page .iq-hz { margin-left: -28px; }
+  .bg-page .iq-status { margin-left: 0 !important; }
+  .bg-page .iq-status, .bg-page .iq-brgy, .bg-page .iq-main > span:has(> .iq-conf), .bg-page .iq-age, .bg-page .iq-sev { margin-top: 6px !important; }
+  .bg-page .iq-more { padding-left: 16px !important; }
+}
+@media (max-width: 767px) {
+  /* one button style for the next step (Verify, Dispatch, Resolve) */
+  .bg-page .iq-act .ug-btn { background: #fff !important; border: 1px solid #E5E5E5 !important; color: #171717 !important; box-shadow: none !important; font-weight: 600 !important; }
+  .bg-page .iq-main > span:has(> .iq-conf) { display: inline-flex; align-items: center; }
+  .bg-page .iq-conf { display: inline-flex; align-items: center; height: auto !important; }
+}
+@media (max-width: 767px) {
+  .ug-bg .bg-page .iq-act .ug-btn.ug-btn--signal { background: #fff !important; border: 1px solid #E5E5E5 !important; color: #171717 !important; }
+}
+/* phones: severity moves out of the facts line (where it wrapped to a row
+   of its own) to the right column, under the action buttons, beside the
+   description; the facts line keeps status, stale, barangay and confirms */
+@media (max-width: 767px) {
+  .bg-page .iq-main { position: relative; }
+  .bg-page .iq-sev { position: absolute; top: 56px; right: 16px; margin: 0 !important; justify-content: flex-end; }
+}
+
+/* incident filters, phone (v3): no box around them. A white search field,
+   then three equal outlined pills; the active filter turns dark. The
+   "Showing N of N" line is gone; Reset filters shows only when something
+   is filtered. */
+@media (max-width: 767px) {
+  .bg-page .inc-tool { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; gap: 8px !important; border-radius: 0 !important; }
+  .bg-page .inc-search { height: 44px !important; padding: 0 16px !important; background: #fff !important; border: 1px solid #EAEAEA !important; border-radius: 14px !important; }
+  .bg-page .inc-search input { font-size: 14px !important; }
+  .bg-page .inc-search input::placeholder { color: #A3A3A3; }
+  .bg-page .inc-tool .inc-dd-btn, .bg-page .inc-sel { height: 38px !important; min-height: 38px; background: #fff !important; border: 1px solid #EAEAEA !important;
+    border-radius: 12px !important; padding: 0 10px 0 12px !important; }
+  .bg-page .inc-tool .inc-dd-btn span, .bg-page .inc-sel select { font-size: 13px !important; font-weight: 500 !important; color: #262626 !important; letter-spacing: 0 !important; }
+  .bg-page .inc-sel:has(select option:checked:not([value="All"])),
+  .bg-page .inc-tool > .inc-dd:has(.inc-dd-panel button.is-on:not(:first-child)) .inc-dd-btn { background: #171717 !important; border-color: #171717 !important; }
+  .bg-page .inc-sel:has(select option:checked:not([value="All"])) select,
+  .bg-page .inc-tool > .inc-dd:has(.inc-dd-panel button.is-on:not(:first-child)) .inc-dd-btn span { color: #fff !important; font-weight: 600 !important; }
+  .bg-page .inc-tool > .inc-dd:has(.inc-dd-panel button.is-on:not(:first-child)) .inc-dd-btn svg { color: #fff !important; }
+  .bg-page .inc-meta { display: flex !important; justify-content: flex-end; padding: 0 2px !important; min-height: 0; }
+  .bg-page .inc-meta > span { display: none !important; }
+  .bg-page .inc-meta:not(:has(button)) { display: none !important; }
+  .bg-page .inc-meta button { font-size: 12px !important; font-weight: 600; color: #525252; text-decoration: none; padding: 0; background: none; border: 0; }
+}
+
+/* phones: the staff "+ Add" pills on Relief and Shelters become a plain
+   round + (white icon on the dark fill); the word is dropped, the button
+   keeps its own label for screen readers */
+@media (max-width: 767px) {
+  .bg-page .rl > .rl-bar .rl-main--bar,
+  .bg-page .rl > .ug-rowf.ug-between:first-child .rl-main,
+  .bg-page > .ug-col:has(> .sc-tool) > .ug-rowf.ug-between:first-child > div:last-child > button {
+    width: 44px !important; height: 44px !important; min-width: 44px; padding: 0 !important; gap: 0 !important; border-radius: 999px !important;
+    display: inline-grid !important; place-items: center; font-size: 0 !important; color: #fff !important; }
+  .bg-page .rl > .rl-bar .rl-main--bar::after,
+  .bg-page .rl > .ug-rowf.ug-between:first-child .rl-main::after,
+  .bg-page > .ug-col:has(> .sc-tool) > .ug-rowf.ug-between:first-child > div:last-child > button::after { content: none !important; }
+  .bg-page .rl > .rl-bar .rl-main--bar svg,
+  .bg-page .rl > .ug-rowf.ug-between:first-child .rl-main svg,
+  .bg-page > .ug-col:has(> .sc-tool) > .ug-rowf.ug-between:first-child > div:last-child > button svg { width: 18px !important; height: 18px !important; margin: 0 !important; color: #fff !important; }
+}
+/* phones: centre the symbol exactly. The round Add buttons still hold their
+   (zero-size) label text, which as a grid row pushed the + up; flex keeps
+   it in one line. The header menu button centres its icon too. */
+@media (max-width: 767px) {
+  .bg-page .rl > .rl-bar .rl-main--bar,
+  .bg-page .rl > .ug-rowf.ug-between:first-child .rl-main,
+  .bg-page > .ug-col:has(> .sc-tool) > .ug-rowf.ug-between:first-child > div:last-child > button {
+    display: inline-flex !important; align-items: center !important; justify-content: center !important; line-height: 0 !important; }
+}
+.bg-ibtn { display: inline-grid !important; place-items: center !important; padding: 0 !important; line-height: 0; }
+/* the header Menu button belongs to phones only (see .bg-pm-open above) */
+.bg-ibtn.bg-pm-open { display: none !important; }
+@media (max-width: 767px) { .bg-ibtn.bg-pm-open { display: inline-grid !important; } }
+.bg-ibtn > svg { display: block; margin: 0 !important; }
+
+/* Shelters (staff), phone: status dropdown + search on one line; the
+   All / Open / Full / Closed segment is hidden (the dropdown replaces it).
+   For barangay officials the All / My barangay switch keeps its own row. */
+.sc-dd { display: none; }
+@media (max-width: 767px) {
+  .bg-page .sc-tool { grid-template-columns: auto minmax(0, 1fr) !important; }
+  .bg-page .sc-tool .sc-status { display: none !important; }
+  .bg-page .sc-tool .sc-scope { grid-column: 1 / -1 !important; grid-row: 1 !important; }
+  .bg-page .sc-tool .sc-dd { display: block !important; position: relative; margin: 0 !important; grid-column: 1 !important; grid-row: 2 !important; min-width: 0; }
+  .bg-page .sc-tool .sc-search { grid-column: 2 !important; grid-row: 2 !important; }
+  .bg-page .sc-tool:not(:has(.sc-scope)) .sc-dd,
+  .bg-page .sc-tool:not(:has(.sc-scope)) .sc-search { grid-row: 1 !important; }
+  .bg-page .sc-tool > .sc-sum { grid-row: 3 !important; }
+  .bg-page .sc-tool .sc-dd .inc-dd-btn { height: 44px !important; min-height: 44px; width: auto; gap: 8px; padding: 0 12px 0 16px !important;
+    background: #fff !important; border: 1px solid #E5E5E5 !important; border-radius: 999px !important; }
+  .bg-page .sc-tool .sc-dd .inc-dd-btn span { font-size: 14px !important; font-weight: 600 !important; color: #171717 !important; white-space: nowrap; }
+  .bg-page .sc-tool .sc-dd .inc-dd-btn b { display: inline !important; font-size: 13px; font-weight: 500; color: #A3A3A3; }
+  .bg-page .sc-tool .sc-dd .inc-dd-btn svg { width: 14px !important; height: 14px !important; color: #A3A3A3 !important; }
+  .bg-page .sc-tool .sc-dd .inc-dd-panel { right: auto; min-width: 200px; }
+  .bg-page .sc-tool .sc-search { height: 44px !important; }
+}
+
+/* Shelters (staff), phone: the summary keeps its white card; the status
+   dropdown and search sit below it, on the page, not inside the card */
+@media (max-width: 767px) {
+  .bg-page .sc-tool { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; border-radius: 0 !important; row-gap: 10px !important; }
+  .bg-page .sc-tool > .sc-sum { grid-column: 1 / -1 !important; grid-row: 1 !important; margin: 0 0 4px !important; padding: 18px !important;
+    background: #fff; border: 1px solid var(--bg-line, #E5E7EB); border-radius: 22px; box-shadow: var(--bg-shadow, 0 1px 2px rgba(0,0,0,.04)); }
+  .bg-page .sc-tool .sc-scope { grid-row: 2 !important; }
+  .bg-page .sc-tool .sc-dd, .bg-page .sc-tool .sc-search { grid-row: 3 !important; }
+  .bg-page .sc-tool:not(:has(.sc-scope)) .sc-dd,
+  .bg-page .sc-tool:not(:has(.sc-scope)) .sc-search { grid-row: 2 !important; }
+  .bg-page .sc-tool .sc-search { background: #fff !important; }
+}
+
+/* Analytics "Show data for", phone (v2): one tidy block.
+   Title with a short grey summary; the quick ranges as a compact segmented
+   track; From and To as two equal fields side by side (small label over the
+   date); the barangay picker as a matching field. One height (44px), one
+   radius (12px), one border colour throughout. */
+@media (max-width: 767px) {
+  .ug-bg .bg-page .an .an-range { padding: 16px !important; gap: 12px !important; }
+  .ug-bg .bg-page .an .an-range-h h3 { font-size: 15px !important; font-weight: 700; }
+  .ug-bg .bg-page .an .an-range-h .an-sum { margin-top: 3px; font-size: 12px; line-height: 1.45; color: #8A8A8A; }
+  .ug-bg .bg-page .an .an-range-r { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px !important; margin: 0 !important; }
+  .ug-bg .bg-page .an .an-seg { grid-column: 1 / -1; height: 40px; padding: 3px !important; border-radius: 12px !important; background: #F4F4F5 !important; }
+  .ug-bg .bg-page .an .an-seg button { min-height: 0 !important; height: 34px; border-radius: 9px !important; font-size: 13px !important; font-weight: 500; color: #525252; }
+  .ug-bg .bg-page .an .an-seg button.is-on { font-weight: 600; color: #171717 !important; background: #fff !important; box-shadow: 0 1px 2px rgba(0,0,0,.08) !important; }
+  /* the two dates become two fields in the grid */
+  .ug-bg .bg-page .an .an-dates { display: contents !important; }
+  .ug-bg .bg-page .an .an-dates > i { display: none !important; }
+  .ug-bg .bg-page .an .an-dates label { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-width: 0; height: 50px; padding: 0 12px !important;
+    background: #fff; border: 1px solid #E5E5E5; border-radius: 12px; }
+  .ug-bg .bg-page .an .an-dates.is-on label { border-color: #171717; }
+  .ug-bg .bg-page .an .an-dates label span { font-size: 10px !important; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #A3A3A3; }
+  .ug-bg .bg-page .an .an-dates input { width: 100%; min-width: 0; font-size: 14px !important; font-weight: 600; color: #171717; }
+  .ug-bg .bg-page .an .an-dates input::-webkit-calendar-picker-indicator { opacity: .4; margin-left: 0; }
+  .ug-bg .bg-page .an .an-range-r > .an-sel { grid-column: 1 / -1; width: 100%; height: 44px; padding: 0 36px 0 14px; border-radius: 12px !important; border: 1px solid #E5E5E5 !important;
+    background-color: #fff !important; font-size: 14px; font-weight: 600; color: #171717; }
+}
+@media (max-width: 767px) {
+  .ug-bg .bg-page .an .an-dates label { align-items: stretch !important; text-align: left !important; }
+  .ug-bg .bg-page .an .an-dates label span { display: block; text-align: left !important; padding: 0 !important; }
+}
+
+/* Reporting type picker, phone: undo the compact incident-filter pill
+   styles that also matched it (they hid the bold title and squeezed the
+   text); a clear two-line button: icon, title over its hint, chevron */
+@media (max-width: 767px) {
+  .ug-bg .bg-page .rp .rp-dd .inc-dd-btn { height: auto !important; min-height: 56px !important; padding: 10px 14px 10px 16px !important; gap: 12px !important;
+    background: #fff !important; border: 1px solid #E5E5E5 !important; border-radius: 16px !important; box-shadow: none !important; }
+  .ug-bg .bg-page .rp .rp-dd .inc-dd-btn:focus { outline: none; }
+  .ug-bg .bg-page .rp .rp-dd .inc-dd-btn:focus-visible { outline: 2px solid #171717; outline-offset: 2px; }
+  .ug-bg .bg-page .rp .rp-dd .inc-dd-btn > span { display: flex !important; flex-direction: column; gap: 2px; font-size: inherit !important; font-weight: 400 !important; letter-spacing: 0 !important; }
+  .ug-bg .bg-page .rp .rp-dd .inc-dd-btn > span b { display: block !important; font-size: 15px !important; font-weight: 600 !important; color: #171717 !important; }
+  .ug-bg .bg-page .rp .rp-dd .inc-dd-btn > span small { display: block; font-size: 12.5px !important; color: #8A8A8A !important; }
+  .ug-bg .bg-page .rp .rp-dd .inc-dd-btn > svg:first-child { width: 18px !important; height: 18px !important; color: #171717 !important; }
+  .ug-bg .bg-page .rp .rp-dd .inc-dd-btn > svg:last-child { width: 16px !important; height: 16px !important; color: #A3A3A3 !important; }
+  .ug-bg .bg-page .rp .rp-dd .inc-dd-panel button b { display: block !important; }
+}
+/* Analytics From / To fields, phone: more room inside, so the small label
+   doesn't sit against the edge */
+@media (max-width: 767px) {
+  .ug-bg .bg-page .an .an-dates label { height: auto !important; min-height: 56px; padding: 9px 14px 8px 16px !important; gap: 3px !important; justify-content: center; box-sizing: border-box; }
+  .ug-bg .bg-page .an .an-dates label span { line-height: 1.2 !important; margin: 0 !important; }
+  .ug-bg .bg-page .an .an-dates input { line-height: 1.3; padding: 0 !important; }
+}
+
+/* ================================= Staff Settings, phone (v2): one system.
+   Every section is the same white card (16px padding, 18px radius); titles
+   15px semibold; body text 13px grey; status badges are quiet grey pills in
+   normal case; the Templates header is a card too, its actions an even pair;
+   categories scroll on one line; template category tags are neutral. */
+@media (max-width: 767px) {
+  .ug-bg .bg-page .stg { gap: 14px !important; }
+  .ug-bg .bg-page .stg .ug-card { border-radius: 18px !important; border: 1px solid #EFEFEF !important; box-shadow: 0 1px 2px rgba(0,0,0,.04) !important; }
+  .ug-bg .bg-page .stg .ug-card-h { display: flex !important; align-items: center !important; justify-content: space-between; flex-wrap: wrap; gap: 8px !important;
+    padding: 16px 16px 0 !important; border: 0 !important; min-height: 0 !important; }
+  .ug-bg .bg-page .stg .ug-card-h h3 { margin: 0; font-size: 15px !important; font-weight: 600 !important; color: #171717; }
+  .ug-bg .bg-page .stg .ug-card-b { padding: 12px 16px 16px !important; gap: 12px !important; }
+  .ug-bg .bg-page .stg .ug-card-h .ug-badge { height: 24px; padding: 0 10px !important; border-radius: 999px !important; border: 0 !important;
+    background: #F4F4F5 !important; color: #404040 !important; font-size: 11.5px !important; font-weight: 600 !important; letter-spacing: 0 !important; text-transform: none !important; }
+  .ug-bg .bg-page .stg .ug-card-h .ug-badge--warning { background: #FEF2F2 !important; color: #991B1B !important; }
+  .ug-bg .bg-page .stg .ug-card-b .ug-dim, .ug-bg .bg-page .stg .ug-card-b .ug-help { font-size: 13px !important; line-height: 1.5 !important; color: #616161 !important; }
+  .ug-bg .bg-page .stg .ug-help { padding: 10px 12px !important; border-radius: 12px; background: #F7F7F8 !important; border: 0 !important; }
+  .ug-bg .bg-page .stg .ug-setting-toggle > .ug-col > span:first-child { font-size: 14px !important; color: #171717; }
+  .ug-bg .bg-page .stg .ug-setting-toggle > .ug-col > .ug-dim { font-size: 12.5px !important; }
+  /* "This portal rings for": a quiet boxed list */
+  .ug-bg .bg-page .stg .stg-rings { gap: 6px !important; padding: 12px 14px; border-radius: 12px; background: #F7F7F8; }
+  .ug-bg .bg-page .stg .stg-rings > span:first-child { font-size: 11px !important; font-weight: 600 !important; letter-spacing: .06em; text-transform: uppercase; color: #8A8A8A; }
+  .ug-bg .bg-page .stg .stg-rings > .ug-dim { font-size: 13px !important; color: #404040 !important; }
+  .ug-bg .bg-page .stg .ug-card-b > .ug-btn--sm { height: 38px; padding: 0 16px; border-radius: 999px; }
+
+  /* Templates header as a card */
+  .ug-bg .bg-page .stg .stg-tpl-h { flex-direction: column !important; align-items: stretch !important; gap: 14px !important; padding: 16px; border-radius: 18px;
+    background: #fff; border: 1px solid #EFEFEF; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .ug-bg .bg-page .stg .stg-tpl-h .ug-lab { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #8A8A8A; }
+  .ug-bg .bg-page .stg .stg-tpl-h h3 { font-size: 15px !important; font-weight: 600; color: #171717; margin-top: 4px !important; }
+  .ug-bg .bg-page .stg .stg-tpl-h p { font-size: 13px !important; color: #616161; margin-top: 6px !important; }
+  .ug-bg .bg-page .stg .stg-tpl-acts { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px !important; }
+  .ug-bg .bg-page .stg .stg-tpl-acts .ug-btn { height: 40px !important; min-height: 40px; width: 100%; justify-content: center; border-radius: 999px !important; font-size: 13px !important; }
+  .ug-bg .bg-page .stg .stg-tpl-acts .ug-btn--ghost { background: #fff !important; border: 1px solid #E5E5E5 !important; color: #171717 !important; }
+  .ug-bg .bg-page .stg .stg-tpl-acts .ug-btn--signal { background: #171717 !important; border-color: #171717 !important; color: #fff !important; }
+  .ug-bg .bg-page .stg .stg-tpl-acts .ug-btn--signal svg { color: #fff !important; }
+
+  /* filters: categories on one scrolling line, preview language under it */
+  .ug-bg .bg-page .stg .stg-tpl-f { flex-direction: column !important; align-items: stretch !important; gap: 10px !important; }
+  .ug-bg .bg-page .stg .stg-sp { display: none; }
+  .ug-bg .bg-page .stg .stg-cats { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
+  .ug-bg .bg-page .stg .stg-cats::-webkit-scrollbar { display: none; }
+  .ug-bg .bg-page .stg .stg-cats .ug-chip { flex: none; height: 34px; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 500; white-space: nowrap;
+    background: #fff; border: 1px solid #E5E5E5; color: #404040; }
+  .ug-bg .bg-page .stg .stg-cats .ug-chip.is-on { background: #171717 !important; border-color: #171717 !important; color: #fff !important; font-weight: 600; }
+  .ug-bg .bg-page .stg .stg-cats .ug-chip.is-on svg { color: #fff !important; }
+  .ug-bg .bg-page .stg .stg-lang { align-items: center; justify-content: space-between; }
+  .ug-bg .bg-page .stg .stg-lang > span { font-size: 12.5px !important; color: #737373 !important; margin-right: auto; }
+  .ug-bg .bg-page .stg .stg-lang .ug-chip { height: 30px; min-width: 48px; justify-content: center; padding: 0 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    background: #fff; border: 1px solid #E5E5E5; color: #525252; }
+  .ug-bg .bg-page .stg .stg-lang .ug-chip.is-on { background: #171717 !important; border-color: #171717 !important; color: #fff !important; }
+
+  /* template cards: neutral category tag, even spacing */
+  .ug-bg .bg-page .stg .ug-tpl-card .ug-card-h { flex-wrap: nowrap; }
+  .ug-bg .bg-page .stg .ug-tpl-cat { background: #F4F4F5 !important; color: #404040 !important; border: 0 !important; height: 24px; padding: 0 10px !important;
+    font-size: 11px !important; font-weight: 600 !important; letter-spacing: 0 !important; text-transform: none !important; border-radius: 999px !important; }
+  .ug-bg .bg-page .stg .ug-tpl-cat svg { color: #737373 !important; }
+  .ug-bg .bg-page .stg .ug-tpl-card .ug-ico-btn { width: 32px; height: 32px; border-radius: 999px; }
+  .ug-bg .bg-page .stg .ug-tpl-card .ug-card-b .ug-lab { font-size: 11.5px !important; color: #8A8A8A; text-transform: none; letter-spacing: 0; }
+  .ug-bg .bg-page .stg .ug-tpl-card .ug-card-b > div > div:last-child { font-size: 15px !important; color: #171717; }
+  .ug-bg .bg-page .stg .ug-tpl-ph code { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: #F4F4F5; border: 0; color: #525252; }
+  .ug-bg .bg-page .stg .ug-tpl-langs .ug-badge { height: 22px; padding: 0 8px !important; font-size: 10.5px !important; border-radius: 999px !important; background: #F4F4F5 !important; border: 0 !important; color: #404040 !important; }
+  .ug-bg .bg-page .stg .ug-tpl-langs .ug-badge.is-off { opacity: .45; }
+}
+@media (max-width: 767px) {
+  .ug-bg .bg-page .stg .stg-tpl-f { width: 100%; min-width: 0; max-width: 100%; }
+  .ug-bg .bg-page .stg .stg-cats { min-width: 0; max-width: calc(100% + 24px); }
+  .ug-bg .bg-page .stg .stg-lang { width: 100%; min-width: 0; }
+  /* Export and New template side by side */
+  .ug-bg .bg-page .stg .ug-rowf.stg-tpl-acts { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px !important; }
+  .ug-bg .bg-page .stg .ug-rowf.stg-tpl-acts > .ug-btn { flex: none !important; width: 100% !important; height: 40px !important; min-height: 40px !important; font-size: 13px !important; font-weight: 600 !important; }
+}
+@media (max-width: 767px) {
+  /* one grey for every helper line, toggles included */
+  .ug-bg .bg-page .stg .ug-setting-toggle > .ug-col > span.ug-dim { font-size: 13px !important; line-height: 1.5 !important; color: #616161 !important; }
+  .ug-bg .bg-page .stg .ug-card-b > .ug-setting-toggle:first-child { padding-top: 0; }
+}
+
+/* Templates, phone: the category is one dropdown; it and the EN / FIL
+   preview pills share one line (the chip row and its label are hidden) */
+.tpl-dd { display: none; }
+@media (max-width: 767px) {
+  .ug-bg .bg-page .stg .stg-tpl-f { flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; gap: 8px !important; }
+  .ug-bg .bg-page .stg .stg-cats { display: none !important; }
+  .ug-bg .bg-page .stg .tpl-dd { display: block !important; position: relative; flex: 1 1 auto; min-width: 0; margin: 0 !important; }
+  .ug-bg .bg-page .stg .tpl-dd .inc-dd-btn { width: 100%; height: 40px !important; min-height: 40px; gap: 8px !important; padding: 0 12px 0 14px !important;
+    background: #fff !important; border: 1px solid #E5E5E5 !important; border-radius: 999px !important; }
+  .ug-bg .bg-page .stg .tpl-dd .inc-dd-btn > svg:first-child { width: 15px; height: 15px; color: #525252; flex: none; }
+  .ug-bg .bg-page .stg .tpl-dd .inc-dd-btn span { flex: 1; min-width: 0; text-align: left; font-size: 14px !important; font-weight: 600 !important; color: #171717 !important;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ug-bg .bg-page .stg .tpl-dd .inc-dd-btn b { display: inline !important; font-size: 12.5px; font-weight: 500; color: #A3A3A3; }
+  .ug-bg .bg-page .stg .tpl-dd .inc-dd-btn > svg:last-child { width: 14px; height: 14px; color: #A3A3A3; flex: none; }
+  .ug-bg .bg-page .stg .tpl-dd .inc-dd-panel { left: 0; right: auto; min-width: 240px; z-index: 60; }
+  .ug-bg .bg-page .stg .tpl-dd .inc-dd-panel button > svg:first-child { width: 15px; height: 15px; color: #737373; }
+  .ug-bg .bg-page .stg .stg-lang { width: auto !important; flex: none; }
+  .ug-bg .bg-page .stg .stg-lang > span { display: none !important; }
+  .ug-bg .bg-page .stg .stg-lang .ug-chip { height: 40px !important; min-width: 46px; }
+}

@@ -4012,35 +4012,32 @@
       } catch (e) { /* fall back to the cached list */ }
       const members = (S.users || []).filter((u) => u.role === 'dispatch_team' && u.dispatch_unit_id === unit.id);
       const esc = UG_UTIL.esc;
-      const memberRow = (m) => '<tr>' +
-        '<td><div style="font-weight:600">' + esc(m.full_name || '(no name)') + '</div>' +
-          '<div class="ug-dimmer" style="font-size:11px">' + esc(m.email || '') + '</div></td>' +
-        '<td>' + esc(m.unit_role || 'member') + '</td>' +
-        '<td>' + (m.disabled ? UG.icon('x', 13) + ' Disabled' : UG.icon('check', 13) + ' Active') + '</td>' +
-        '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end">' +
-          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="admin-edit-account" data-id="' + esc(m.id) + '">Edit</button>' +
+      /* a quiet list (crimson only on Deactivate): initial, name and email,
+         role and status on one line, then the actions. css/staff-pages.css .ma-* */
+      const roleName = (r) => r === 'unit_admin' ? 'Unit admin' : r ? r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, ' ') : 'Member';
+      const memberRow = (m) => '<li class="ma-row' + (m.disabled ? ' is-off' : '') + '">' +
+        '<span class="ma-av">' + esc((m.full_name || '?').replace(/^(SFO|FO|PO|SPO|PSSg|PCpl|PMSg)\d*\s+/i, '').trim().charAt(0).toUpperCase()) + '</span>' +
+        '<div class="ma-who"><b>' + esc(m.full_name || '(no name)') + '</b><small>' + esc(m.email || '') + '</small>' +
+          '<span class="ma-meta">' + esc(roleName(m.unit_role)) + '<i></i><span class="ma-st"><em></em>' + (m.disabled ? 'Disabled' : 'Active') + '</span></span></div>' +
+        '<div class="ma-acts">' +
+          '<button class="ma-btn" data-act="admin-edit-account" data-id="' + esc(m.id) + '">Edit</button>' +
           (m.disabled
-            ? '<button class="ug-btn ug-btn--sm ug-btn--signal" data-act="admin-disable" data-id="' + esc(m.id) + '" data-next="false">Enable</button>'
-            : '<button class="ug-btn ug-btn--sm ug-btn--danger" data-act="admin-disable" data-id="' + esc(m.id) + '" data-next="true">Deactivate</button>') +
-        '</div></td>' +
-      '</tr>';
+            ? '<button class="ma-btn" data-act="admin-disable" data-id="' + esc(m.id) + '" data-next="false">Enable</button>'
+            : '<button class="ma-btn ma-btn--out" data-act="admin-disable" data-id="' + esc(m.id) + '" data-next="true">Deactivate</button>') +
+        '</div>' +
+      '</li>';
       UG_FEATURES.modal({
         title: 'Manage accounts · ' + unit.name,
         body:
-          '<div class="ug-card ug-card--flat"><div class="ug-card-b ug-col" style="gap:10px">' +
-            '<div class="ug-rowf ug-between" style="gap:8px;font-size:12px"><span class="ug-dim">Unit</span><span style="font-weight:600">' + esc(unit.name) + '</span></div>' +
-            '<div class="ug-rowf ug-between" style="gap:8px;font-size:12px"><span class="ug-dim">Type</span><span>' + esc(unit.unit_type) + '</span></div>' +
-            '<div class="ug-rowf ug-between" style="gap:8px;font-size:12px"><span class="ug-dim">Members</span><span class="ug-mono">' + members.length + '</span></div>' +
-          '</div></div>' +
-          '<div class="ug-card" style="overflow:hidden;margin-top:14px"><table class="ug-table">' +
-            '<thead><tr><th>Account</th><th>Role</th><th>Status</th><th class="t-right">Action</th></tr></thead>' +
-            '<tbody>' + (members.length ? members.map(memberRow).join('') :
-              '<tr><td colspan="4" style="text-align:center;padding:20px">No members yet. Use "Invite member" below.</td></tr>') + '</tbody>' +
-          '</table></div>' +
-          '<div class="ug-help" style="margin-top:10px">Deactivating an account immediately signs the user out and prevents further sign-in. The account\'s history and related dispatch records are preserved — only access is revoked. The action is recorded in the centralized Activity Log.</div>',
+          '<div class="ma">' +
+            '<p class="ma-sum">' + esc(unit.unit_type === 'Rescue' ? 'LGU Rescue' : unit.unit_type || 'Unit') + '<i></i>' + members.length + ' member' + (members.length === 1 ? '' : 's') + '</p>' +
+            (members.length ? '<ul class="ma-list">' + members.map(memberRow).join('') + '</ul>'
+              : '<p class="ma-empty">No members yet. Use Invite member below.</p>') +
+            '<p class="ma-help">' + UG.icon('info', 13) + '<span>Deactivating signs the person out and blocks sign-in. Their history stays, and the change is logged.</span></p>' +
+          '</div>',
         footer:
           '<button class="ug-btn" data-modal-close>Close</button>' +
-          '<button class="ug-btn ug-btn--ghost" data-act="admin-invite-unit-member" data-unit-id="' + esc(unit.id) + '">' + UG.icon('plus', 13) + 'Invite member</button>'
+          '<button class="ug-btn ma-invite" data-act="admin-invite-unit-member" data-unit-id="' + esc(unit.id) + '">' + UG.icon('plus', 13) + 'Invite member</button>'
       });
     },
 
@@ -4109,7 +4106,7 @@
             body: '<div data-unit-equipment-list data-unit-id="' + UG_UTIL.esc(unit.id) + '" data-unit-type="' + UG_UTIL.esc(unit.unit_type) + '">Loading…</div>',
             footer: '<button class="ug-btn" data-modal-close>Close</button>' +
                     '<button class="ug-btn" data-keep-modal data-act="equipment-csv" data-unit-id="' + UG_UTIL.esc(unit.id) + '">' + UG.icon('download', 14) + 'Export CSV</button>' +
-                    '<button class="ug-btn ug-btn--signal" data-unit-equipment-add data-unit-id="' + UG_UTIL.esc(unit.id) + '" data-unit-type="' + UG_UTIL.esc(unit.unit_type) + '">' + UG.icon('plus', 14) + 'Add equipment</button>',
+                    '<button class="ug-btn ma-invite" data-unit-equipment-add data-unit-id="' + UG_UTIL.esc(unit.id) + '" data-unit-type="' + UG_UTIL.esc(unit.unit_type) + '">' + UG.icon('plus', 14) + 'Add equipment</button>',
             onMount: (wrap, close) => {
               const listEl = wrap.querySelector('[data-unit-equipment-list]');
               const refresh = () => {
@@ -4117,33 +4114,39 @@
                 const unitType = listEl.getAttribute('data-unit-type');
                 const rows = (UG.DATA.dispatchEquipment || []).filter((e) => e.owner_unit_id === unitId);
                 if (!rows.length) {
-                  listEl.innerHTML = '<div class="ug-note">No equipment yet for this unit. Use "Add equipment" to register a piece.</div>';
+                  listEl.innerHTML = '<p class="ma-empty">No equipment yet. Use Add equipment below.</p>';
                   return;
                 }
                 const catalog = UG.DATA.equipmentCatalog || [];
+                /* a quiet list like Manage accounts: name and type, the note,
+                   status and condition on one line, then small actions
+                   (crimson only on Retire / remove). css/staff-pages.css .ma-* */
+                const E = UG_UTIL.esc;
+                const lab = (fn, v) => (typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH[fn] ? UG_DISPATCH[fn](v) : v) || '';
                 const rowHtml = rows.map((r) => {
                   const c = catalog.find((x) => x.id === r.catalog_id);
                   const label = c ? c.label : (r.custom_label || r.identifier || 'Equipment');
-                  return '<tr>' +
-                    '<td><div style="font-weight:600">' + UG_UTIL.esc(r.identifier || label) + '</div>' +
-                      '<div class="ug-dimmer" style="font-size:11px">' + UG_UTIL.esc(r.notes || '') + '</div></td>' +
-                    '<td>' + UG_UTIL.esc(label) + '</td>' +
-                    '<td>' + UG_UTIL.esc((typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.statusLabel ? UG_DISPATCH.statusLabel(r.status) : r.status)) + '</td>' +
-                    '<td>' + UG_UTIL.esc((typeof UG_DISPATCH !== 'undefined' && UG_DISPATCH.conditionLabel ? UG_DISPATCH.conditionLabel(r.condition) : r.condition)) + '</td>' +
-                    '<td class="t-right"><div class="ug-rowf ug-gap6" style="gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
+                  const ok = r.status === 'available';
+                  return '<li class="ma-row ma-eq' + (r.status === 'unavailable' ? ' is-off' : '') + '">' +
+                    '<span class="ma-av">' + UG.icon('shield', 15) + '</span>' +
+                    '<div class="ma-who"><b>' + E(r.identifier || label) + '<span class="ma-type">' + E(label) + '</span></b>' +
+                      (r.notes ? '<small class="ma-note">' + E(r.notes) + '</small>' : '') +
+                      '<span class="ma-meta"><span class="ma-st' + (ok ? '' : ' is-dim') + '"><em></em>' + E(lab('statusLabel', r.status)) + '</span><i></i>' + E(lab('conditionLabel', r.condition)) + '</span></div>' +
+                    '<div class="ma-acts ma-acts--wrap">' +
                       (r.status !== 'deployed'
-                        ? '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-keep-modal data-act="dispatch-check" data-id="' + UG_UTIL.esc(r.id) + '">Check</button>' +
-                          '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-keep-modal data-act="dispatch-status" data-id="' + UG_UTIL.esc(r.id) + '">Status</button>'
+                        ? '<button class="ma-btn" data-keep-modal data-act="dispatch-check" data-id="' + E(r.id) + '">Check</button>' +
+                          '<button class="ma-btn" data-keep-modal data-act="dispatch-status" data-id="' + E(r.id) + '">Status</button>'
                         : '') +
-                      '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-keep-modal data-act="equipment-history" data-id="' + UG_UTIL.esc(r.id) + '">Service history</button>' +
-                      '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-edit" data-id="' + UG_UTIL.esc(r.id) + '">Edit</button>' +
-                      '<button class="ug-btn ug-btn--sm ug-btn--ghost" data-act="equipment-remove" data-id="' + UG_UTIL.esc(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire / remove') + '</button>' +
-                    '</div></td>' +
-                  '</tr>';
+                      '<button class="ma-btn" data-keep-modal data-act="equipment-history" data-id="' + E(r.id) + '">History</button>' +
+                      '<button class="ma-btn" data-act="equipment-edit" data-id="' + E(r.id) + '">Edit</button>' +
+                      '<button class="ma-btn ma-btn--out" data-act="equipment-remove" data-id="' + E(r.id) + '">' + (r.status === 'unavailable' ? 'Remove' : 'Retire') + '</button>' +
+                    '</div>' +
+                  '</li>';
                 }).join('');
-                listEl.innerHTML = '<div class="ug-card" style="overflow:hidden;margin:0"><table class="ug-table">' +
-                  '<thead><tr><th>Equipment</th><th>Type</th><th>Status</th><th>Condition</th><th class="t-right">Action</th></tr></thead>' +
-                  '<tbody>' + rowHtml + '</tbody></table></div>';
+                const avail = rows.filter((r) => r.status === 'available').length;
+                listEl.innerHTML = '<div class="ma">' +
+                  '<p class="ma-sum">' + rows.length + ' item' + (rows.length === 1 ? '' : 's') + '<i></i>' + avail + ' available</p>' +
+                  '<ul class="ma-list">' + rowHtml + '</ul></div>';
               };
               refresh();
               /* Fix (Oct 28 2026): Edit / Retire / Remove inside this list
